@@ -150,11 +150,9 @@ class _InboxSheetState extends State<InboxSheet> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'INBOX',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    fontFamily: 'monospace',
+                  'Inbox',
+                  style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w800,
-                    letterSpacing: 0.7,
                   ),
                 ),
                 if (unreadCount > 0) ...[

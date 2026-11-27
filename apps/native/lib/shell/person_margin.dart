@@ -381,7 +381,7 @@ class _PersonMarginSheetState extends State<PersonMarginSheet>
       );
     }
     return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
       itemCount: maps.length,
       itemBuilder: (ctx, idx) {
         final m = maps[idx];
@@ -440,7 +440,7 @@ class _PersonMarginSheetState extends State<PersonMarginSheet>
       );
     }
     return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
       itemCount: stories.length,
       itemBuilder: (ctx, idx) {
         final st = stories[idx];
@@ -483,7 +483,7 @@ class _PersonMarginSheetState extends State<PersonMarginSheet>
       );
     }
     return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
       itemCount: atlases.length,
       itemBuilder: (ctx, idx) {
         final atlas = atlases[idx];

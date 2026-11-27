@@ -592,7 +592,7 @@ class _ExploreSheetState extends State<ExploreSheet>
 
           // Search + inline square New Sighting / Live Beacon CTA when on tabs 3–4
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
             child: Row(
               children: [
                 Expanded(
@@ -636,7 +636,7 @@ class _ExploreSheetState extends State<ExploreSheet>
 
           if (_tabs.index <= 2)
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 2, 12, 6),
+              padding: const EdgeInsets.fromLTRB(12, 2, 12, 4),
               child: Row(
                 children: [
                   // All | Favorites | Recent pill strip (matching Web GeoDatasetsPanel)
@@ -1465,6 +1465,7 @@ class _ExploreSheetState extends State<ExploreSheet>
       color: EarthlyColors.amber,
       onRefresh: _refresh,
       child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
         physics: const AlwaysScrollableScrollPhysics(),
         itemCount: filtered.length,
         itemBuilder: (context, index) {
@@ -1579,6 +1580,7 @@ class _ExploreSheetState extends State<ExploreSheet>
               ],
             )
           : ListView.builder(
+              padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
               physics: const AlwaysScrollableScrollPhysics(),
               itemCount: filtered.length,
               itemBuilder: (context, index) {
@@ -1672,6 +1674,7 @@ class _ExploreSheetState extends State<ExploreSheet>
               ],
             )
           : ListView.builder(
+              padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
               physics: const AlwaysScrollableScrollPhysics(),
               itemCount: filtered.length,
               itemBuilder: (context, index) {
@@ -1783,6 +1786,7 @@ class _ExploreSheetState extends State<ExploreSheet>
               ],
             )
           : ListView.builder(
+              padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
               physics: const AlwaysScrollableScrollPhysics(),
               itemCount: sightings.length,
               itemBuilder: (context, index) {
@@ -1849,6 +1853,7 @@ class _ExploreSheetState extends State<ExploreSheet>
               ],
             )
           : ListView.builder(
+              padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
               physics: const AlwaysScrollableScrollPhysics(),
               itemCount: beacons.length,
               itemBuilder: (context, index) {
@@ -2008,6 +2013,7 @@ class _ExploreSheetState extends State<ExploreSheet>
           : Material(
               type: MaterialType.transparency,
               child: ListView.builder(
+                padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
                 physics: const AlwaysScrollableScrollPhysics(),
                 itemCount: people.length,
                 itemBuilder: (context, index) {

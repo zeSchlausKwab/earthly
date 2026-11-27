@@ -581,10 +581,9 @@ class _CirclesSheetState extends State<CirclesSheet>
           ),
           const SizedBox(width: 8),
           Text(
-            'CIRCLES · MLS / CORDN',
-            style: theme.textTheme.labelLarge?.copyWith(
-              fontFamily: 'monospace',
-              letterSpacing: 0.7,
+            'MLS Groups',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w800,
             ),
           ),
           const Spacer(),
@@ -1154,7 +1153,7 @@ class _CirclesSheetState extends State<CirclesSheet>
                   ),
                 )
               : ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+                  padding: const EdgeInsets.fromLTRB(14, 4, 14, 12),
                   itemCount: ws.messages.length,
                   separatorBuilder: (_, _) => const Divider(height: 16),
                   itemBuilder: (ctx, idx) {

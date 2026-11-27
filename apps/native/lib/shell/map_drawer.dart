@@ -179,7 +179,13 @@ class _EarthlyMapDrawerState extends State<EarthlyMapDrawer> {
                 const SizedBox(height: 6),
                 widget.header,
                 const Divider(height: 1),
-                Expanded(child: widget.body),
+                Expanded(
+                  child: MediaQuery.removePadding(
+                    context: context,
+                    removeTop: true,
+                    child: widget.body,
+                  ),
+                ),
               ],
             ),
           ),
@@ -280,7 +286,13 @@ class _EarthlyMapDrawerState extends State<EarthlyMapDrawer> {
                         ),
                       ),
                       const Divider(height: 1),
-                      Expanded(child: widget.body),
+                      Expanded(
+                        child: MediaQuery.removePadding(
+                          context: context,
+                          removeTop: true,
+                          child: widget.body,
+                        ),
+                      ),
                     ],
                   ),
                 ),

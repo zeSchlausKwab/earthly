@@ -717,10 +717,9 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
             const Icon(Icons.account_circle_outlined, size: 18),
             const SizedBox(width: 8),
             Text(
-              'ACCOUNT & SESSION',
-              style: theme.textTheme.labelLarge?.copyWith(
-                fontFamily: 'monospace',
-                letterSpacing: 0.7,
+              'Account & Session',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w800,
               ),
             ),
             const Spacer(),

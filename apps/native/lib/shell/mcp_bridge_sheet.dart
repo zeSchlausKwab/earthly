@@ -232,11 +232,9 @@ class _McpBridgeSheetState extends State<McpBridgeSheet> {
                 runSpacing: 4,
                 children: [
                   Text(
-                    'LOCAL MCP BRIDGE',
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      fontFamily: 'monospace',
+                    'Local MCP Bridge',
+                    style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w800,
-                      letterSpacing: 0.7,
                     ),
                   ),
                   EarthlyBadge(

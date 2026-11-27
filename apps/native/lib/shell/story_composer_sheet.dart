@@ -352,14 +352,11 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                widget.editingStory != null
-                    ? 'EDIT STORY (37520)'
-                    : 'COMPOSE STORY (37520)',
+                widget.editingStory != null ? 'Edit Story' : 'New Story',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelLarge?.copyWith(
-                  fontFamily: 'monospace',
-                  letterSpacing: 0.7,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ),

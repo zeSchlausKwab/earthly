@@ -50,7 +50,7 @@ void main() {
         ),
       );
 
-      expect(find.text('LOCAL MCP BRIDGE'), findsOneWidget);
+      expect(find.text('Local MCP Bridge'), findsOneWidget);
       expect(find.text('STOPPED'), findsOneWidget);
       expect(find.text('127.0.0.1 · BEARER AUTH'), findsOneWidget);
       expect(find.text('23 tools'), findsOneWidget);

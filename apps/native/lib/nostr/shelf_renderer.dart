@@ -1173,6 +1173,18 @@ GeoBox? computeFeatureBounds(ShelfShape shape) {
   return GeoBox(west: west, south: south, east: east, north: north);
 }
 
+Expression<num> _safeNumberProp(String property, double fallback) =>
+    Expression.coalesce<Object?>([
+      Expression.get(property),
+      Expression.literal(fallback),
+    ]).convertToNumber([Expression.literal(fallback)]);
+
+Expression<Color> _safeColorProp(String property, Color fallback) =>
+    Expression.coalesce<Object?>([
+      Expression.get(property),
+      Expression.literal(fallback),
+    ]).convertToColor([Expression.literal(fallback)]);
+
 /// Builds MapLibre Native GPU layers for all Shelf maps, active Story datasets
 /// (with presentation overrides + focused feature highlight), Sightings,
 /// committed working draft features, and collision-free GPU feature labels.
@@ -1669,14 +1681,9 @@ List<Layer> buildEarthlyGpuLayers({
     }
   }
 
-  final fallbackShelfColor =
-      const Expression.literal(EarthlyColors.commentGreen);
-  final shelfFillExpr =
-      Expression.get('fillColor').convertToColor([fallbackShelfColor]);
-  final shelfStrokeExpr =
-      Expression.get('color').convertToColor([fallbackShelfColor]);
-  final shelfPointStrokeExpr = Expression.get('pointStroke')
-      .convertToColor([const Expression.literal(Colors.white)]);
+  final shelfFillExpr = _safeColorProp('fillColor', EarthlyColors.commentGreen);
+  final shelfStrokeExpr = _safeColorProp('color', EarthlyColors.commentGreen);
+  final shelfPointStrokeExpr = _safeColorProp('pointStroke', Colors.white);
   final highlightColor = const Color(0xFFF59E0B);
 
   return <Layer>[
@@ -1685,8 +1692,7 @@ List<Layer> buildEarthlyGpuLayers({
         id: 'earthly-shelf-polygons',
         polygons: shelfPolygons,
         color: shelfFillExpr,
-        opacity: Expression.get('fillOpacity')
-            .convertToNumber([const Expression.literal(0.24)]),
+        opacity: _safeNumberProp('fillOpacity', 0.24),
         outlineColor: shelfStrokeExpr,
         onClick: (event) {
           if (event.index < shelfPolyMeta.length) {
@@ -1710,16 +1716,14 @@ List<Layer> buildEarthlyGpuLayers({
               ),
         ],
         color: shelfStrokeExpr,
-        width: Expression.get('strokeWidth')
-            .convertToNumber([const Expression.literal(2.0)]),
+        width: _safeNumberProp('strokeWidth', 2.0),
       ),
     if (shelfLines.isNotEmpty)
       PolylineLayer(
         id: 'earthly-shelf-lines',
         polylines: shelfLines,
         color: shelfStrokeExpr,
-        width: Expression.get('strokeWidth')
-            .convertToNumber([const Expression.literal(3.0)]),
+        width: _safeNumberProp('strokeWidth', 3.0),
         onClick: (event) {
           if (event.index < shelfLineMeta.length) {
             onInspectFeature(shelfLineMeta[event.index]);
@@ -1731,8 +1735,7 @@ List<Layer> buildEarthlyGpuLayers({
         id: 'earthly-shelf-lines-dashed',
         polylines: shelfDashedLines,
         color: shelfStrokeExpr,
-        width: Expression.get('strokeWidth')
-            .convertToNumber([const Expression.literal(3.0)]),
+        width: _safeNumberProp('strokeWidth', 3.0),
         dashArray: const Expression.literal([4, 2]),
         onClick: (event) {
           if (event.index < shelfDashedLineMeta.length) {
@@ -1745,8 +1748,7 @@ List<Layer> buildEarthlyGpuLayers({
         id: 'earthly-shelf-lines-dotted',
         polylines: shelfDottedLines,
         color: shelfStrokeExpr,
-        width: Expression.get('strokeWidth')
-            .convertToNumber([const Expression.literal(3.0)]),
+        width: _safeNumberProp('strokeWidth', 3.0),
         dashArray: const Expression.literal([1, 2]),
         onClick: (event) {
           if (event.index < shelfDottedLineMeta.length) {
@@ -1759,8 +1761,7 @@ List<Layer> buildEarthlyGpuLayers({
         id: 'earthly-shelf-points',
         points: shelfPoints,
         color: shelfFillExpr,
-        radius: Expression.get('radius')
-            .convertToNumber([const Expression.literal(6.5)]),
+        radius: _safeNumberProp('radius', 6.5),
         strokeColor: shelfPointStrokeExpr,
         strokeWidth: const Expression.literal(2.0),
         onClick: (event) {
@@ -1860,12 +1861,9 @@ List<Layer> buildEarthlyGpuLayers({
       PolygonLayer(
         id: 'earthly-draft-polygons',
         polygons: draftPolygons,
-        color: Expression.get('fillColor')
-            .convertToColor([Expression.literal(accentColor)]),
-        opacity: Expression.get('fillOpacity')
-            .convertToNumber([const Expression.literal(0.24)]),
-        outlineColor: Expression.get('color')
-            .convertToColor([Expression.literal(accentColor)]),
+        color: _safeColorProp('fillColor', accentColor),
+        opacity: _safeNumberProp('fillOpacity', 0.24),
+        outlineColor: _safeColorProp('color', accentColor),
         onClick: (event) {
           if (event.index < draftPolyMeta.length) {
             onInspectFeature(draftPolyMeta[event.index]);
@@ -1887,10 +1885,8 @@ List<Layer> buildEarthlyGpuLayers({
                 properties: p.properties,
               ),
         ],
-        color: Expression.get('color')
-            .convertToColor([Expression.literal(accentColor)]),
-        width: Expression.get('strokeWidth')
-            .convertToNumber([const Expression.literal(2.6)]),
+        color: _safeColorProp('color', accentColor),
+        width: _safeNumberProp('strokeWidth', 2.6),
       ),
     ],
 
@@ -1899,10 +1895,8 @@ List<Layer> buildEarthlyGpuLayers({
       PolylineLayer(
         id: 'earthly-draft-lines',
         polylines: draftLines,
-        color: Expression.get('color')
-            .convertToColor([Expression.literal(accentColor)]),
-        width: Expression.get('strokeWidth')
-            .convertToNumber([const Expression.literal(3.0)]),
+        color: _safeColorProp('color', accentColor),
+        width: _safeNumberProp('strokeWidth', 3.0),
         onClick: (event) {
           if (event.index < draftLineMeta.length) {
             onInspectFeature(draftLineMeta[event.index]);
@@ -1913,10 +1907,8 @@ List<Layer> buildEarthlyGpuLayers({
       PolylineLayer(
         id: 'earthly-draft-lines-dashed',
         polylines: draftDashedLines,
-        color: Expression.get('color')
-            .convertToColor([Expression.literal(accentColor)]),
-        width: Expression.get('strokeWidth')
-            .convertToNumber([const Expression.literal(3.0)]),
+        color: _safeColorProp('color', accentColor),
+        width: _safeNumberProp('strokeWidth', 3.0),
         dashArray: const Expression.literal([4, 2]),
         onClick: (event) {
           if (event.index < draftDashedLineMeta.length) {
@@ -1928,10 +1920,8 @@ List<Layer> buildEarthlyGpuLayers({
       PolylineLayer(
         id: 'earthly-draft-lines-dotted',
         polylines: draftDottedLines,
-        color: Expression.get('color')
-            .convertToColor([Expression.literal(accentColor)]),
-        width: Expression.get('strokeWidth')
-            .convertToNumber([const Expression.literal(3.0)]),
+        color: _safeColorProp('color', accentColor),
+        width: _safeNumberProp('strokeWidth', 3.0),
         dashArray: const Expression.literal([1, 2]),
         onClick: (event) {
           if (event.index < draftDottedLineMeta.length) {
@@ -1945,12 +1935,9 @@ List<Layer> buildEarthlyGpuLayers({
       CircleLayer(
         id: 'earthly-draft-points',
         points: draftPoints,
-        color: Expression.get('fillColor')
-            .convertToColor([Expression.literal(accentColor)]),
-        radius: Expression.get('radius')
-            .convertToNumber([const Expression.literal(7.0)]),
-        strokeColor: Expression.get('pointStroke')
-            .convertToColor([const Expression.literal(Colors.white)]),
+        color: _safeColorProp('fillColor', accentColor),
+        radius: _safeNumberProp('radius', 7.0),
+        strokeColor: _safeColorProp('pointStroke', Colors.white),
         strokeWidth: const Expression.literal(2.2),
         onClick: (event) {
           if (event.index < draftPointMeta.length) {

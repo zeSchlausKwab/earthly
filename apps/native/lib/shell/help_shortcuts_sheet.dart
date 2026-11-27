@@ -29,12 +29,11 @@ class HelpShortcutsSheet extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'HELP & KEYBOARD SHORTCUTS',
+                'Help & Shortcuts',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelLarge?.copyWith(
-                  fontFamily: 'monospace',
-                  letterSpacing: 0.6,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ),

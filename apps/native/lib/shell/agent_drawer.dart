@@ -563,7 +563,7 @@ class _AgentDrawerState extends State<AgentDrawer>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 8, 4),
+            padding: const EdgeInsets.fromLTRB(12, 0, 8, 2),
             child: Row(
               children: [
                 Icon(
@@ -571,31 +571,34 @@ class _AgentDrawerState extends State<AgentDrawer>
                   size: 16,
                   color: theme.colorScheme.primary,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'RUST AGENT · RESEARCH',
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          fontFamily: 'monospace',
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.6,
-                        ),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
                       ),
-                      Text(
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: theme.dividerColor),
+                      ),
+                      child: Text(
                         '${widget.settings.presetName} · ${widget.settings.model}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontFamily: 'monospace',
                           fontSize: 10,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
+                const SizedBox(width: 4),
                 _buildVisionBadge(theme),
                 const SizedBox(width: 4),
                 if (widget.onSafeEditingChanged != null)
@@ -680,11 +683,7 @@ class _AgentDrawerState extends State<AgentDrawer>
           ),
           TabBar(
             controller: _tabs,
-            labelStyle: const TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
+            dividerHeight: 0,
             tabs: [
               Tab(
                 text: pending != null ? 'Chat (Ghost)' : 'Chat',
@@ -1244,7 +1243,7 @@ class _AgentDrawerState extends State<AgentDrawer>
                   ),
                 )
               : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
                   itemCount: widget.messages.length + (widget.busy ? 1 : 0),
                   itemBuilder: (context, index) {
                     if (widget.busy && index == widget.messages.length) {
@@ -1543,9 +1542,8 @@ class _AgentDrawerState extends State<AgentDrawer>
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
       children: [
         Text(
-          'CORS-FREE NATIVE RESEARCH & SOURCE EXTRACTION',
-          style: theme.textTheme.labelSmall?.copyWith(
-            fontFamily: 'monospace',
+          'Web Research & Source Extraction',
+          style: theme.textTheme.labelMedium?.copyWith(
             fontWeight: FontWeight.w700,
           ),
         ),

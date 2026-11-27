@@ -185,11 +185,9 @@ class OutboxQueueSheet extends StatelessWidget {
                 runSpacing: 4,
                 children: [
                   Text(
-                    'PUBLISH OUTBOX',
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      fontFamily: 'monospace',
+                    'Outbox',
+                    style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w800,
-                      letterSpacing: 0.7,
                     ),
                   ),
                   EarthlyBadge(
@@ -270,7 +268,7 @@ class OutboxQueueSheet extends StatelessWidget {
               ),
             )
           : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 28),
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
               itemCount: items.length,
               separatorBuilder: (_, _) => const SizedBox(height: 8),
               itemBuilder: (context, index) => _OutboxItemCard(

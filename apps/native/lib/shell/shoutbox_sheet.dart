@@ -220,12 +220,11 @@ class _ShoutboxSheetState extends State<ShoutboxSheet>
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'COMMUNITY SHOUTBOX',
+                    'Community Shoutbox',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      fontFamily: 'monospace',
-                      letterSpacing: 0.7,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
@@ -294,7 +293,7 @@ class _ShoutboxSheetState extends State<ShoutboxSheet>
                         child: RefreshIndicator(
                           onRefresh: () => _loadCategory(cat.id, force: true),
                           child: ListView.separated(
-                            padding: const EdgeInsets.all(14),
+                            padding: const EdgeInsets.fromLTRB(14, 4, 14, 24),
                             itemCount: posts.length,
                             separatorBuilder: (_, _) =>
                                 const Divider(height: 16),

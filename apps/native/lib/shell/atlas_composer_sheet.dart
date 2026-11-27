@@ -201,14 +201,11 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                widget.editingAtlas != null
-                    ? 'EDIT ATLAS (KIND 37518)'
-                    : 'CREATE ATLAS (KIND 37518)',
+                widget.editingAtlas != null ? 'Edit Atlas' : 'New Atlas',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelLarge?.copyWith(
-                  fontFamily: 'monospace',
-                  letterSpacing: 0.7,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ),

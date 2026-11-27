@@ -550,18 +550,18 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'THREAD & PROPOSALS',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          fontFamily: 'monospace',
-                          letterSpacing: 0.7,
-                        ),
-                      ),
-                      Text(
                         widget.target.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      Text(
+                        'Thread & Proposals',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontSize: 11,
+                          color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ],
@@ -692,7 +692,7 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                       ),
                     )
                   : ListView.separated(
-                      padding: const EdgeInsets.all(14),
+                      padding: const EdgeInsets.fromLTRB(14, 4, 14, 24),
                       itemCount: nodes.length,
                       separatorBuilder: (_, _) => const SizedBox(height: 12),
                       itemBuilder: (context, index) {
@@ -1021,7 +1021,7 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                       ),
                     )
                   : ListView.separated(
-                      padding: const EdgeInsets.all(14),
+                      padding: const EdgeInsets.fromLTRB(14, 4, 14, 24),
                       itemCount: proposals.length,
                       separatorBuilder: (_, _) => const Divider(height: 16),
                       itemBuilder: (context, index) {

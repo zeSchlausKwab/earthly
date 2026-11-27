@@ -184,43 +184,32 @@ class _RoutingSheetState extends State<RoutingSheet>
       initialFraction: 0.56,
       onClose: widget.onClose,
       header: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 0, 8, 2),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        padding: const EdgeInsets.fromLTRB(8, 0, 8, 0),
+        child: Row(
           children: [
-            Row(
-              children: [
-                const Icon(
-                  Icons.alt_route,
-                  size: 18,
-                  color: EarthlyColors.infoCyan,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'ROUTING & ISOCHRONES (VALHALLA)',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      fontFamily: 'monospace',
-                      letterSpacing: 0.6,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  onPressed: widget.onClose,
-                  icon: const Icon(Icons.close, size: 18),
-                ),
-              ],
+            const SizedBox(width: 6),
+            const Icon(
+              Icons.alt_route,
+              size: 18,
+              color: EarthlyColors.infoCyan,
             ),
-            TabBar(
-              controller: _tabs,
-              dividerHeight: 0,
-              tabs: const [
-                Tab(key: Key('routing-tab-route'), text: 'Route (A → B)'),
-                Tab(key: Key('routing-tab-iso'), text: 'Isochrone'),
-              ],
+            const SizedBox(width: 6),
+            Expanded(
+              child: TabBar(
+                controller: _tabs,
+                isScrollable: true,
+                tabAlignment: TabAlignment.start,
+                dividerHeight: 0,
+                tabs: const [
+                  Tab(key: Key('routing-tab-route'), text: 'Route'),
+                  Tab(key: Key('routing-tab-iso'), text: 'Isochrone'),
+                ],
+              ),
+            ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              onPressed: widget.onClose,
+              icon: const Icon(Icons.close, size: 18),
             ),
           ],
         ),

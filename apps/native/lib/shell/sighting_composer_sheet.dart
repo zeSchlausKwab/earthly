@@ -171,10 +171,9 @@ class _SightingComposerSheetState extends State<SightingComposerSheet> {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    'FIELD CAPTURE · SIGHTING (37522)',
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      fontFamily: 'monospace',
-                      letterSpacing: 0.7,
+                    'New Sighting',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                   const Spacer(),

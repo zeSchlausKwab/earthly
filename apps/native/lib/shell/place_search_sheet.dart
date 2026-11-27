@@ -279,67 +279,52 @@ class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
     return EarthlyMapDrawer(
       initialFraction: 0.52,
       onClose: widget.onClose,
-      header: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 0, 8, 6),
-        child: Row(
-          children: [
-            const Icon(Icons.search, size: 18),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'OMNIBOX · PLACES, NOSTR & NADDR',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelLarge?.copyWith(
-                  fontFamily: 'monospace',
-                  letterSpacing: 0.6,
+      header: Material(
+        type: MaterialType.transparency,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 2, 6, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  key: const Key('omnibox-search-field'),
+                  controller: _controller,
+                  autofocus: true,
+                  onSubmitted: (_) => _submit(),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search, size: 17),
+                    hintText:
+                        'Search maps, stories, people, places, coords, or naddr1…',
+                  ),
                 ),
               ),
-            ),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              onPressed: widget.onClose,
-              icon: const Icon(Icons.close, size: 18),
-            ),
-          ],
+              const SizedBox(width: 6),
+              FilledButton(
+                key: const Key('omnibox-go-btn'),
+                onPressed: _searching ? null : _submit,
+                child: _searching
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text('Go'),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                onPressed: widget.onClose,
+                icon: const Icon(Icons.close, size: 18),
+              ),
+            ],
+          ),
         ),
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    key: const Key('omnibox-search-field'),
-                    controller: _controller,
-                    autofocus: true,
-                    onSubmitted: (_) => _submit(),
-                    decoration: const InputDecoration(
-                      hintText:
-                          'Search maps, stories, people, Vienna, coords, or naddr1…',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  key: const Key('omnibox-go-btn'),
-                  onPressed: _searching ? null : _submit,
-                  child: _searching
-                      ? const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Text('Go'),
-                ),
-              ],
-            ),
-          ),
+          const SizedBox(height: 6),
           SizedBox(
             height: 34,
             child: ListView(

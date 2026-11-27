@@ -38,7 +38,7 @@ void main() {
         ),
       );
 
-      expect(find.text('PUBLISH OUTBOX'), findsOneWidget);
+      expect(find.text('Outbox'), findsOneWidget);
       expect(find.text('0 pending'), findsOneWidget);
       expect(find.text('All publishes delivered'), findsOneWidget);
 
