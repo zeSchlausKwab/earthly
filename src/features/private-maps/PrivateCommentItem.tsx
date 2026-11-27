@@ -5,6 +5,12 @@ import { UserProfile } from '@/components/user-profile/UserProfile'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { GeoFeatureItem } from '@/components/editor/GeoRichTextEditor'
+import type {
+	PrivateWorkspaceService,
+	ProjectedMediaAttachment,
+	StoredWorkspace,
+} from '@/lib/private-workspace'
+import { PrivateMediaAttachments } from './PrivateMediaAttachments'
 
 function formatRelativeTime(createdAt: number) {
 	const date = new Date(createdAt * 1000)
@@ -27,6 +33,9 @@ export function PrivateCommentItem<T extends CommentGeometryRecord>({
 	availableFeatures = [],
 	onMentionVisibilityToggle,
 	onMentionZoomTo,
+	workspace,
+	service,
+	mediaAttachments = [],
 }: {
 	comment: T
 	geometryVisible: boolean
@@ -39,6 +48,9 @@ export function PrivateCommentItem<T extends CommentGeometryRecord>({
 		visible: boolean,
 	) => void
 	onMentionZoomTo?: (address: string, featureId: string | undefined) => void
+	workspace?: StoredWorkspace
+	service?: PrivateWorkspaceService
+	mediaAttachments?: readonly ProjectedMediaAttachment[]
 }) {
 	const featureCount = comment.geojson?.features.length ?? 0
 	const hasGeometry = featureCount > 0
@@ -66,6 +78,15 @@ export function PrivateCommentItem<T extends CommentGeometryRecord>({
 					onMentionVisibilityToggle={onMentionVisibilityToggle}
 					onMentionZoomTo={onMentionZoomTo}
 					className="mt-1.5 break-words text-xs leading-relaxed text-foreground"
+				/>
+			) : null}
+
+			{workspace && mediaAttachments.length > 0 ? (
+				<PrivateMediaAttachments
+					workspace={workspace}
+					service={service}
+					envelopeId={comment.id}
+					attachments={mediaAttachments}
 				/>
 			) : null}
 

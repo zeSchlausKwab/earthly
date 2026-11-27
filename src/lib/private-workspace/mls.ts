@@ -164,6 +164,10 @@ export function groupIdFromState(state: ClientState): string {
 	return decoder.decode(state.groupContext.groupId)
 }
 
+export function epochFromState(state: ClientState): number {
+	return Number(state.groupContext.epoch)
+}
+
 export function memberPubkeysFromState(state: ClientState): string[] {
 	return getGroupMembers(state)
 		.map((member) => member.credential)
@@ -393,6 +397,26 @@ async function deriveOuterKey(state: ClientState): Promise<Uint8Array> {
 		32,
 		cipherSuite,
 	)
+}
+
+/**
+ * Derive the 32-byte `cordn-em-v1` symmetric key for the current MLS epoch
+ * per Cordn `spec/applications/encrypted-media.md` §3.1:
+ * `MLS-Exporter("cordn", utf8("encrypted-media"), 32)`.
+ */
+export async function deriveEncryptedMediaKey(state: ClientState): Promise<Uint8Array> {
+	const cipherSuite = await getCiphersuite()
+	return mlsExporter(
+		state.keySchedule.exporterSecret,
+		'cordn',
+		encoder.encode('encrypted-media'),
+		32,
+		cipherSuite,
+	)
+}
+
+export async function deriveEncryptedMediaKeyHex(state: ClientState): Promise<string> {
+	return bytesToHex(await deriveEncryptedMediaKey(state))
 }
 
 export async function sealCoordinatorPayload(state: ClientState, messageBase64: string) {

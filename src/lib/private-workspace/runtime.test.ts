@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test'
+import type { CoordinatorMessage } from './contracts'
+import { CordnUnsupportedStreamingError } from './coordinator'
 import type { PrivateWorkspaceService } from './service'
 import { PrivateWorkspaceRuntime } from './runtime'
 import type { StoredWorkspace } from './storage'
@@ -167,5 +169,90 @@ describe('PrivateWorkspaceRuntime', () => {
 		expect(result).toEqual(requests)
 		release()
 		await pendingSync
+	})
+
+	test('streams live v0.5 messages into the serialized queue and closes stream on unwatch', async () => {
+		let currentCursor = 1
+		let pushMessage!: (message: CoordinatorMessage) => Promise<void>
+		let streamClosed = false
+		let streamCloseResolve!: () => void
+		const closedPromise = new Promise<void>((resolve) => {
+			streamCloseResolve = resolve
+		})
+
+		const fake = {
+			listWorkspaces: async () => [storedWorkspace(currentCursor)],
+			listPendingJoins: async () => [],
+			syncWorkspaceResult: async () => ({
+				workspace: storedWorkspace(currentCursor),
+				changed: false,
+			}),
+			ingestStreamedMessage: async (_workspaceId: string, msg: CoordinatorMessage) => {
+				currentCursor = msg.cursor
+				return { workspace: storedWorkspace(currentCursor), changed: true }
+			},
+			openWorkspaceStream: async (
+				_workspaceId: string,
+				handlers: { onMessage: (msg: CoordinatorMessage) => Promise<void> },
+			) => {
+				pushMessage = handlers.onMessage
+				return {
+					get active() {
+						return !streamClosed
+					},
+					closed: closedPromise,
+					async close() {
+						streamClosed = true
+						streamCloseResolve()
+					},
+				}
+			},
+			resetConnections: async () => undefined,
+			dispose: async () => undefined,
+		} as unknown as PrivateWorkspaceService
+
+		const runtime = new PrivateWorkspaceRuntime(fake, 50)
+		const unwatch = runtime.watchWorkspace('workspace-1')
+		await new Promise((resolve) => setTimeout(resolve, 15))
+
+		expect(runtime.getSnapshot().transportByWorkspace?.['workspace-1']).toBe('streaming')
+
+		await pushMessage({ cursor: 7, gid: 'group-1', msg_64: 'live-payload', at: 700 })
+		expect(runtime.getSnapshot().workspaces[0]?.cursor).toBe(7)
+		expect(runtime.getSnapshot().syncByWorkspace['workspace-1']).toBe('current')
+
+		unwatch()
+		await closedPromise
+		expect(streamClosed).toBe(true)
+	})
+
+	test('falls back seamlessly to polling when coordinator rejects msg_sub_many (v0.4)', async () => {
+		let syncCalls = 0
+		let streamAttempts = 0
+		const fake = {
+			listWorkspaces: async () => [storedWorkspace(1)],
+			listPendingJoins: async () => [],
+			syncWorkspaceResult: async () => {
+				syncCalls += 1
+				return { workspace: storedWorkspace(1), changed: false }
+			},
+			openWorkspaceStream: async () => {
+				streamAttempts += 1
+				throw new CordnUnsupportedStreamingError('v0.4 coordinator')
+			},
+			resetConnections: async () => undefined,
+			dispose: async () => undefined,
+		} as unknown as PrivateWorkspaceService
+
+		const runtime = new PrivateWorkspaceRuntime(fake, 15)
+		const unwatch = runtime.watchWorkspace('workspace-1')
+		await new Promise((resolve) => setTimeout(resolve, 60))
+
+		expect(streamAttempts).toBe(1)
+		expect(syncCalls).toBeGreaterThanOrEqual(2)
+		expect(runtime.getSnapshot().transportByWorkspace?.['workspace-1']).toBe('polling')
+
+		unwatch()
+		await runtime.dispose()
 	})
 })

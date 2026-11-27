@@ -8,7 +8,12 @@ import {
 	decodePrivateMapInvitation,
 	PRIVATE_MAP_INVITATION_TTL_SECONDS,
 } from './invitation'
-import { PrivateWorkspaceService } from './service'
+import {
+	buildEncryptedMediaImetaTag,
+	CORDN_ENCRYPTED_MEDIA_VERSION,
+	EARTHLY_PERSISTENT_MEDIA_VERSION,
+} from './media'
+import { getWorkspaceSyncHealth, PrivateWorkspaceService } from './service'
 import { MemoryPrivateWorkspaceStore, type StoredWorkspace } from './storage'
 
 describe('PrivateWorkspaceService synchronization', () => {
@@ -308,5 +313,229 @@ describe('PrivateWorkspaceService synchronization', () => {
 		expect(result.changed).toBe(true)
 		expect(result.workspace.envelopes.map((item) => item.id)).toEqual([envelope.id])
 		expect(result.workspace.pendingOutbound).toBeUndefined()
+	})
+
+	test('persists epochMediaKeys on creation and resolves cordn-em-v1 and earthly-pm-v1 keys', async () => {
+		const secretKey = generateSecretKey()
+		const ownerPubkey = getPublicKey(secretKey)
+		const store = new MemoryPrivateWorkspaceStore()
+		const service = new PrivateWorkspaceService({
+			signer: {
+				getPublicKey: async () => ownerPubkey,
+				signEvent: async (event) => finalizeEvent(event, secretKey),
+			} as NostrSigner,
+			store,
+			coordinatorPubkey: 'b'.repeat(64),
+			relays: ['ws://localhost:3334'],
+			createCoordinator: () =>
+				({
+					disconnect: async () => undefined,
+				}) as unknown as PrivateWorkspaceCoordinator,
+		})
+
+		const workspace = await service.createWorkspace({ name: 'Media Circle' })
+		const initialEpochKey = workspace.epochMediaKeys?.['0']
+		expect(initialEpochKey).toMatch(/^[0-9a-f]{64}$/u)
+		if (!initialEpochKey) throw new Error('Expected initial epoch 0 media key')
+		expect(getWorkspaceSyncHealth(workspace)).toBe('healthy')
+
+		const derived = await service.deriveWorkspaceMediaKey(workspace.workspaceId)
+		expect(derived.epoch).toBe(0)
+		expect(derived.keyHex).toBe(initialEpochKey)
+
+		const resolvedCordn = await service.resolveMediaKeyForAttachment(workspace, {
+			url: 'https://blossom.earthly.city/a',
+			mime: 'image/jpeg',
+			filename: 'a.jpg',
+			x: '11'.repeat(32),
+			n: '22'.repeat(12),
+			v: CORDN_ENCRYPTED_MEDIA_VERSION,
+		})
+		expect(resolvedCordn).toEqual(derived.key)
+
+		const pmKeyHex = 'ab'.repeat(32)
+		const resolvedPm = await service.resolveMediaKeyForAttachment(workspace, {
+			url: 'https://blossom.earthly.city/b',
+			mime: 'image/webp',
+			filename: 'b.webp',
+			x: '33'.repeat(32),
+			n: '44'.repeat(12),
+			v: EARTHLY_PERSISTENT_MEDIA_VERSION,
+			k: pmKeyHex,
+		})
+		expect(resolvedPm.byteLength).toBe(32)
+	})
+
+	test('tracks consecutive decrypt errors into behind/forked health and repairs sync state', async () => {
+		const secretKey = generateSecretKey()
+		const ownerPubkey = getPublicKey(secretKey)
+		const store = new MemoryPrivateWorkspaceStore()
+		let messagesToServe: Array<{ cursor: number; gid: string; msg_64: string; at: number }> = []
+		let disconnectCalls = 0
+		const service = new PrivateWorkspaceService({
+			signer: {
+				getPublicKey: async () => ownerPubkey,
+				signEvent: async (event) => finalizeEvent(event, secretKey),
+			} as NostrSigner,
+			store,
+			coordinatorPubkey: 'b'.repeat(64),
+			relays: ['ws://localhost:3334'],
+			createCoordinator: () =>
+				({
+					fetchMessages: async () => ({ messages: messagesToServe }),
+					disconnect: async () => {
+						disconnectCalls += 1
+					},
+				}) as unknown as PrivateWorkspaceCoordinator,
+		})
+
+		const workspace = await service.createWorkspace({ name: 'Health Circle' })
+
+		// 2 consecutive invalid v0.5 messages (omitting `encrypted` => defaults to true) -> 'behind'
+		messagesToServe = [
+			{ cursor: 1, gid: workspace.groupId, msg_64: 'AAAA', at: 1 },
+			{ cursor: 2, gid: workspace.groupId, msg_64: 'BBBB', at: 2 },
+		]
+		const afterTwo = await service.syncWorkspace(workspace.workspaceId)
+		expect(afterTwo.consecutiveDecryptErrors).toBe(2)
+		expect(getWorkspaceSyncHealth(afterTwo)).toBe('behind')
+
+		// 3 more consecutive invalid messages (total 5) -> 'forked'
+		messagesToServe = [
+			{ cursor: 3, gid: workspace.groupId, msg_64: 'CCCC', at: 3 },
+			{ cursor: 4, gid: workspace.groupId, msg_64: 'DDDD', at: 4 },
+			{ cursor: 5, gid: workspace.groupId, msg_64: 'EEEE', at: 5 },
+		]
+		const afterFive = await service.syncWorkspace(workspace.workspaceId)
+		expect(afterFive.consecutiveDecryptErrors).toBe(5)
+		expect(getWorkspaceSyncHealth(afterFive)).toBe('forked')
+
+		// Repair resets error counter, drops skipped list, resets coordinator connection, and re-syncs
+		messagesToServe = []
+		const repaired = await service.repairWorkspaceSyncState(workspace.workspaceId)
+		expect(repaired.consecutiveDecryptErrors).toBe(0)
+		expect(getWorkspaceSyncHealth(repaired)).toBe('healthy')
+		expect(repaired.skippedCoordinatorMessages).toBeUndefined()
+		expect(disconnectCalls).toBe(1)
+	})
+
+	test('toggles autoApproveJoins and batches pollAndAutoApproveJoinRequests safely', async () => {
+		const secretKey = generateSecretKey()
+		const ownerPubkey = getPublicKey(secretKey)
+		const store = new MemoryPrivateWorkspaceStore()
+		let fetchedJoinRequests = 0
+		const service = new PrivateWorkspaceService({
+			signer: {
+				getPublicKey: async () => ownerPubkey,
+				signEvent: async (event) => finalizeEvent(event, secretKey),
+			} as NostrSigner,
+			store,
+			coordinatorPubkey: 'b'.repeat(64),
+			relays: ['ws://localhost:3334'],
+			createCoordinator: () =>
+				({
+					fetchMessages: async () => ({ messages: [] }),
+					takeJoinRequests: async () => {
+						fetchedJoinRequests += 1
+						return {
+							requests: [
+								{ pk: 'c'.repeat(64), kp_ref: 'missing-kp-1', at: 10 },
+								{ pk: 'd'.repeat(64), kp_ref: 'missing-kp-2', at: 11 },
+							],
+						}
+					},
+					takeKeyPackage: async () => ({ keyPackage: null }),
+					disconnect: async () => undefined,
+				}) as unknown as PrivateWorkspaceCoordinator,
+		})
+
+		const workspace = await service.createWorkspace({ name: 'Auto Approve Circle' })
+		// Disabled by default: should not contact coordinator
+		const skipped = await service.pollAndAutoApproveJoinRequests(workspace.workspaceId)
+		expect(skipped.approved).toEqual([])
+		expect(fetchedJoinRequests).toBe(0)
+
+		const enabled = await service.setAutoApproveJoins(workspace.workspaceId, true)
+		expect(enabled.autoApproveJoins).toBe(true)
+
+		// Respects maxBatch = 1 and isolates individual approval errors cleanly
+		const polled = await service.pollAndAutoApproveJoinRequests(workspace.workspaceId, 1)
+		expect(fetchedJoinRequests).toBe(1)
+		expect(polled.approved).toHaveLength(0)
+		expect(polled.failed).toHaveLength(1)
+		expect(polled.failed[0]?.request.kp_ref).toBe('missing-kp-1')
+	})
+
+	test('sends comment and dataset with validated encrypted media imeta tags', async () => {
+		const secretKey = generateSecretKey()
+		const ownerPubkey = getPublicKey(secretKey)
+		const store = new MemoryPrivateWorkspaceStore()
+		let cursor = 0
+		const posted: Array<{ cursor: number; gid: string; msg_64: string; at: number }> = []
+		const service = new PrivateWorkspaceService({
+			signer: {
+				getPublicKey: async () => ownerPubkey,
+				signEvent: async (event) => finalizeEvent(event, secretKey),
+			} as NostrSigner,
+			store,
+			coordinatorPubkey: 'b'.repeat(64),
+			relays: ['ws://localhost:3334'],
+			createCoordinator: () =>
+				({
+					fetchMessages: async ({ after }: { gid: string; after?: number }) => ({
+						messages: posted.filter((m) => m.cursor > (after ?? 0)),
+					}),
+					postMessage: async ({ gid, msg_64 }: { gid: string; msg_64: string }) => {
+						cursor += 1
+						const entry = { cursor, gid, msg_64, at: cursor }
+						posted.push(entry)
+						return { cursor, gid, at: cursor }
+					},
+					disconnect: async () => undefined,
+				}) as unknown as PrivateWorkspaceCoordinator,
+		})
+
+		const workspace = await service.createWorkspace({ name: 'Media Posts' })
+		const imeta = buildEncryptedMediaImetaTag({
+			url: 'https://blossom.earthly.city/img1',
+			mime: 'image/jpeg',
+			filename: 'abc.jpg',
+			x: '11'.repeat(32),
+			n: '22'.repeat(12),
+			v: CORDN_ENCRYPTED_MEDIA_VERSION,
+		})
+		const pmImeta = buildEncryptedMediaImetaTag({
+			url: 'https://blossom.earthly.city/map1',
+			mime: 'image/png',
+			filename: 'map.png',
+			x: '33'.repeat(32),
+			n: '44'.repeat(12),
+			v: EARTHLY_PERSISTENT_MEDIA_VERSION,
+			k: '55'.repeat(32),
+		})
+
+		const commentEnv = await service.sendCommentWithMedia(workspace.workspaceId, '', undefined, [
+			imeta,
+		])
+		expect(commentEnv.tags).toContainEqual(imeta)
+
+		const datasetEnv = await service.sendDatasetWithMedia(
+			workspace.workspaceId,
+			{ type: 'FeatureCollection', features: [] },
+			{ datasetId: 'ds-media', name: 'Media Map', mediaImetaTags: [pmImeta] },
+		)
+		expect(datasetEnv.tags).toContainEqual(pmImeta)
+
+		const [persisted] = await service.listWorkspaces()
+		if (!persisted) throw new Error('Expected persisted workspace')
+		expect(persisted.envelopeEpochs?.[commentEnv.id]).toBe(0)
+		expect(persisted.envelopeEpochs?.[datasetEnv.id]).toBe(0)
+
+		// Rejects invalid imeta tag without version `v`
+		await expect(
+			service.sendCommentWithMedia(workspace.workspaceId, 'bad', undefined, [
+				['imeta', 'url https://blossom.earthly.city/bad'],
+			]),
+		).rejects.toThrow('Missing or unsupported')
 	})
 })

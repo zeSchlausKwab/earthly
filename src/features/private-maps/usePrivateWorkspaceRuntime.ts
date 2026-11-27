@@ -18,6 +18,7 @@ const EMPTY_SNAPSHOT: PrivateWorkspaceSnapshot = {
 	workspaces: [],
 	pendingJoins: [],
 	syncByWorkspace: {},
+	transportByWorkspace: {},
 }
 const subscribeToNothing = () => () => undefined
 const getEmptySnapshot = () => EMPTY_SNAPSHOT

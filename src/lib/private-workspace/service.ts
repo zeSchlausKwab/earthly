@@ -1,8 +1,17 @@
+import { hexToBytes } from '@noble/hashes/utils.js'
 import { verifyEvent, type NostrEvent } from 'nostr-tools'
 import type { NostrSigner } from '@contextvm/sdk'
 import type { FeatureCollection } from 'geojson'
+import type { ClientState } from 'ts-mls'
 import { GEO_COMMENT_KIND, GEO_EVENT_KIND } from '@/lib/nostr/kinds'
-import type { PendingJoinRequest, PrivateWorkspaceCoordinator } from './contracts'
+import {
+	isCoordinatorMessageEncrypted,
+	type CoordinatorMessage,
+	type CoordinatorMessageStreamSubscription,
+	type PendingJoinRequest,
+	type PrivateWorkspaceCoordinator,
+} from './contracts'
+import { CordnUnsupportedStreamingError } from './coordinator'
 import {
 	createWorkspaceCheckpointManifest,
 	currentMapCheckpointEnvelopes,
@@ -15,6 +24,12 @@ import {
 	type PrivateWorkspaceEnvelope,
 } from './envelope'
 import {
+	CORDN_ENCRYPTED_MEDIA_VERSION,
+	EARTHLY_PERSISTENT_MEDIA_VERSION,
+	parseEncryptedMediaImetaTagStrict,
+	type EncryptedMediaAttachment,
+} from './media'
+import {
 	decodeKeyPackage,
 	decodePrivateKeyPackage,
 	credentialPubkeyFromKeyPackage,
@@ -22,7 +37,10 @@ import {
 	createForwardedWorkspaceApplicationMessage,
 	createWorkspaceApplicationMessage,
 	createWorkspaceGroup,
+	deriveEncryptedMediaKey,
+	deriveEncryptedMediaKeyHex,
 	deserializeClientState,
+	epochFromState,
 	generateMlsKeyPackage,
 	groupIdFromState,
 	joinWorkspaceGroup,
@@ -54,14 +72,27 @@ import type {
 	StoredMlsKeyPackage,
 	StoredWorkspace,
 	WorkspaceMetadata,
+	WorkspaceSyncHealth,
 } from './storage'
 
 export const PRIVATE_WORKSPACE_METADATA_KIND = 37523
 export const PRIVATE_WORKSPACE_CHAT_KIND = 9
+export const SYNC_HEALTH_BEHIND_THRESHOLD = 2
+export const SYNC_HEALTH_FORKED_THRESHOLD = 5
+export const DEFAULT_AUTO_APPROVE_MAX_BATCH = 15
 
 const MAX_SKIPPED_COORDINATOR_MESSAGES = 32
 const MAX_MEMBERSHIP_RECOVERY_PASSES = 4
 const MAX_TRANSIENT_COORDINATOR_ATTEMPTS = 3
+
+export function getWorkspaceSyncHealth(workspace: StoredWorkspace): WorkspaceSyncHealth {
+	if (workspace.status === 'removed') return 'removed'
+	if (workspace.syncHealth) return workspace.syncHealth
+	const errors = workspace.consecutiveDecryptErrors ?? 0
+	if (errors >= SYNC_HEALTH_FORKED_THRESHOLD) return 'forked'
+	if (errors >= SYNC_HEALTH_BEHIND_THRESHOLD) return 'behind'
+	return 'healthy'
+}
 
 function isTransientCoordinatorError(error: unknown): boolean {
 	const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
@@ -224,7 +255,51 @@ export class PrivateWorkspaceService {
 		return policy
 	}
 
-	private applyEnvelope(workspace: StoredWorkspace, envelope: PrivateWorkspaceEnvelope): void {
+	private updateSyncHealth(workspace: StoredWorkspace): void {
+		if (workspace.status === 'removed') {
+			workspace.syncHealth = 'removed'
+			return
+		}
+		const errors = workspace.consecutiveDecryptErrors ?? 0
+		if (errors >= SYNC_HEALTH_FORKED_THRESHOLD) {
+			workspace.syncHealth = 'forked'
+		} else if (errors >= SYNC_HEALTH_BEHIND_THRESHOLD) {
+			workspace.syncHealth = 'behind'
+		} else {
+			workspace.syncHealth = 'healthy'
+		}
+	}
+
+	private recordCleanDecrypt(workspace: StoredWorkspace): void {
+		workspace.consecutiveDecryptErrors = 0
+		this.updateSyncHealth(workspace)
+	}
+
+	private recordDecryptFailure(workspace: StoredWorkspace): void {
+		workspace.consecutiveDecryptErrors = (workspace.consecutiveDecryptErrors ?? 0) + 1
+		this.updateSyncHealth(workspace)
+	}
+
+	private async recordEpochMediaKey(workspace: StoredWorkspace, state: ClientState): Promise<void> {
+		const epochKey = String(epochFromState(state))
+		if (workspace.epochMediaKeys?.[epochKey]) return
+		const keyHex = await deriveEncryptedMediaKeyHex(state)
+		workspace.epochMediaKeys = { ...(workspace.epochMediaKeys ?? {}), [epochKey]: keyHex }
+	}
+
+	private recordEnvelopeEpoch(workspace: StoredWorkspace, envelopeId: string, epoch: number): void {
+		if (workspace.envelopeEpochs?.[envelopeId] !== undefined) return
+		workspace.envelopeEpochs = { ...(workspace.envelopeEpochs ?? {}), [envelopeId]: epoch }
+	}
+
+	private applyEnvelope(
+		workspace: StoredWorkspace,
+		envelope: PrivateWorkspaceEnvelope,
+		epoch?: number,
+	): void {
+		if (epoch !== undefined) {
+			this.recordEnvelopeEpoch(workspace, envelope.id, epoch)
+		}
 		if (workspace.envelopes.some((item) => item.id === envelope.id)) return
 		const policyBefore = this.administratorPolicy(workspace)
 		if (
@@ -318,6 +393,11 @@ export class PrivateWorkspaceService {
 			cursor: 0,
 			metadata: { ...metadata, name: metadata.name.trim() },
 			envelopes: [],
+			epochMediaKeys: {
+				[String(epochFromState(state))]: await deriveEncryptedMediaKeyHex(state),
+			},
+			consecutiveDecryptErrors: 0,
+			syncHealth: 'healthy',
 			createdAt,
 		}
 		await this.options.store.putWorkspace(workspace)
@@ -478,6 +558,11 @@ export class PrivateWorkspaceService {
 				stateBase64: serializeClientState(state),
 				cursor: welcome.after ?? 0,
 				envelopes: [],
+				epochMediaKeys: {
+					[String(epochFromState(state))]: await deriveEncryptedMediaKeyHex(state),
+				},
+				consecutiveDecryptErrors: 0,
+				syncHealth: 'healthy',
 				createdAt: this.now(),
 			}
 			await this.options.store.putWorkspace(workspace)
@@ -529,18 +614,33 @@ export class PrivateWorkspaceService {
 	}
 
 	async sendComment(workspaceId: string, text: string, geojson?: FeatureCollection) {
+		return this.sendCommentWithMedia(workspaceId, text, geojson, [])
+	}
+
+	async sendCommentWithMedia(
+		workspaceId: string,
+		text: string,
+		geojson?: FeatureCollection,
+		mediaImetaTags: string[][] = [],
+	) {
 		const trimmedText = text.trim()
 		const hasGeometry = Boolean(geojson?.features.length)
-		if (!trimmedText && !hasGeometry) throw new Error('A comment needs text or geometry')
+		const hasMedia = mediaImetaTags.length > 0
+		if (!trimmedText && !hasGeometry && !hasMedia) {
+			throw new Error('A comment needs text or geometry')
+		}
 		if (geojson && geojson.type !== 'FeatureCollection') {
 			throw new Error('A comment attachment must be GeoJSON')
+		}
+		for (const tag of mediaImetaTags) {
+			parseEncryptedMediaImetaTagStrict(tag)
 		}
 
 		return this.sendEnvelope(
 			workspaceId,
 			GEO_COMMENT_KIND,
 			JSON.stringify({ text: trimmedText, ...(hasGeometry ? { geojson } : {}) }),
-			[['d', crypto.randomUUID()]],
+			[['d', crypto.randomUUID()], ...mediaImetaTags],
 		)
 	}
 
@@ -556,7 +656,19 @@ export class PrivateWorkspaceService {
 		collection: FeatureCollection,
 		options: { datasetId?: string; name?: string } = {},
 	) {
+		return this.sendDatasetWithMedia(workspaceId, collection, options)
+	}
+
+	async sendDatasetWithMedia(
+		workspaceId: string,
+		collection: FeatureCollection,
+		options: { datasetId?: string; name?: string; mediaImetaTags?: string[][] } = {},
+	) {
 		if (collection.type !== 'FeatureCollection') throw new Error('A dataset must be GeoJSON')
+		const mediaImetaTags = options.mediaImetaTags ?? []
+		for (const tag of mediaImetaTags) {
+			parseEncryptedMediaImetaTagStrict(tag)
+		}
 		const collectionName =
 			options.name ??
 			(typeof (collection as FeatureCollection & { name?: unknown }).name === 'string'
@@ -568,7 +680,217 @@ export class PrivateWorkspaceService {
 			tags: [
 				['d', options.datasetId ?? crypto.randomUUID()],
 				['name', collectionName],
+				...mediaImetaTags,
 			],
+		})
+	}
+
+	async setAutoApproveJoins(workspaceId: string, enabled: boolean): Promise<StoredWorkspace> {
+		const ownerPubkey = await this.ownerPubkey()
+		const workspace = await this.requireWorkspace(ownerPubkey, workspaceId)
+		this.requireAdministrator(workspace, ownerPubkey, 'configure auto-approval')
+		workspace.autoApproveJoins = enabled
+		await this.options.store.putWorkspace(workspace)
+		return workspace
+	}
+
+	async pollAndAutoApproveJoinRequests(
+		workspaceId: string,
+		maxBatch = DEFAULT_AUTO_APPROVE_MAX_BATCH,
+	): Promise<{
+		workspace: StoredWorkspace
+		approved: WorkspaceJoinRequest[]
+		failed: Array<{ request: WorkspaceJoinRequest; error: string }>
+	}> {
+		const ownerPubkey = await this.ownerPubkey()
+		let workspace = await this.requireWorkspace(ownerPubkey, workspaceId)
+		if (
+			!workspace.autoApproveJoins ||
+			workspace.status !== 'active' ||
+			!this.administratorPolicy(workspace).administrators.includes(ownerPubkey) ||
+			maxBatch <= 0
+		) {
+			return { workspace, approved: [], failed: [] }
+		}
+		const requests = await this.fetchJoinRequests(workspaceId)
+		const batch = requests.slice(0, maxBatch)
+		const approved: WorkspaceJoinRequest[] = []
+		const failed: Array<{ request: WorkspaceJoinRequest; error: string }> = []
+		for (const request of batch) {
+			try {
+				workspace = await this.approveJoinRequest(request)
+				approved.push(request)
+			} catch (error) {
+				failed.push({
+					request,
+					error: error instanceof Error ? error.message : String(error),
+				})
+			}
+		}
+		workspace = await this.requireWorkspace(ownerPubkey, workspaceId)
+		return { workspace, approved, failed }
+	}
+
+	/**
+	 * Reset accumulated decrypt-error counters / skipped cursor markers, recycle
+	 * the coordinator connection, and re-sync the workspace.
+	 */
+	async repairWorkspaceSyncState(
+		workspaceId: string,
+		options: { rewindToCursor?: number } = {},
+	): Promise<StoredWorkspace> {
+		const ownerPubkey = await this.ownerPubkey()
+		const workspace = await this.requireWorkspace(ownerPubkey, workspaceId)
+		if (workspace.status === 'removed') {
+			workspace.syncHealth = 'removed'
+			await this.options.store.putWorkspace(workspace)
+			return workspace
+		}
+		workspace.consecutiveDecryptErrors = 0
+		workspace.skippedCoordinatorMessages = undefined
+		workspace.syncHealth = 'healthy'
+		if (
+			options.rewindToCursor !== undefined &&
+			Number.isSafeInteger(options.rewindToCursor) &&
+			options.rewindToCursor >= 0 &&
+			options.rewindToCursor < workspace.cursor
+		) {
+			workspace.cursor = options.rewindToCursor
+		}
+		await this.options.store.putWorkspace(workspace)
+		await this.resetConnections()
+		return this.syncWorkspace(workspaceId)
+	}
+
+	/**
+	 * Derive (and persist locally) the 32-byte `cordn-em-v1` media key for a
+	 * workspace's current MLS epoch.
+	 */
+	async deriveWorkspaceMediaKey(workspaceId: string): Promise<{
+		epoch: number
+		key: Uint8Array
+		keyHex: string
+	}> {
+		const ownerPubkey = await this.ownerPubkey()
+		const workspace = await this.requireWorkspace(ownerPubkey, workspaceId)
+		const state = deserializeClientState(workspace.stateBase64)
+		const epoch = epochFromState(state)
+		const key = await deriveEncryptedMediaKey(state)
+		const keyHex = await deriveEncryptedMediaKeyHex(state)
+		if (workspace.epochMediaKeys?.[String(epoch)] !== keyHex) {
+			workspace.epochMediaKeys = { ...(workspace.epochMediaKeys ?? {}), [String(epoch)]: keyHex }
+			await this.options.store.putWorkspace(workspace)
+		}
+		return { epoch, key, keyHex }
+	}
+
+	/**
+	 * Resolve the 32-byte symmetric key for decrypting a `cordn-em-v1` or
+	 * `earthly-pm-v1` media attachment belonging to a workspace.
+	 */
+	async resolveMediaKeyForAttachment(
+		workspace: StoredWorkspace,
+		attachment: EncryptedMediaAttachment,
+		envelopeId?: string,
+	): Promise<Uint8Array> {
+		if (attachment.v === EARTHLY_PERSISTENT_MEDIA_VERSION) {
+			if (!attachment.k || !/^[0-9a-f]{64}$/u.test(attachment.k)) {
+				throw new Error('Persistent map media attachment is missing a valid 32-byte key')
+			}
+			return hexToBytes(attachment.k)
+		}
+		if (attachment.v !== CORDN_ENCRYPTED_MEDIA_VERSION) {
+			throw new Error(`Unsupported encrypted media version: ${String(attachment.v)}`)
+		}
+
+		const envelopeEpoch =
+			envelopeId !== undefined ? workspace.envelopeEpochs?.[envelopeId] : undefined
+		if (envelopeEpoch !== undefined) {
+			const stored = workspace.epochMediaKeys?.[String(envelopeEpoch)]
+			if (stored && /^[0-9a-f]{64}$/u.test(stored)) {
+				return hexToBytes(stored)
+			}
+		}
+
+		if (workspace.stateBase64) {
+			const state = deserializeClientState(workspace.stateBase64)
+			const currentEpoch = epochFromState(state)
+			if (envelopeEpoch === undefined || envelopeEpoch === currentEpoch) {
+				return deriveEncryptedMediaKey(state)
+			}
+		}
+
+		throw new Error(
+			envelopeEpoch !== undefined
+				? `Media key for epoch ${envelopeEpoch} is unavailable on this device`
+				: 'Media key for this attachment is unavailable on this device',
+		)
+	}
+
+	/**
+	 * Process a single live-pushed Cordn v0.5 coordinator message through the
+	 * exact same MLS ingestion & health-tracking pipeline as `syncWorkspaceResult`.
+	 */
+	async ingestStreamedMessage(
+		workspaceId: string,
+		message: CoordinatorMessage,
+	): Promise<WorkspaceSyncResult> {
+		const ownerPubkey = await this.ownerPubkey()
+		const workspace = await this.requireWorkspace(ownerPubkey, workspaceId)
+		if (
+			workspace.status === 'removed' ||
+			message.gid !== workspace.groupId ||
+			message.cursor <= workspace.cursor
+		) {
+			return { workspace, changed: false }
+		}
+		if (
+			workspace.pendingApplication ||
+			workspace.pendingApproval ||
+			workspace.pendingMembershipCommit
+		) {
+			return this.syncWorkspaceResult(workspaceId)
+		}
+		await this.applyCoordinatorMessages(workspace, [message])
+		await this.options.store.putWorkspace(workspace)
+		return { workspace, changed: true }
+	}
+
+	/**
+	 * Open a Cordn v0.5 `msg_sub_many` live push stream for a workspace.
+	 * Throws `CordnUnsupportedStreamingError` when the coordinator only supports v0.4.
+	 */
+	async openWorkspaceStream(
+		workspaceId: string,
+		handlers: {
+			onMessage: (message: CoordinatorMessage) => void | Promise<void>
+			onError?: (error: Error) => void
+			onClose?: () => void
+		},
+	): Promise<CoordinatorMessageStreamSubscription> {
+		const ownerPubkey = await this.ownerPubkey()
+		const workspace = await this.requireWorkspace(ownerPubkey, workspaceId)
+		if (workspace.status === 'removed') {
+			throw new CordnUnsupportedStreamingError('Workspace membership has been removed')
+		}
+		const coordinator = this.coordinator(workspace.coordinatorPubkey, workspace.relays)
+		if (!coordinator.subscribeManyMessages) {
+			throw new CordnUnsupportedStreamingError('Coordinator client does not support streaming')
+		}
+		return coordinator.subscribeManyMessages({
+			groups: [
+				{
+					gid: workspace.groupId,
+					...(workspace.cursor > 0 ? { after: workspace.cursor } : {}),
+				},
+			],
+			onMessage: async (message) => {
+				if (message.gid === workspace.groupId) {
+					await handlers.onMessage(message)
+				}
+			},
+			onError: handlers.onError,
+			onClose: handlers.onClose,
 		})
 	}
 
@@ -683,9 +1005,11 @@ export class PrivateWorkspaceService {
 			throw new Error('Finish the pending private-map record before sending another')
 		}
 		const oldState = deserializeClientState(workspace.stateBase64)
+		await this.recordEpochMediaKey(workspace, oldState)
 		const outbound = forwarded
 			? await createForwardedWorkspaceApplicationMessage({ state: oldState, envelope })
 			: await createWorkspaceApplicationMessage({ state: oldState, envelope })
+		this.recordEnvelopeEpoch(workspace, envelope.id, epochFromState(oldState))
 		workspace.pendingApplication = {
 			version: 1,
 			envelope,
@@ -788,7 +1112,7 @@ export class PrivateWorkspaceService {
 				continue
 			}
 			try {
-				const mlsBase64 = message.encrypted
+				const mlsBase64 = isCoordinatorMessageEncrypted(message)
 					? await openCoordinatorPayload(state, message.msg_64)
 					: message.msg_64
 				const processed = await processWorkspaceMessage({
@@ -814,6 +1138,7 @@ export class PrivateWorkspaceService {
 		messages: Awaited<ReturnType<PrivateWorkspaceCoordinator['fetchMessages']>>['messages'],
 	): Promise<void> {
 		let state = deserializeClientState(pending.basisStateBase64)
+		await this.recordEpochMediaKey(workspace, state)
 		for (const message of messages) {
 			const pendingOutboundIndex = workspace.pendingOutbound?.findIndex(
 				(item) => item.cursor === message.cursor,
@@ -826,7 +1151,8 @@ export class PrivateWorkspaceService {
 				continue
 			}
 			try {
-				const mlsBase64 = message.encrypted
+				const epochBefore = epochFromState(state)
+				const mlsBase64 = isCoordinatorMessageEncrypted(message)
 					? await openCoordinatorPayload(state, message.msg_64)
 					: message.msg_64
 				const processed = await processWorkspaceMessage({
@@ -835,16 +1161,22 @@ export class PrivateWorkspaceService {
 					administratorPubkeys: this.administratorPolicy(workspace).administrators,
 				})
 				state = processed.newState
+				await this.recordEpochMediaKey(workspace, state)
 				if (processed.kind === 'applicationMessage') {
-					this.applyEnvelope(workspace, processed.envelope)
+					this.applyEnvelope(workspace, processed.envelope, epochBefore)
+					this.recordCleanDecrypt(workspace)
 				} else if (processed.kind === 'rejected') {
 					this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'rejected')
+				} else {
+					this.recordCleanDecrypt(workspace)
 				}
 				if (!memberPubkeysFromState(state).includes(workspace.ownerPubkey)) {
 					workspace.status = 'removed'
+					this.updateSyncHealth(workspace)
 				}
 			} catch {
 				this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'stale-or-invalid')
+				this.recordDecryptFailure(workspace)
 			} finally {
 				workspace.cursor = message.cursor
 			}
@@ -860,12 +1192,17 @@ export class PrivateWorkspaceService {
 		pending: PendingWorkspaceApplication,
 	): Promise<PendingWorkspaceApplication> {
 		const oldState = deserializeClientState(workspace.stateBase64)
+		await this.recordEpochMediaKey(workspace, oldState)
 		const outbound = pending.forwarded
 			? await createForwardedWorkspaceApplicationMessage({
 					state: oldState,
 					envelope: pending.envelope,
 				})
 			: await createWorkspaceApplicationMessage({ state: oldState, envelope: pending.envelope })
+		workspace.envelopeEpochs = {
+			...(workspace.envelopeEpochs ?? {}),
+			[pending.envelope.id]: epochFromState(oldState),
+		}
 		return {
 			version: 1,
 			envelope: pending.envelope,
@@ -1100,8 +1437,8 @@ export class PrivateWorkspaceService {
 				}
 
 				try {
-					const epochBefore = String(state.groupContext.epoch)
-					const mlsBase64 = message.encrypted
+					const epochBefore = epochFromState(state)
+					const mlsBase64 = isCoordinatorMessageEncrypted(message)
 						? await openCoordinatorPayload(state, message.msg_64)
 						: message.msg_64
 					const processed = await processWorkspaceMessage({
@@ -1110,16 +1447,21 @@ export class PrivateWorkspaceService {
 						administratorPubkeys: this.administratorPolicy(workspace).administrators,
 					})
 					state = processed.newState
+					await this.recordEpochMediaKey(workspace, state)
 					if (processed.kind === 'applicationMessage') {
-						this.applyEnvelope(workspace, processed.envelope)
+						this.applyEnvelope(workspace, processed.envelope, epochBefore)
+						this.recordCleanDecrypt(workspace)
 					} else if (processed.kind === 'rejected') {
 						this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'rejected')
+					} else {
+						this.recordCleanDecrypt(workspace)
 					}
-					if (!ownCommitAccepted && String(state.groupContext.epoch) !== epochBefore) {
+					if (!ownCommitAccepted && epochFromState(state) !== epochBefore) {
 						epochChangedBeforeOwnCommit = true
 					}
 					if (!memberPubkeysFromState(state).includes(workspace.ownerPubkey)) {
 						workspace.status = 'removed'
+						this.updateSyncHealth(workspace)
 					}
 				} catch (error) {
 					if (
@@ -1128,8 +1470,10 @@ export class PrivateWorkspaceService {
 						/ancestor|overlap/u.test(error.message)
 					) {
 						workspace.status = 'removed'
+						this.updateSyncHealth(workspace)
 					} else {
 						this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'stale-or-invalid')
+						this.recordDecryptFailure(workspace)
 					}
 				} finally {
 					replayCursor = message.cursor
@@ -1141,6 +1485,7 @@ export class PrivateWorkspaceService {
 				throw new Error('Coordinator did not return the posted private-group membership record')
 			}
 
+			await this.recordEpochMediaKey(workspace, state)
 			workspace.stateBase64 = serializeClientState(state)
 			workspace.cursor = replayCursor
 			this.reconcileAcknowledgedOutbounds(workspace, replayCursor)
@@ -1267,9 +1612,11 @@ export class PrivateWorkspaceService {
 							!memberPubkeysFromState(state).includes(approval.targetPubkey)
 						) {
 							state = deserializeClientState(approval.finalStateBase64)
+							await this.recordEpochMediaKey(workspace, state)
+							const approvalEpoch = epochFromState(state)
 							for (const planned of approval.messages) {
 								if (planned.type === 'application' && planned.envelope) {
-									this.applyEnvelope(workspace, planned.envelope)
+									this.applyEnvelope(workspace, planned.envelope, approvalEpoch)
 								}
 							}
 							ownCommitAccepted = true
@@ -1284,8 +1631,8 @@ export class PrivateWorkspaceService {
 				}
 
 				try {
-					const epochBefore = String(state.groupContext.epoch)
-					const mlsBase64 = message.encrypted
+					const epochBefore = epochFromState(state)
+					const mlsBase64 = isCoordinatorMessageEncrypted(message)
 						? await openCoordinatorPayload(state, message.msg_64)
 						: message.msg_64
 					const processed = await processWorkspaceMessage({
@@ -1294,16 +1641,21 @@ export class PrivateWorkspaceService {
 						administratorPubkeys: this.administratorPolicy(workspace).administrators,
 					})
 					state = processed.newState
+					await this.recordEpochMediaKey(workspace, state)
 					if (processed.kind === 'applicationMessage') {
-						this.applyEnvelope(workspace, processed.envelope)
+						this.applyEnvelope(workspace, processed.envelope, epochBefore)
+						this.recordCleanDecrypt(workspace)
 					} else if (processed.kind === 'rejected') {
 						this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'rejected')
+					} else {
+						this.recordCleanDecrypt(workspace)
 					}
-					if (!ownCommitAccepted && String(state.groupContext.epoch) !== epochBefore) {
+					if (!ownCommitAccepted && epochFromState(state) !== epochBefore) {
 						epochChangedBeforeOwnCommit = true
 					}
 					if (!memberPubkeysFromState(state).includes(workspace.ownerPubkey)) {
 						workspace.status = 'removed'
+						this.updateSyncHealth(workspace)
 					}
 				} catch (error) {
 					if (
@@ -1312,8 +1664,10 @@ export class PrivateWorkspaceService {
 						/ancestor|overlap/u.test(error.message)
 					) {
 						workspace.status = 'removed'
+						this.updateSyncHealth(workspace)
 					} else {
 						this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'stale-or-invalid')
+						this.recordDecryptFailure(workspace)
 					}
 				} finally {
 					replayCursor = message.cursor
@@ -1321,6 +1675,7 @@ export class PrivateWorkspaceService {
 				if (workspace.status === 'removed') break
 			}
 
+			await this.recordEpochMediaKey(workspace, state)
 			workspace.stateBase64 = serializeClientState(state)
 			workspace.cursor = replayCursor
 			const policy = this.administratorPolicy(workspace)
@@ -1407,11 +1762,80 @@ export class PrivateWorkspaceService {
 		return workspace
 	}
 
+	private async applyCoordinatorMessages(
+		workspace: StoredWorkspace,
+		messages: CoordinatorMessage[],
+	): Promise<void> {
+		let state = deserializeClientState(workspace.stateBase64)
+		await this.recordEpochMediaKey(workspace, state)
+		for (const message of [...messages].sort((a, b) => a.cursor - b.cursor)) {
+			if (message.cursor <= workspace.cursor) continue
+			const pendingOutboundIndex = workspace.pendingOutbound?.findIndex(
+				(item) => item.cursor === message.cursor,
+			)
+			if (pendingOutboundIndex !== undefined && pendingOutboundIndex >= 0) {
+				const pending = workspace.pendingOutbound?.[pendingOutboundIndex]
+				if (pending) this.applyEnvelope(workspace, pending.envelope)
+				workspace.pendingOutbound?.splice(pendingOutboundIndex, 1)
+				workspace.cursor = message.cursor
+				this.recordCleanDecrypt(workspace)
+				continue
+			}
+			try {
+				const epochBefore = epochFromState(state)
+				const mlsBase64 = isCoordinatorMessageEncrypted(message)
+					? await openCoordinatorPayload(state, message.msg_64)
+					: message.msg_64
+				const processed = await processWorkspaceMessage({
+					state,
+					messageBase64: mlsBase64,
+					administratorPubkeys: this.administratorPolicy(workspace).administrators,
+				})
+				state = processed.newState
+				await this.recordEpochMediaKey(workspace, state)
+				if (processed.kind === 'applicationMessage') {
+					this.applyEnvelope(workspace, processed.envelope, epochBefore)
+					this.recordCleanDecrypt(workspace)
+				} else if (processed.kind === 'rejected') {
+					this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'rejected')
+				} else {
+					this.recordCleanDecrypt(workspace)
+				}
+				if (!memberPubkeysFromState(state).includes(workspace.ownerPubkey)) {
+					workspace.status = 'removed'
+					this.updateSyncHealth(workspace)
+				}
+			} catch (error) {
+				if (
+					workspace.role === 'member' &&
+					error instanceof Error &&
+					/ancestor|overlap/u.test(error.message)
+				) {
+					workspace.status = 'removed'
+					this.updateSyncHealth(workspace)
+				} else {
+					this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'stale-or-invalid')
+					this.recordDecryptFailure(workspace)
+				}
+			} finally {
+				workspace.cursor = message.cursor
+			}
+			if (workspace.status === 'removed') break
+		}
+		workspace.stateBase64 = serializeClientState(state)
+		this.reconcileAcknowledgedOutbounds(workspace, workspace.cursor)
+		this.administratorPolicy(workspace)
+		this.updateSyncHealth(workspace)
+	}
+
 	private async syncWithCoordinator(
 		workspace: StoredWorkspace,
 		coordinator: PrivateWorkspaceCoordinator,
 	): Promise<boolean> {
-		if (workspace.status === 'removed') return false
+		if (workspace.status === 'removed') {
+			workspace.syncHealth = 'removed'
+			return false
+		}
 		const fetched = await coordinator.fetchMessages({
 			gid: workspace.groupId,
 			after: workspace.cursor > 0 ? workspace.cursor : undefined,
@@ -1422,54 +1846,7 @@ export class PrivateWorkspaceService {
 			await this.options.store.putWorkspace(workspace)
 			return true
 		}
-		let state = deserializeClientState(workspace.stateBase64)
-		for (const message of fetched.messages.sort((a, b) => a.cursor - b.cursor)) {
-			const pendingOutboundIndex = workspace.pendingOutbound?.findIndex(
-				(item) => item.cursor === message.cursor,
-			)
-			if (pendingOutboundIndex !== undefined && pendingOutboundIndex >= 0) {
-				const pending = workspace.pendingOutbound?.[pendingOutboundIndex]
-				if (pending) this.applyEnvelope(workspace, pending.envelope)
-				workspace.pendingOutbound?.splice(pendingOutboundIndex, 1)
-				workspace.cursor = message.cursor
-				continue
-			}
-			try {
-				const mlsBase64 = message.encrypted
-					? await openCoordinatorPayload(state, message.msg_64)
-					: message.msg_64
-				const processed = await processWorkspaceMessage({
-					state,
-					messageBase64: mlsBase64,
-					administratorPubkeys: this.administratorPolicy(workspace).administrators,
-				})
-				state = processed.newState
-				if (processed.kind === 'applicationMessage') {
-					this.applyEnvelope(workspace, processed.envelope)
-				} else if (processed.kind === 'rejected') {
-					this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'rejected')
-				}
-				if (!memberPubkeysFromState(state).includes(workspace.ownerPubkey)) {
-					workspace.status = 'removed'
-				}
-			} catch (error) {
-				if (
-					workspace.role === 'member' &&
-					error instanceof Error &&
-					/ancestor|overlap/u.test(error.message)
-				) {
-					workspace.status = 'removed'
-				} else {
-					this.recordSkippedCoordinatorMessage(workspace, message.cursor, 'stale-or-invalid')
-				}
-			} finally {
-				workspace.cursor = message.cursor
-			}
-			if (workspace.status === 'removed') break
-		}
-		workspace.stateBase64 = serializeClientState(state)
-		this.reconcileAcknowledgedOutbounds(workspace, workspace.cursor)
-		this.administratorPolicy(workspace)
+		await this.applyCoordinatorMessages(workspace, fetched.messages)
 		await this.options.store.putWorkspace(workspace)
 		return true
 	}

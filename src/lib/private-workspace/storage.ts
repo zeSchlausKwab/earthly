@@ -2,6 +2,7 @@ import type { PrivateWorkspaceEnvelope } from './envelope'
 
 export type WorkspaceRole = 'administrator' | 'member'
 export type WorkspaceStatus = 'active' | 'removed'
+export type WorkspaceSyncHealth = 'healthy' | 'behind' | 'forked' | 'removed'
 
 export interface WorkspaceMetadata {
 	name: string
@@ -97,6 +98,16 @@ export interface StoredWorkspace {
 	pendingApproval?: PendingWorkspaceApproval
 	pendingMembershipCommit?: PendingWorkspaceMembershipCommit
 	skippedCoordinatorMessages?: SkippedWorkspaceCoordinatorMessage[]
+	/** Locally retained `cordn-em-v1` 32-byte hex media keys keyed by MLS epoch string. */
+	epochMediaKeys?: Record<string, string>
+	/** MLS epoch in which each envelope id was sent or decrypted. */
+	envelopeEpochs?: Record<string, number>
+	/** When true, administrators automatically approve pending join requests in batches. */
+	autoApproveJoins?: boolean
+	/** Consecutive coordinator payload/MLS decrypt errors since the last clean decrypt. */
+	consecutiveDecryptErrors?: number
+	/** Derived sync health indicator for fork / lag / removal visibility. */
+	syncHealth?: WorkspaceSyncHealth
 	createdAt: number
 }
 

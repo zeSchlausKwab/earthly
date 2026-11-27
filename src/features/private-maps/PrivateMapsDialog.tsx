@@ -1,4 +1,5 @@
 import {
+	AlertTriangle,
 	ArrowLeft,
 	Check,
 	Copy,
@@ -7,10 +8,12 @@ import {
 	Link2,
 	LockKeyhole,
 	MessageSquareText,
+	Paperclip,
 	Plus,
 	QrCode,
 	RefreshCw,
 	ScanLine,
+	Send,
 	Settings2,
 	ShieldCheck,
 	ShieldMinus,
@@ -19,9 +22,20 @@ import {
 	UserMinus,
 	UserPlus,
 	UsersRound,
+	Wrench,
+	X,
 } from 'lucide-react'
-import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+	useContext,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	type ChangeEvent,
+	type ReactNode,
+} from 'react'
 import type { FeatureCollection } from 'geojson'
+import type { EventTemplate } from 'nostr-tools'
 import { QRCodeSVG } from 'qrcode.react'
 import { toast } from 'sonner'
 import {
@@ -39,11 +53,18 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { config } from '@/config'
+import { accounts } from '@/lib/nostr'
 import { earthlyPublicUrl } from '@/platform/publicUrl'
 import {
+	CORDN_ENCRYPTED_MEDIA_VERSION,
+	encodeGroupRef,
+	getWorkspaceSyncHealth,
+	MAX_ENCRYPTED_MEDIA_BYTES,
 	PRIVATE_WORKSPACE_CHAT_KIND,
+	privateMediaAttachmentsForComment,
 	projectPrivateWorkspaceComments,
 	projectPrivateWorkspaceDatasets,
+	uploadEncryptedMediaToBlossom,
 	type WorkspaceJoinRequest,
 } from '@/lib/private-workspace'
 import { computeCommentBbox, type GeoComment } from '@/lib/nostr/geo-comment'
@@ -127,6 +148,8 @@ export function PrivateGroupsPanel({
 		workspaceId: string
 		url: string
 	} | null>(null)
+	const [pendingFiles, setPendingFiles] = useState<Array<{ id: string; file: File }>>([])
+	const fileInputRef = useRef<HTMLInputElement>(null)
 	const [visibleCommentState, setVisibleCommentState] = useState<{
 		workspaceId?: string
 		ids: Set<string>
@@ -183,6 +206,10 @@ export function PrivateGroupsPanel({
 	const administrators = selected && service ? service.administrators(selected) : []
 	const pendingForRoute = Boolean(privateGroupId && pendingWorkspaceIds.has(privateGroupId))
 	const selectedSyncState = selected ? snapshot.syncByWorkspace[selected.workspaceId] : undefined
+	const selectedTransport = selected
+		? snapshot.transportByWorkspace?.[selected.workspaceId]
+		: undefined
+	const selectedHealth = selected ? getWorkspaceSyncHealth(selected) : 'healthy'
 	const inviteLink =
 		inviteLinkState && inviteLinkState.workspaceId === selected?.workspaceId
 			? inviteLinkState.url
@@ -201,6 +228,7 @@ export function PrivateGroupsPanel({
 
 	useEffect(() => {
 		if (!runtime || !privateGroupId || !selectedWorkspaceId) return
+		setPendingFiles([])
 		return runtime.watchWorkspace(privateGroupId)
 	}, [runtime, privateGroupId, selectedWorkspaceId])
 
@@ -385,13 +413,139 @@ export function PrivateGroupsPanel({
 			toast.success('Circle is current')
 		})
 
+	const handleRepairSync = () =>
+		run('repair sync', async () => {
+			if (!runtime || !service || !selected) return
+			await runtime.perform((workspaceService) =>
+				workspaceService.repairWorkspaceSyncState(selected.workspaceId),
+			)
+			toast.success('Circle sync state repaired')
+		})
+
+	const handleCopyGroupRef = () =>
+		run('copy Cordn group ref', async () => {
+			if (!selected) return
+			const groupRef = encodeGroupRef({
+				gid: selected.groupId,
+				coordinator: selected.coordinatorPubkey,
+				relays: selected.relays,
+			})
+			await copyPrivateInviteText(groupRef)
+			toast.success('Cordn group reference (cordn1…) copied')
+		})
+
+	const handleToggleAutoApprove = () =>
+		run('update auto-approve', async () => {
+			if (!runtime || !selected) return
+			const nextEnabled = !selected.autoApproveJoins
+			await runtime.perform((workspaceService) =>
+				workspaceService.setAutoApproveJoins(selected.workspaceId, nextEnabled),
+			)
+			toast.success(
+				nextEnabled ? 'Auto-approve enabled for incoming join requests' : 'Auto-approve disabled',
+			)
+		})
+
+	const handleBatchApprove = () =>
+		run('batch approve members', async () => {
+			if (!runtime || !selected) return
+			const result = await runtime.perform(async (workspaceService) => {
+				if (!selected.autoApproveJoins) {
+					await workspaceService.setAutoApproveJoins(selected.workspaceId, true)
+					try {
+						return await workspaceService.pollAndAutoApproveJoinRequests(selected.workspaceId)
+					} finally {
+						await workspaceService.setAutoApproveJoins(selected.workspaceId, false)
+					}
+				}
+				return workspaceService.pollAndAutoApproveJoinRequests(selected.workspaceId)
+			})
+			const approvedRefs = new Set(result.approved.map((item) => item.kp_ref))
+			setJoinRequestState((current) => ({
+				...current,
+				requests: current.requests.filter((item) => !approvedRefs.has(item.kp_ref)),
+			}))
+			toast.success(
+				result.approved.length > 0
+					? `Approved ${result.approved.length} member${result.approved.length === 1 ? '' : 's'}`
+					: 'No join requests could be approved',
+			)
+		})
+
+	const handleFileSelection = (event: ChangeEvent<HTMLInputElement>) => {
+		const files = Array.from(event.target.files ?? [])
+		event.target.value = ''
+		if (files.length === 0) return
+		const accepted: File[] = []
+		for (const file of files) {
+			if (file.size > MAX_ENCRYPTED_MEDIA_BYTES) {
+				toast.error(`${file.name} exceeds the 25 MB encrypted attachment limit`)
+				continue
+			}
+			accepted.push(file)
+		}
+		if (accepted.length > 0) {
+			setPendingFiles((current) => [
+				...current,
+				...accepted.map((file) => ({ id: crypto.randomUUID(), file })),
+			])
+		}
+	}
+
+	const handleRemovePendingFile = (id: string) => {
+		setPendingFiles((current) => current.filter((item) => item.id !== id))
+	}
+
+	const uploadEncryptedAttachments = async (
+		workspaceId: string,
+		files: readonly File[],
+	): Promise<string[][]> => {
+		if (!service) throw new Error('Circle service is unavailable')
+		const activeSigner = accounts.signer
+		if (!activeSigner) throw new Error('Sign in to upload encrypted media to Blossom')
+		const blossomSigner = async (draft: EventTemplate) => activeSigner.signEvent(draft)
+		const derived = await service.deriveWorkspaceMediaKey(workspaceId)
+		const tags: string[][] = []
+		for (const file of files) {
+			const bytes = new Uint8Array(await file.arrayBuffer())
+			const uploaded = await uploadEncryptedMediaToBlossom({
+				bytes,
+				mime: file.type || 'application/octet-stream',
+				filename: file.name,
+				mode: CORDN_ENCRYPTED_MEDIA_VERSION,
+				epochMediaKey: derived.key,
+				signer: blossomSigner,
+			})
+			tags.push(uploaded.imetaTag)
+		}
+		return tags
+	}
+
 	const handleSendComment = (text: string, geojson?: FeatureCollection) =>
 		run('send comment', async () => {
 			if (!runtime || !service || !selected) return
+			const filesToUpload = pendingFiles.map((item) => item.file)
+			const mediaImetaTags =
+				filesToUpload.length > 0
+					? await uploadEncryptedAttachments(selected.workspaceId, filesToUpload)
+					: []
 			await runtime.perform((workspaceService) =>
-				workspaceService.sendComment(selected.workspaceId, text, geojson),
+				mediaImetaTags.length > 0
+					? workspaceService.sendCommentWithMedia(
+							selected.workspaceId,
+							text,
+							geojson,
+							mediaImetaTags,
+						)
+					: workspaceService.sendComment(selected.workspaceId, text, geojson),
 			)
+			if (filesToUpload.length > 0) setPendingFiles([])
 		})
+
+	const handleSendPendingFiles = () => {
+		if (pendingFiles.length === 0) return
+		void handleSendComment('')
+	}
 
 	const handleCommentGeometryVisibility = (comment: GeoComment, visible: boolean) => {
 		const commentId = comment.commentId ?? comment.id ?? ''
@@ -501,7 +655,7 @@ export function PrivateGroupsPanel({
 								<div className="flex items-start gap-2">
 									<GlyphTile icon={LockKeyhole} className="bg-primary/15 text-primary" />
 									<div className="min-w-0 flex-1">
-										<div className="flex items-center gap-1.5">
+										<div className="flex flex-wrap items-center gap-1.5">
 											<h2 className="truncate text-sm font-semibold text-foreground">
 												{selected.metadata?.name ?? 'Circle'}
 											</h2>
@@ -513,12 +667,42 @@ export function PrivateGroupsPanel({
 														: 'bg-destructive/15 text-destructive'
 												}
 											/>
+											{selectedTransport === 'streaming' ? (
+												<RowBadge label="live" className="bg-ok/15 text-ok" />
+											) : null}
+											{selectedHealth === 'behind' ? (
+												<RowBadge
+													label="behind"
+													className="bg-amber-500/15 text-amber-600 dark:text-amber-400"
+												/>
+											) : selectedHealth === 'forked' ? (
+												<RowBadge label="forked" className="bg-destructive/15 text-destructive" />
+											) : null}
 										</div>
 										<p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
 											{selected.metadata?.description || 'No description'}
 										</p>
 									</div>
 								</div>
+								{selectedHealth === 'behind' || selectedHealth === 'forked' ? (
+									<div className="mt-2 flex items-center gap-2 rounded-[2px] border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-[11px] text-foreground">
+										<AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+										<span className="min-w-0 flex-1 leading-snug">
+											Sync health is <strong>{selectedHealth}</strong> (
+											{selected.consecutiveDecryptErrors ?? 0} decrypt errors).
+										</span>
+										<Button
+											type="button"
+											size="xs"
+											variant="outline"
+											className="h-6 shrink-0 gap-1 px-2 text-[10px]"
+											onClick={handleRepairSync}
+											disabled={Boolean(busy)}
+										>
+											<Wrench className="h-3 w-3" /> Repair
+										</Button>
+									</div>
+								) : null}
 								<div className="mt-2">
 									<PrivateGroupsSecurityNotice />
 								</div>
@@ -582,6 +766,9 @@ export function PrivateGroupsPanel({
 													availableFeatures={availableFeatures}
 													onMentionVisibilityToggle={onMentionVisibilityToggle}
 													onMentionZoomTo={onMentionZoomTo}
+													workspace={selected}
+													service={service}
+													mediaAttachments={privateMediaAttachmentsForComment(item.comment)}
 												/>
 											) : (
 												<div key={item.id} className="py-2.5">
@@ -605,13 +792,69 @@ export function PrivateGroupsPanel({
 											</p>
 										) : null}
 									</div>
-									<GeoCommentForm
-										onSubmit={handleSendComment}
-										placeholder="Message this Circle…"
-										availableFeatures={availableFeatures}
-										searchRelayMentions={false}
-										className="mt-3"
-									/>
+									<div className="mt-3 space-y-2">
+										<div className="flex flex-wrap items-center gap-1.5">
+											<input
+												ref={fileInputRef}
+												type="file"
+												multiple
+												accept="image/*,application/pdf,audio/*,video/*,text/plain,.geojson,.json"
+												className="hidden"
+												onChange={handleFileSelection}
+											/>
+											<Button
+												type="button"
+												variant="outline"
+												size="xs"
+												className="h-7 gap-1 px-2 text-[11px]"
+												disabled={Boolean(busy) || selected.status !== 'active'}
+												onClick={() => fileInputRef.current?.click()}
+											>
+												<Paperclip className="h-3 w-3" /> Attach encrypted file
+											</Button>
+											{pendingFiles.length > 0 ? (
+												<Button
+													type="button"
+													size="xs"
+													className="h-7 gap-1 px-2 text-[11px]"
+													disabled={Boolean(busy)}
+													onClick={handleSendPendingFiles}
+												>
+													<Send className="h-3 w-3" /> Send {pendingFiles.length} file
+													{pendingFiles.length === 1 ? '' : 's'}
+												</Button>
+											) : null}
+											<span className="ml-auto font-mono text-[9px] text-muted-foreground">
+												EXIF stripped · MLS encrypted
+											</span>
+										</div>
+										{pendingFiles.length > 0 ? (
+											<div className="flex flex-wrap gap-1">
+												{pendingFiles.map(({ id, file }) => (
+													<span
+														key={id}
+														className="inline-flex max-w-full items-center gap-1 rounded-[2px] border border-ok/35 bg-ok/10 px-1.5 py-0.5 text-[10px] text-foreground"
+													>
+														<span className="truncate max-w-36">{file.name}</span>
+														<button
+															type="button"
+															aria-label={`Remove ${file.name}`}
+															className="text-muted-foreground hover:text-foreground"
+															onClick={() => handleRemovePendingFile(id)}
+														>
+															<X className="h-3 w-3" />
+														</button>
+													</span>
+												))}
+											</div>
+										) : null}
+										<GeoCommentForm
+											onSubmit={handleSendComment}
+											placeholder="Message this Circle…"
+											availableFeatures={availableFeatures}
+											searchRelayMentions={false}
+										/>
+									</div>
 								</TabsContent>
 
 								<TabsContent
@@ -626,6 +869,8 @@ export function PrivateGroupsPanel({
 									</div>
 									<PrivateGeometryReferences
 										workspaceId={selected.workspaceId}
+										workspace={selected}
+										service={service}
 										datasets={privateDatasets}
 										comments={privateComments}
 										actions={datasetActions}
@@ -685,7 +930,6 @@ export function PrivateGroupsPanel({
 										) : null}
 										{selected.role === 'administrator' ? (
 											<Button
-												className="col-span-2"
 												variant="outline"
 												size="sm"
 												onClick={handleShowInviteQr}
@@ -697,6 +941,28 @@ export function PrivateGroupsPanel({
 													<QrCode />
 												)}
 												{busy === 'create invitation' ? 'Creating…' : 'Create invite QR'}
+											</Button>
+										) : null}
+										<Button
+											variant="outline"
+											size="sm"
+											onClick={handleCopyGroupRef}
+											disabled={Boolean(busy)}
+										>
+											<Copy /> Copy cordn1… ref
+										</Button>
+										{selected.role === 'administrator' ? (
+											<Button
+												className="col-span-2"
+												variant={selected.autoApproveJoins ? 'secondary' : 'outline'}
+												size="sm"
+												onClick={handleToggleAutoApprove}
+												disabled={Boolean(busy)}
+											>
+												<UserPlus />
+												{selected.autoApproveJoins
+													? 'Auto-approve joins: On'
+													: 'Auto-approve joins: Off'}
 											</Button>
 										) : null}
 									</div>
@@ -737,6 +1003,14 @@ export function PrivateGroupsPanel({
 										<div className="bg-card p-2">
 											<span className="text-muted-foreground">RECORD CURSOR</span>
 											<div className="mt-0.5 text-foreground">{selected.cursor}</div>
+										</div>
+										<div className="bg-card p-2">
+											<span className="text-muted-foreground">SYNC HEALTH</span>
+											<div className="mt-0.5 text-foreground">{selectedHealth}</div>
+										</div>
+										<div className="bg-card p-2">
+											<span className="text-muted-foreground">TRANSPORT</span>
+											<div className="mt-0.5 text-foreground">{selectedTransport ?? 'polling'}</div>
 										</div>
 										<div className="col-span-2 bg-card p-2">
 											<span className="text-muted-foreground">RECOMMENDED BASEMAP</span>
@@ -824,6 +1098,17 @@ export function PrivateGroupsPanel({
 												No pending join requests found.
 											</p>
 										) : null}
+										{joinRequests.length > 1 && selected.role === 'administrator' ? (
+											<Button
+												size="sm"
+												variant="outline"
+												className="w-full"
+												onClick={handleBatchApprove}
+												disabled={Boolean(busy)}
+											>
+												<Check /> Approve all ({joinRequests.length})
+											</Button>
+										) : null}
 										{joinRequests.map((request) => (
 											<div
 												key={request.kp_ref}
@@ -839,8 +1124,8 @@ export function PrivateGroupsPanel({
 													className="mt-1"
 												/>
 												<p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
-											Approval shares the current Maps. Earlier discussion and its
-													attachments remain private to members who already received them.
+													Approval shares the current Maps. Earlier discussion and its attachments
+													remain private to members who already received them.
 												</p>
 												<Button
 													className="mt-2 w-full"

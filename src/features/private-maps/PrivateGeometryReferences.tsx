@@ -1,5 +1,10 @@
 import type { GeoDataset } from '@/lib/nostr/geo-event'
 import type { GeoComment } from '@/lib/nostr/geo-comment'
+import {
+	privateMediaAttachmentsForDataset,
+	type PrivateWorkspaceService,
+	type StoredWorkspace,
+} from '@/lib/private-workspace'
 import { UserProfile } from '@/components/user-profile/UserProfile'
 import { GlyphTile, ListRow, RowActionButton, RowBadge } from '@/components/entity-list'
 import {
@@ -10,6 +15,7 @@ import {
 } from '@/components/entity-action-icons'
 import { useEditorStore } from '@/features/geo-editor/store'
 import { privateDatasetStackEntryId } from './privateDatasetStack'
+import { PrivateMediaAttachments } from './PrivateMediaAttachments'
 
 export interface PrivateDatasetActions {
 	getDatasetKey: (event: GeoDataset) => string
@@ -22,6 +28,8 @@ export interface PrivateDatasetActions {
 
 export function PrivateGeometryReferences({
 	workspaceId,
+	workspace,
+	service,
 	datasets,
 	comments = [],
 	actions,
@@ -30,6 +38,8 @@ export function PrivateGeometryReferences({
 	onZoomToCommentGeometry,
 }: {
 	workspaceId: string
+	workspace?: StoredWorkspace
+	service?: PrivateWorkspaceService
 	datasets: GeoDataset[]
 	comments?: GeoComment[]
 	actions?: PrivateDatasetActions
@@ -67,6 +77,7 @@ export function PrivateGeometryReferences({
 					const entryId = privateDatasetStackEntryId(workspaceId, datasetKey)
 					const isInMapStack = Boolean(mapStackEntries[entryId])
 					const featureCount = dataset.featureCollection.features.length
+					const mediaAttachments = privateMediaAttachmentsForDataset(dataset)
 
 					const showAndZoom = () => {
 						if (!actions) return
@@ -75,59 +86,70 @@ export function PrivateGeometryReferences({
 					}
 
 					return (
-						<ListRow
-							key={entryId}
-							leading={<GlyphTile icon={DatasetGlyphIcon} />}
-							title={title}
-							onTitleClick={actions ? showAndZoom : undefined}
-							titleAriaLabel={`Show and zoom to ${title}`}
-							titleTitle={isInMapStack ? 'Frame Map' : 'Show on map and frame'}
-							badges={
-								<RowBadge
-									label={`${featureCount} feature${featureCount === 1 ? '' : 's'}`}
-									className="bg-info/10 text-info"
-								/>
-							}
-							meta={
-								<UserProfile
-									pubkey={dataset.pubkey}
-									mode="avatar-name"
-									size="xs"
-									showNip05Badge={false}
-									interactive={false}
-								/>
-							}
-							note="MLS-encrypted Circle geometry"
-							actions={
-								actions ? (
-									<>
-										<RowActionButton
-											icon={MapStackActionIcon}
-											label={isInMapStack ? 'Remove from map' : 'Show on map'}
-											hover="hover:text-ok"
-											active={isInMapStack}
-											activeClassName="text-ok hover:text-ok"
-											onClick={() =>
-												isInMapStack
-													? actions.onRemoveFromMap(dataset)
-													: actions.onAddToMap(dataset)
-											}
-										/>
-										<RowActionButton
-											icon={ZoomActionIcon}
-											label="Frame Map"
-											onClick={showAndZoom}
-										/>
-										<RowActionButton
-											icon={LoadEditorActionIcon}
-											label="Edit private Map"
-											hover="hover:text-ok"
-											onClick={() => actions.onLoadIntoEditor(dataset)}
-										/>
-									</>
-								) : undefined
-							}
-						/>
+						<div key={entryId}>
+							<ListRow
+								leading={<GlyphTile icon={DatasetGlyphIcon} />}
+								title={title}
+								onTitleClick={actions ? showAndZoom : undefined}
+								titleAriaLabel={`Show and zoom to ${title}`}
+								titleTitle={isInMapStack ? 'Frame Map' : 'Show on map and frame'}
+								badges={
+									<RowBadge
+										label={`${featureCount} feature${featureCount === 1 ? '' : 's'}`}
+										className="bg-info/10 text-info"
+									/>
+								}
+								meta={
+									<UserProfile
+										pubkey={dataset.pubkey}
+										mode="avatar-name"
+										size="xs"
+										showNip05Badge={false}
+										interactive={false}
+									/>
+								}
+								note="MLS-encrypted Circle geometry"
+								actions={
+									actions ? (
+										<>
+											<RowActionButton
+												icon={MapStackActionIcon}
+												label={isInMapStack ? 'Remove from map' : 'Show on map'}
+												hover="hover:text-ok"
+												active={isInMapStack}
+												activeClassName="text-ok hover:text-ok"
+												onClick={() =>
+													isInMapStack
+														? actions.onRemoveFromMap(dataset)
+														: actions.onAddToMap(dataset)
+												}
+											/>
+											<RowActionButton
+												icon={ZoomActionIcon}
+												label="Frame Map"
+												onClick={showAndZoom}
+											/>
+											<RowActionButton
+												icon={LoadEditorActionIcon}
+												label="Edit private Map"
+												hover="hover:text-ok"
+												onClick={() => actions.onLoadIntoEditor(dataset)}
+											/>
+										</>
+									) : undefined
+								}
+							/>
+							{workspace && mediaAttachments.length > 0 ? (
+								<div className="border-b border-border px-3 pb-2.5">
+									<PrivateMediaAttachments
+										workspace={workspace}
+										service={service}
+										envelopeId={dataset.id}
+										attachments={mediaAttachments}
+									/>
+								</div>
+							) : null}
+						</div>
 					)
 				})}
 			</div>

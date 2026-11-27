@@ -3,10 +3,18 @@ import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools'
 import { GEO_COMMENT_KIND, GEO_EVENT_KIND } from '@/lib/nostr/kinds'
 import { createPrivateEnvelope } from './envelope'
 import {
+	privateEpochForRecord,
+	privateMediaAttachmentsForComment,
+	privateMediaAttachmentsForDataset,
 	privateWorkspaceIdForDataset,
 	projectPrivateWorkspaceComments,
 	projectPrivateWorkspaceDatasets,
 } from './projection'
+import {
+	buildEncryptedMediaImetaTag,
+	CORDN_ENCRYPTED_MEDIA_VERSION,
+	EARTHLY_PERSISTENT_MEDIA_VERSION,
+} from './media'
 import type { StoredWorkspace } from './storage'
 
 const testSecretKey = generateSecretKey()
@@ -74,7 +82,7 @@ describe('projectPrivateWorkspaceDatasets', () => {
 		)
 
 		expect(datasets).toHaveLength(1)
-		expect((datasets[0]?.featureCollection as { name?: string }).name).toBe('Current')
+		expect((datasets[0]?.featureCollection as { name?: string } | undefined)?.name).toBe('Current')
 	})
 })
 
@@ -127,5 +135,70 @@ describe('projectPrivateWorkspaceComments', () => {
 		expect(
 			projectPrivateWorkspaceComments(workspace([await datasetEnvelope('Trailhead')])),
 		).toEqual([])
+	})
+
+	test('projects parsed cordn-em-v1 and earthly-pm-v1 mediaAttachments with envelope epochs', async () => {
+		const commentImeta = buildEncryptedMediaImetaTag({
+			url: 'https://blossom.earthly.city/photo1',
+			mime: 'image/jpeg',
+			filename: 'abc123.jpg',
+			x: '11'.repeat(32),
+			n: '22'.repeat(12),
+			v: CORDN_ENCRYPTED_MEDIA_VERSION,
+			dim: '800x600',
+			alt: 'Camp view',
+		})
+		const datasetImeta = buildEncryptedMediaImetaTag({
+			url: 'https://blossom.earthly.city/mapphoto',
+			mime: 'image/webp',
+			filename: 'def456.webp',
+			x: '33'.repeat(32),
+			n: '44'.repeat(12),
+			v: EARTHLY_PERSISTENT_MEDIA_VERSION,
+			k: '55'.repeat(32),
+		})
+
+		const comment = await createPrivateEnvelope({
+			signer: testSigner,
+			groupId: testGroupId,
+			pubkey: testPubkey,
+			kind: GEO_COMMENT_KIND,
+			tags: [['d', 'comment-media'], commentImeta],
+			content: JSON.stringify({ text: 'See photo' }),
+		})
+		const dataset = await createPrivateEnvelope({
+			signer: testSigner,
+			groupId: testGroupId,
+			pubkey: testPubkey,
+			kind: GEO_EVENT_KIND,
+			tags: [['d', 'dataset-media'], ['name', 'Survey'], datasetImeta],
+			content: JSON.stringify({
+				type: 'FeatureCollection',
+				name: 'Survey',
+				features: [],
+			}),
+		})
+
+		const ws = workspace([comment, dataset])
+		ws.envelopeEpochs = { [comment.id]: 3, [dataset.id]: 1 }
+
+		const [projectedComment] = projectPrivateWorkspaceComments(ws)
+		if (!projectedComment) throw new Error('Expected projected comment')
+		expect(projectedComment.mediaAttachments).toHaveLength(1)
+		expect(projectedComment.mediaAttachments[0]?.v).toBe(CORDN_ENCRYPTED_MEDIA_VERSION)
+		expect(projectedComment.mediaAttachments[0]?.epoch).toBe(3)
+		expect(privateMediaAttachmentsForComment(projectedComment)).toEqual(
+			projectedComment.mediaAttachments,
+		)
+		expect(privateEpochForRecord(projectedComment)).toBe(3)
+
+		const [projectedDataset] = projectPrivateWorkspaceDatasets(ws)
+		if (!projectedDataset) throw new Error('Expected projected dataset')
+		expect(projectedDataset.mediaAttachments).toHaveLength(1)
+		expect(projectedDataset.mediaAttachments[0]?.v).toBe(EARTHLY_PERSISTENT_MEDIA_VERSION)
+		expect(projectedDataset.mediaAttachments[0]?.k).toBe('55'.repeat(32))
+		expect(privateMediaAttachmentsForDataset(projectedDataset)).toEqual(
+			projectedDataset.mediaAttachments,
+		)
 	})
 })
