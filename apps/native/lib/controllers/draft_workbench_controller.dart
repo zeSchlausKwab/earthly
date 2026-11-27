@@ -67,7 +67,7 @@ class DraftWorkbenchController extends ChangeNotifier {
   String activeDraftId = 'active-working-map';
   List<LocalDraftDto> savedDrafts = <LocalDraftDto>[];
   String draftDTag = 'field-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
-  String draftTitle = 'Field Map';
+  String draftTitle = '';
   DraftAudienceChoice draftAudience = DraftAudienceChoice.publicRelay;
 
   final List<DrawnFeature> features = <DrawnFeature>[];
@@ -985,6 +985,23 @@ class DraftWorkbenchController extends ChangeNotifier {
     return feat;
   }
 
+  String _mintFreshId(String prefix, {required String current}) {
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final candidate = '$prefix-$nowSec';
+    final savedMatch =
+        prefix == 'draft' && savedDrafts.any((d) => d.draftId == candidate);
+    if (candidate != current && !savedMatch) {
+      return candidate;
+    }
+    var seq = 1;
+    while ('$candidate-$seq' == current ||
+        (prefix == 'draft' &&
+            savedDrafts.any((d) => d.draftId == '$candidate-$seq'))) {
+      seq += 1;
+    }
+    return '$candidate-$seq';
+  }
+
   void clearDraftFeatures({VoidCallback? onPersist}) {
     pushUndo();
     features.clear();
@@ -992,6 +1009,8 @@ class DraftWorkbenchController extends ChangeNotifier {
     editingFeatureId = null;
     selectedVertexIndex = null;
     draftVertices.clear();
+    draftTitle = '';
+    draftDTag = _mintFreshId('field', current: draftDTag);
     _notifyGeometry(selectionChanged: true);
     onPersist?.call();
   }
@@ -1293,13 +1312,20 @@ class DraftWorkbenchController extends ChangeNotifier {
   }) {
     final cloned = parseDraftFeaturesFromGeoJson(geojson);
     if (cloned.isEmpty) return 0;
+    activeDraftId = _mintFreshId('draft', current: activeDraftId);
+    draftDTag = _mintFreshId('field', current: draftDTag);
+    draftAudience = DraftAudienceChoice.publicRelay;
     features
       ..clear()
       ..addAll(cloned);
     selectedDraftFeatureIds.clear();
     draftVertices.clear();
+    editingDraftFeature = null;
+    editingFeatureId = null;
+    selectedVertexIndex = null;
     featureCounter = features.length;
-    draftTitle = '$sourceTitle (Draft)';
+    final trimmedSource = sourceTitle.trim();
+    draftTitle = trimmedSource.isEmpty ? '' : '$trimmedSource (Draft)';
     _notifyGeometry(selectionChanged: true);
     onPersist?.call();
     return cloned.length;
@@ -1419,7 +1445,7 @@ class DraftWorkbenchController extends ChangeNotifier {
       featureCounter += 1;
       features.add(feat.copyWith(id: 'imp-$featureCounter'));
     }
-    if (draftTitle == 'Field Map' && converted.title.isNotEmpty) {
+    if (draftTitle.trim().isEmpty && converted.title.isNotEmpty) {
       draftTitle = converted.title;
     }
     _notifyGeometry();
@@ -1482,11 +1508,19 @@ class DraftWorkbenchController extends ChangeNotifier {
     return safeName.isEmpty ? 'earthly-map' : safeName;
   }
 
+  String get effectiveDraftTitle {
+    final trimmed = draftTitle.trim();
+    return trimmed.isEmpty ? 'Untitled Map' : trimmed;
+  }
+
+  String get _effectiveExportTitle => effectiveDraftTitle;
+
   Future<String?> exportSpatialFile(String format) async {
     if (features.isEmpty) return null;
     await RustBridge.ensureInitialized();
+    final exportTitle = _effectiveExportTitle;
     final geojson = draftFeaturesToGeoJson(
-      title: draftTitle,
+      title: exportTitle,
       features: features,
     );
     final stem = _safeFileStem();
@@ -1495,11 +1529,11 @@ class DraftWorkbenchController extends ChangeNotifier {
     final String mimeType;
     switch (format) {
       case 'gpx':
-        content = await geoExportGpx(geojson: geojson, title: draftTitle);
+        content = await geoExportGpx(geojson: geojson, title: exportTitle);
         filename = '$stem.gpx';
         mimeType = 'application/gpx+xml';
       case 'kml':
-        content = await geoExportKml(geojson: geojson, title: draftTitle);
+        content = await geoExportKml(geojson: geojson, title: exportTitle);
         filename = '$stem.kml';
         mimeType = 'application/vnd.google-earth.kml+xml';
       default:
@@ -1517,14 +1551,15 @@ class DraftWorkbenchController extends ChangeNotifier {
   Future<String?> exportShapefileZip() async {
     if (features.isEmpty) return null;
     await RustBridge.ensureInitialized();
+    final exportTitle = effectiveDraftTitle;
     final geojson = draftFeaturesToGeoJson(
-      title: draftTitle,
+      title: exportTitle,
       features: features,
     );
     final stem = _safeFileStem();
     final zipBytes = await geoExportShapefileZip(
       geojson: geojson,
-      title: draftTitle,
+      title: exportTitle,
     );
     return DeviceBridge.saveBinaryFile(
       filename: '$stem-shapefile.zip',
@@ -1536,7 +1571,7 @@ class DraftWorkbenchController extends ChangeNotifier {
   int copyGeoJsonToClipboard() {
     if (features.isEmpty) return 0;
     final geojson = draftFeaturesToGeoJson(
-      title: draftTitle,
+      title: effectiveDraftTitle,
       features: features,
     );
     Clipboard.setData(ClipboardData(text: geojson));
@@ -1546,7 +1581,7 @@ class DraftWorkbenchController extends ChangeNotifier {
   Future<DraftValidationDto> validateCurrentDraft() async {
     await RustBridge.ensureInitialized();
     final geojson = draftFeaturesToGeoJson(
-      title: draftTitle,
+      title: effectiveDraftTitle,
       features: features,
     );
     return geoValidateDraftGeojson(geojson: geojson);
@@ -2188,6 +2223,22 @@ class DraftWorkbenchController extends ChangeNotifier {
     } catch (_) {}
   }
 
+  static DraftAudienceChoice audienceFromChannel(String channel) {
+    return switch (channel.trim().toLowerCase()) {
+      'nearby' => DraftAudienceChoice.nearbyLocalNode,
+      'circle' || 'mls' => DraftAudienceChoice.privateCircle,
+      _ => DraftAudienceChoice.publicRelay,
+    };
+  }
+
+  static String audienceToChannel(DraftAudienceChoice audience) {
+    return switch (audience) {
+      DraftAudienceChoice.publicRelay => 'public',
+      DraftAudienceChoice.nearbyLocalNode => 'nearby',
+      DraftAudienceChoice.privateCircle => 'circle',
+    };
+  }
+
   Future<void> restoreSavedDraft() async {
     try {
       await RustBridge.ensureInitialized();
@@ -2207,9 +2258,7 @@ class DraftWorkbenchController extends ChangeNotifier {
       activeDraftId = target.draftId;
       draftDTag = target.dTag;
       draftTitle = target.title;
-      draftAudience = target.audienceChannel == 'nearby'
-          ? DraftAudienceChoice.nearbyLocalNode
-          : DraftAudienceChoice.publicRelay;
+      draftAudience = audienceFromChannel(target.audienceChannel);
       features
         ..clear()
         ..addAll(restored);
@@ -2223,28 +2272,30 @@ class DraftWorkbenchController extends ChangeNotifier {
     activeDraftId = draft.draftId;
     draftDTag = draft.dTag;
     draftTitle = draft.title;
-    draftAudience = draft.audienceChannel == 'nearby'
-        ? DraftAudienceChoice.nearbyLocalNode
-        : DraftAudienceChoice.publicRelay;
+    draftAudience = audienceFromChannel(draft.audienceChannel);
     features
       ..clear()
       ..addAll(restored);
     selectedDraftFeatureIds.clear();
     draftVertices.clear();
     editingDraftFeature = null;
+    editingFeatureId = null;
+    selectedVertexIndex = null;
     featureCounter = restored.length;
     _notifyGeometry(selectionChanged: true);
   }
 
   void createNewDraft({VoidCallback? onPersist}) {
-    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    activeDraftId = 'draft-$nowSec';
-    draftDTag = 'field-$nowSec';
-    draftTitle = 'Field Map ${savedDrafts.length + 1}';
+    activeDraftId = _mintFreshId('draft', current: activeDraftId);
+    draftDTag = _mintFreshId('field', current: draftDTag);
+    draftTitle = '';
+    draftAudience = DraftAudienceChoice.publicRelay;
     features.clear();
     selectedDraftFeatureIds.clear();
     draftVertices.clear();
     editingDraftFeature = null;
+    editingFeatureId = null;
+    selectedVertexIndex = null;
     featureCounter = 0;
     _notifyGeometry(selectionChanged: true);
     onPersist?.call();
@@ -2289,9 +2340,7 @@ class DraftWorkbenchController extends ChangeNotifier {
         draftId: activeDraftId,
         dTag: draftDTag,
         title: draftTitle,
-        audienceChannel: draftAudience == DraftAudienceChoice.nearbyLocalNode
-            ? 'nearby'
-            : 'public',
+        audienceChannel: audienceToChannel(draftAudience),
         geojson: geojson,
       );
       await refreshSavedDrafts(isHeadlessTest: isHeadlessTest);

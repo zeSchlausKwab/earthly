@@ -19,10 +19,9 @@ import 'qr_code_view.dart';
 
 enum _LocalBindChoice { lanWifi, fipsMesh, loopback }
 
-/// Spaces drawer: Identity (Android NIP-55 Amber OR Persisted Local Keypair) +
-/// Custom Nostr Relays + Live Beacon (37521) + Nearby Field Sessions (LAN Wi-Fi,
-/// FIPS Mesh fd00::/8, or Loopback hosting with QR code, live Pending Claims &
-/// Approved Peers list, Android ZXing QR scanner, and NIP-42 peer sync).
+/// Spaces drawer: 3-tab (`Groups` | `Nearby` | `Network`) hub for MLS Groups,
+/// Inbox/Outbox Activity, Nearby Field Sessions + Live Beacon, and Nostr Relays,
+/// Tools (Cashu Wallet, MCP Bridge, Shoutbox, Help), Account, and Diagnostics.
 class SpacesSheet extends StatefulWidget {
   const SpacesSheet({
     required this.account,
@@ -52,6 +51,7 @@ class SpacesSheet extends StatefulWidget {
     this.onOpenHelp,
     this.onOpenCashuWallet,
     this.cashuBalanceSats,
+    this.cashuWalletEnabled = false,
     this.onOpenMcpBridge,
     this.mcpBridgeRunning = false,
     super.key,
@@ -90,6 +90,7 @@ class SpacesSheet extends StatefulWidget {
   final VoidCallback? onOpenHelp;
   final VoidCallback? onOpenCashuWallet;
   final int? cashuBalanceSats;
+  final bool cashuWalletEnabled;
   final VoidCallback? onOpenMcpBridge;
   final bool mcpBridgeRunning;
   final VoidCallback onClose;
@@ -98,7 +99,9 @@ class SpacesSheet extends StatefulWidget {
   State<SpacesSheet> createState() => _SpacesSheetState();
 }
 
-class _SpacesSheetState extends State<SpacesSheet> {
+class _SpacesSheetState extends State<SpacesSheet>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabs;
   final _inviteInputController = TextEditingController();
   final _beaconStatusController = TextEditingController();
   final _relayInputController = TextEditingController();
@@ -123,6 +126,7 @@ class _SpacesSheetState extends State<SpacesSheet> {
   @override
   void initState() {
     super.initState();
+    _tabs = TabController(length: 3, vsync: this);
     if (widget.initialPairingLink != null &&
         widget.initialPairingLink!.isNotEmpty) {
       _inviteInputController.text = widget.initialPairingLink!;
@@ -147,6 +151,7 @@ class _SpacesSheetState extends State<SpacesSheet> {
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _tabs.dispose();
     _inviteInputController.dispose();
     _beaconStatusController.dispose();
     _relayInputController.dispose();
@@ -328,7 +333,6 @@ class _SpacesSheetState extends State<SpacesSheet> {
     try {
       await RustBridge.ensureInitialized();
       final snap = await nearbyPeersStatus();
-      // Auto-refresh any pending remote peer to detect host approval promptly.
       var updatedSnap = snap;
       for (final remote in snap.remotePeers) {
         if (remote.status == 'pending') {
@@ -562,13 +566,23 @@ class _SpacesSheetState extends State<SpacesSheet> {
     }
   }
 
+  Widget _buildExpandableCard(
+    ThemeData theme, {
+    required Widget child,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.dividerColor),
+      ),
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final account = widget.account;
-    final pairingUri = _sessionInvite != null
-        ? 'earthly://pair?invitation=$_sessionInvite'
-        : null;
     final pendingClaims = _peers?.pendingClaims ?? const <PendingClaimDto>[];
     final approvedPeers = _peers?.approvedPeers ?? const <ApprovedPeerDto>[];
     final remotePeers = _peers?.remotePeers ?? const <RemotePeerDto>[];
@@ -577,18 +591,18 @@ class _SpacesSheetState extends State<SpacesSheet> {
       initialFraction: 0.56,
       onClose: widget.onClose,
       header: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 0, 8, 6),
+        padding: const EdgeInsets.fromLTRB(8, 0, 4, 0),
         child: Row(
           children: [
             Expanded(
-              child: Text(
-                'SPACES · CIRCLES & NEARBY',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelLarge?.copyWith(
-                  fontFamily: 'monospace',
-                  letterSpacing: 0.7,
-                ),
+              child: TabBar(
+                controller: _tabs,
+                dividerHeight: 0,
+                tabs: const [
+                  Tab(key: Key('spaces-tab-groups'), text: 'Groups'),
+                  Tab(key: Key('spaces-tab-nearby'), text: 'Nearby'),
+                  Tab(key: Key('spaces-tab-network'), text: 'Network'),
+                ],
               ),
             ),
             IconButton(
@@ -598,6 +612,7 @@ class _SpacesSheetState extends State<SpacesSheet> {
               icon: const Icon(Icons.refresh, size: 18),
             ),
             IconButton(
+              tooltip: 'Close',
               visualDensity: VisualDensity.compact,
               onPressed: widget.onClose,
               icon: const Icon(Icons.close, size: 18),
@@ -605,99 +620,212 @@ class _SpacesSheetState extends State<SpacesSheet> {
           ],
         ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (_infoBanner != null) ...[
+          if (_infoBanner != null)
             Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               color: EarthlyColors.commentGreen.withValues(alpha: 0.12),
-              child: Text(
-                _infoBanner!,
-                style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: EarthlyColors.commentGreen,
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-          ],
-
-          // Pending incoming pairing claims (Host approval prompt!)
-          if (pendingClaims.isNotEmpty) ...[
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: EarthlyColors.proposedAmber.withValues(alpha: 0.12),
-                border: Border.all(color: EarthlyColors.proposedAmber, width: 1.5),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+              child: Row(
                 children: [
-                  Text(
-                    'INCOMING PAIRING REQUESTS (${pendingClaims.length})',
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: EarthlyColors.proposedAmber,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  for (final claim in pendingClaims)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  claim.peerName ?? 'Nearby Device',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                                Text(
-                                  '${claim.peerPubkey.substring(0, 14)}…${claim.sessionName != null ? ' · ${claim.sessionName}' : ''}',
-                                  style: const TextStyle(
-                                    fontFamily: 'monospace',
-                                    fontSize: 11,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          FilledButton(
-                            onPressed: _busy ? null : () => _approveClaim(claim),
-                            child: const Text('Approve'),
-                          ),
-                          const SizedBox(width: 6),
-                          IconButton(
-                            tooltip: 'Reject',
-                            onPressed: _busy ? null : () => _rejectClaim(claim),
-                            icon: const Icon(
-                              Icons.close,
-                              size: 18,
-                              color: EarthlyColors.destructive,
-                            ),
-                          ),
-                        ],
+                  Expanded(
+                    child: Text(
+                      _infoBanner!,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: EarthlyColors.commentGreen,
                       ),
                     ),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => setState(() => _infoBanner = null),
+                    icon: const Icon(Icons.close, size: 15),
+                  ),
                 ],
               ),
             ),
-            const SizedBox(height: 14),
+          if (_error != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              color: EarthlyColors.destructive.withValues(alpha: 0.12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _error!,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11.5,
+                        color: EarthlyColors.destructive,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => setState(() => _error = null),
+                    icon: const Icon(Icons.close, size: 15),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(
+            child: TabBarView(
+              controller: _tabs,
+              children: [
+                _buildGroupsTab(theme),
+                _buildNearbyTab(
+                  theme,
+                  pendingClaims: pendingClaims,
+                  approvedPeers: approvedPeers,
+                  remotePeers: remotePeers,
+                ),
+                _buildNetworkTab(theme),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGroupsTab(ThemeData theme) {
+    return MediaQuery.removePadding(
+      context: context,
+      removeTop: true,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
+        children: [
+          // MLS Groups / Circles section
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: EarthlyColors.measureViolet.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: EarthlyColors.measureViolet.withValues(alpha: 0.4),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.lock_outline,
+                      size: 16,
+                      color: EarthlyColors.measureViolet,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'MLS GROUPS (${widget.circles.length})',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.w800,
+                        color: EarthlyColors.measureViolet,
+                      ),
+                    ),
+                    const Spacer(),
+                    if (widget.pendingCircleJoinsCount > 0)
+                      EarthlyBadge(
+                        label: '${widget.pendingCircleJoinsCount} PENDING',
+                        color: EarthlyColors.amber,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  widget.circles.isEmpty
+                      ? 'End-to-end encrypted private maps & chat synced via Cordn (Web & Native compatible).'
+                      : 'Tap a group to inspect encrypted maps, chat, invites, or member roles.',
+                  style: theme.textTheme.bodySmall,
+                ),
+                if (widget.circles.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  for (final circle in widget.circles)
+                    InkWell(
+                      key: Key('spaces-circle-${circle.workspaceId}'),
+                      onTap: () => widget.onSelectCircle?.call(circle),
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 5),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: widget.activeCircleId == circle.workspaceId
+                              ? EarthlyColors.measureViolet
+                                  .withValues(alpha: 0.16)
+                              : theme.colorScheme.surface,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: widget.activeCircleId == circle.workspaceId
+                                ? EarthlyColors.measureViolet
+                                : theme.dividerColor,
+                            width: widget.activeCircleId == circle.workspaceId
+                                ? 1.5
+                                : 1.0,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                circle.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              '${circle.datasets.length}m · ${circle.members.length}p',
+                              style: const TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 10.5,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Icon(Icons.chevron_right, size: 17),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+                if (widget.onOpenCircles != null) ...[
+                  const SizedBox(height: 8),
+                  FilledButton.icon(
+                    key: const Key('spaces-open-circles-btn'),
+                    onPressed: widget.onOpenCircles,
+                    icon: const Icon(Icons.groups_outlined, size: 17),
+                    label: const Text('Create or Join MLS Group'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          if (widget.onOpenInbox != null || widget.onOpenOutbox != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              'ACTIVITY',
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
           ],
 
-          // Inbox & Activity Feed shortcut card
           if (widget.onOpenInbox != null) ...[
             InkWell(
+              key: const Key('spaces-inbox-btn'),
               onTap: widget.onOpenInbox,
               borderRadius: BorderRadius.circular(14),
               child: Container(
@@ -754,11 +882,10 @@ class _SpacesSheetState extends State<SpacesSheet> {
                 ),
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
           ],
 
-          // Offline Publish Outbox shortcut card
-          if (widget.onOpenOutbox != null) ...[
+          if (widget.onOpenOutbox != null)
             InkWell(
               key: const Key('spaces-outbox-btn'),
               onTap: widget.onOpenOutbox,
@@ -819,546 +946,629 @@ class _SpacesSheetState extends State<SpacesSheet> {
                 ),
               ),
             ),
-            const SizedBox(height: 10),
-          ],
+        ],
+      ),
+    );
+  }
 
-          // MLS / Cordn Private Circles section
-          if (widget.onOpenCircles != null) ...[
+  Widget _buildNearbyTab(
+    ThemeData theme, {
+    required List<PendingClaimDto> pendingClaims,
+    required List<ApprovedPeerDto> approvedPeers,
+    required List<RemotePeerDto> remotePeers,
+  }) {
+    final pairingUri = _sessionInvite != null
+        ? 'earthly://pair?invitation=$_sessionInvite'
+        : null;
+
+    return MediaQuery.removePadding(
+      context: context,
+      removeTop: true,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
+        children: [
+          if (pendingClaims.isNotEmpty) ...[
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: EarthlyColors.measureViolet.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: EarthlyColors.measureViolet.withValues(alpha: 0.4),
-                ),
+                color: EarthlyColors.proposedAmber.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+                border:
+                    Border.all(color: EarthlyColors.proposedAmber, width: 1.5),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.lock_outline,
-                        size: 16,
-                        color: EarthlyColors.measureViolet,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'CIRCLES · MLS / CORDN (${widget.circles.length})',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          fontFamily: 'monospace',
-                          fontWeight: FontWeight.w800,
-                          color: EarthlyColors.measureViolet,
-                        ),
-                      ),
-                      const Spacer(),
-                      if (widget.pendingCircleJoinsCount > 0)
-                        EarthlyBadge(
-                          label: '${widget.pendingCircleJoinsCount} PENDING',
-                          color: EarthlyColors.amber,
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
                   Text(
-                    widget.circles.isEmpty
-                        ? 'End-to-end encrypted private maps & chat synced via Cordn (Web & Native compatible).'
-                        : 'Tap a Circle to inspect encrypted maps, chat, invites, or member roles.',
-                    style: theme.textTheme.bodySmall,
+                    'INCOMING PAIRING REQUESTS (${pendingClaims.length})',
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: EarthlyColors.proposedAmber,
+                    ),
                   ),
-                  if (widget.circles.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    for (final circle in widget.circles.take(3))
-                      InkWell(
-                        onTap: () => widget.onSelectCircle?.call(circle),
-                        borderRadius: BorderRadius.circular(10),
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 5),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 7,
-                          ),
-                          decoration: BoxDecoration(
-                            color: widget.activeCircleId == circle.workspaceId
-                                ? EarthlyColors.measureViolet
-                                    .withValues(alpha: 0.16)
-                                : theme.colorScheme.surface,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: widget.activeCircleId == circle.workspaceId
-                                  ? EarthlyColors.measureViolet
-                                  : theme.dividerColor,
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  circle.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                  const SizedBox(height: 8),
+                  for (final claim in pendingClaims)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  claim.peerName ?? 'Nearby Device',
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w700,
                                     fontSize: 13,
                                   ),
                                 ),
-                              ),
-                              Text(
-                                '${circle.datasets.length}m · ${circle.members.length}p',
-                                style: const TextStyle(
-                                  fontFamily: 'monospace',
-                                  fontSize: 10.5,
+                                Text(
+                                  '${claim.peerPubkey.substring(0, claim.peerPubkey.length.clamp(0, 14))}…${claim.sessionName != null ? ' · ${claim.sessionName}' : ''}',
+                                  style: const TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 11,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 4),
-                              const Icon(Icons.chevron_right, size: 17),
-                            ],
-                          ),
-                        ),
-                      ),
-                  ],
-                  const SizedBox(height: 8),
-                  FilledButton.icon(
-                    onPressed: widget.onOpenCircles,
-                    icon: const Icon(Icons.groups_outlined, size: 17),
-                    label: Text(
-                      widget.circles.isEmpty
-                          ? 'Create or Join Private Circle'
-                          : 'Open Circles Manager',
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 22),
-          ],
-
-          // Identity section
-          Text(
-            Platform.isAndroid
-                ? 'IDENTITY (NIP-55 / LOCAL)'
-                : 'IDENTITY (DESKTOP KEY)',
-            style: theme.textTheme.labelSmall?.copyWith(
-              fontFamily: 'monospace',
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 8),
-          if (account != null)
-            Row(
-              children: [
-                const Icon(
-                  Icons.verified_user,
-                  size: 18,
-                  color: EarthlyColors.commentGreen,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '${account.shortLabel} (${widget.localNsec != null ? "Persisted local key" : "Amber"})',
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                TextButton(
-                  onPressed: () {
-                    widget.onAccountChanged(null);
-                    widget.onLocalKeyChanged(null);
-                  },
-                  child: const Text('Sign out'),
-                ),
-              ],
-            )
-          else
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (Platform.isAndroid)
-                  FilledButton.icon(
-                    onPressed:
-                        (_busy || !_amberInstalled) ? null : _signInWithAmber,
-                    icon: const Icon(Icons.key, size: 18),
-                    label: Text(
-                      _amberInstalled
-                          ? 'Sign in with Amber (NIP-55)'
-                          : 'Amber signer not detected',
-                    ),
-                  ),
-                OutlinedButton.icon(
-                  onPressed: _busy ? null : _generateLocalKeypair,
-                  icon: const Icon(Icons.vpn_key_outlined, size: 16),
-                  label: const Text('Create Local Session Key'),
-                ),
-              ],
-            ),
-
-          const Divider(height: 22),
-
-          // Live Beacon broadcaster (kind 37521, NIP-40 expiration)
-          Text(
-            'LIVE BEACON (KIND 37521)',
-            style: theme.textTheme.labelSmall?.copyWith(
-              fontFamily: 'monospace',
-              fontWeight: FontWeight.w700,
-              color: const Color(0xFF0891B2),
-            ),
-          ),
-          const SizedBox(height: 6),
-          TextField(
-            controller: _beaconStatusController,
-            decoration: const InputDecoration(
-              hintText: 'Status note (e.g. Surveying north ridge)',
-            ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              for (final mins in const [15, 60, 240])
-                ChoiceChip(
-                  label: Text(mins < 60 ? '${mins}m' : '${mins ~/ 60}h'),
-                  selected: _beaconDurationMinutes == mins,
-                  onSelected: (_) =>
-                      setState(() => _beaconDurationMinutes = mins),
-                ),
-              ChoiceChip(
-                label: const Text('Public'),
-                selected: !_beaconNearby,
-                onSelected: (_) => setState(() => _beaconNearby = false),
-              ),
-              ChoiceChip(
-                label: const Text('Nearby'),
-                selected: _beaconNearby,
-                onSelected: (_) => setState(() => _beaconNearby = true),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          FilledButton.icon(
-            onPressed: _busy ? null : _broadcastBeacon,
-            icon: const Icon(Icons.sensors, size: 18),
-            label: Text(
-              Platform.isAndroid
-                  ? 'Broadcast Live GPS Beacon'
-                  : 'Broadcast Map Center Beacon',
-            ),
-          ),
-
-          const Divider(height: 22),
-
-          // Host Nearby Field Session with scannable QR code
-          Text(
-            'HOST NEARBY FIELD SESSION',
-            style: theme.textTheme.labelSmall?.copyWith(
-              fontFamily: 'monospace',
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              ChoiceChip(
-                label: const Text('LAN Wi-Fi'),
-                selected: _bindChoice == _LocalBindChoice.lanWifi,
-                onSelected: (_) =>
-                    setState(() => _bindChoice = _LocalBindChoice.lanWifi),
-              ),
-              ChoiceChip(
-                label: const Text('FIPS Mesh (fd00::)'),
-                selected: _bindChoice == _LocalBindChoice.fipsMesh,
-                onSelected: (_) =>
-                    setState(() => _bindChoice = _LocalBindChoice.fipsMesh),
-              ),
-              ChoiceChip(
-                label: const Text('Loopback'),
-                selected: _bindChoice == _LocalBindChoice.loopback,
-                onSelected: (_) =>
-                    setState(() => _bindChoice = _LocalBindChoice.loopback),
-              ),
-            ],
-          ),
-          if (_bindChoice == _LocalBindChoice.fipsMesh) ...[
-            const SizedBox(height: 8),
-            TextField(
-              controller: _fipsAddressController,
-              decoration: const InputDecoration(
-                hintText: 'FIPS fd00::/8 IPv6 (leave blank to auto-detect)',
-              ),
-            ),
-          ],
-          const SizedBox(height: 8),
-          FilledButton.icon(
-            onPressed: _busy ? null : _hostFieldSession,
-            icon: const Icon(Icons.qr_code_2, size: 18),
-            label: Text(
-              switch (_bindChoice) {
-                _LocalBindChoice.lanWifi => 'Start LAN Node & Show Pairing QR',
-                _LocalBindChoice.fipsMesh =>
-                  'Start FIPS Mesh Node & Show Pairing QR',
-                _LocalBindChoice.loopback => 'Start Loopback Node & Show QR',
-              },
-            ),
-          ),
-          if (_node != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Scope: ${_node!.scope ?? "—"}\nRelay: ${_node!.relayUrl ?? "—"}\nBlossom: ${_node!.blossomUrl ?? "—"}',
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
-            ),
-          ],
-          if (pairingUri != null) ...[
-            const SizedBox(height: 12),
-            Center(child: EarthlyQrCode(data: pairingUri, size: 210)),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                border: Border.all(color: theme.dividerColor),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '${pairingUri.substring(0, pairingUri.length.clamp(0, 44))}…',
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 11,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Copy pairing link',
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: pairingUri));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Copied Field Session pairing link'),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.copy, size: 18),
-                  ),
-                ],
-              ),
-            ),
-          ],
-
-          // Approved Peers connected to this host
-          if (approvedPeers.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            Text(
-              'APPROVED PEERS ON THIS HOST (${approvedPeers.length})',
-              style: theme.textTheme.labelSmall?.copyWith(
-                fontFamily: 'monospace',
-                fontWeight: FontWeight.w700,
-                color: EarthlyColors.commentGreen,
-              ),
-            ),
-            const SizedBox(height: 6),
-            for (final peer in approvedPeers)
-              Container(
-                margin: const EdgeInsets.only(bottom: 6),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                decoration: BoxDecoration(
-                  color: EarthlyColors.commentGreen.withValues(alpha: 0.08),
-                  border: Border.all(
-                    color: EarthlyColors.commentGreen.withValues(alpha: 0.6),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.devices,
-                      size: 16,
-                      color: EarthlyColors.commentGreen,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${peer.peerPubkey.substring(0, 16)}…',
-                            style: const TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
+                              ],
                             ),
                           ),
-                          Text(
-                            peer.sessionIds.isNotEmpty
-                                ? 'Sessions: ${peer.sessionIds.join(", ")}'
-                                : 'Capabilities: ${peer.capabilities.join(", ")}',
-                            style: const TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 10,
+                          FilledButton(
+                            onPressed: _busy ? null : () => _approveClaim(claim),
+                            child: const Text('Approve'),
+                          ),
+                          const SizedBox(width: 6),
+                          IconButton(
+                            tooltip: 'Reject',
+                            onPressed: _busy ? null : () => _rejectClaim(claim),
+                            icon: const Icon(
+                              Icons.close,
+                              size: 18,
+                              color: EarthlyColors.destructive,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    TextButton(
-                      onPressed: _busy
-                          ? null
-                          : () async {
-                              await revokeNearbyPeer(
-                                peerPubkey: peer.peerPubkey,
-                              );
-                              await _pollPeers();
-                            },
-                      child: const Text(
-                        'Revoke',
-                        style: TextStyle(color: EarthlyColors.destructive),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+
+          // Expandable: Host Field Session
+          _buildExpandableCard(
+            theme,
+            child: ExpansionTile(
+              key: const Key('spaces-host-session-tile'),
+              initiallyExpanded:
+                  _sessionInvite != null || approvedPeers.isNotEmpty,
+              shape: const Border(),
+              collapsedShape: const Border(),
+              tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+              childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              leading: const Icon(Icons.qr_code_2, size: 18),
+              title: Text(
+                'Host Field Session',
+                style: theme.textTheme.titleSmall,
+              ),
+              subtitle: Text(
+                _node != null
+                    ? 'Active (${_node!.scope ?? "local"}) · ${approvedPeers.length} peer${approvedPeers.length == 1 ? '' : 's'}'
+                    : 'Share LAN Wi-Fi, FIPS Mesh, or Loopback QR',
+                style: theme.textTheme.bodySmall,
+              ),
+              children: [
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    ChoiceChip(
+                      label: const Text('LAN Wi-Fi'),
+                      selected: _bindChoice == _LocalBindChoice.lanWifi,
+                      onSelected: (_) =>
+                          setState(() => _bindChoice = _LocalBindChoice.lanWifi),
+                    ),
+                    ChoiceChip(
+                      label: const Text('FIPS Mesh (fd00::)'),
+                      selected: _bindChoice == _LocalBindChoice.fipsMesh,
+                      onSelected: (_) => setState(
+                        () => _bindChoice = _LocalBindChoice.fipsMesh,
+                      ),
+                    ),
+                    ChoiceChip(
+                      label: const Text('Loopback'),
+                      selected: _bindChoice == _LocalBindChoice.loopback,
+                      onSelected: (_) => setState(
+                        () => _bindChoice = _LocalBindChoice.loopback,
                       ),
                     ),
                   ],
                 ),
-              ),
-          ],
-
-          const Divider(height: 22),
-
-          // Join Nearby Field Session
-          Text(
-            'JOIN NEARBY FIELD SESSION',
-            style: theme.textTheme.labelSmall?.copyWith(
-              fontFamily: 'monospace',
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 8),
-          if (Platform.isAndroid) ...[
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _busy ? null : _scanQrAndJoin,
-                icon: const Icon(Icons.qr_code_scanner, size: 18),
-                label: const Text('Scan Pairing QR Code'),
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _inviteInputController,
-                  decoration: const InputDecoration(
-                    hintText: 'Or paste earthly://pair?invitation=…',
+                if (_bindChoice == _LocalBindChoice.fipsMesh) ...[
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _fipsAddressController,
+                    decoration: const InputDecoration(
+                      hintText: 'FIPS fd00::/8 IPv6 (leave blank to auto-detect)',
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _busy ? null : _hostFieldSession,
+                    icon: const Icon(Icons.qr_code_2, size: 18),
+                    label: Text(
+                      switch (_bindChoice) {
+                        _LocalBindChoice.lanWifi =>
+                          'Start LAN Node & Show Pairing QR',
+                        _LocalBindChoice.fipsMesh =>
+                          'Start FIPS Mesh Node & Show Pairing QR',
+                        _LocalBindChoice.loopback =>
+                          'Start Loopback Node & Show QR',
+                      },
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              OutlinedButton(
-                onPressed: _busy ? null : _submitPairingJoin,
-                child: const Text('Join'),
-              ),
-            ],
-          ),
-
-          // Joined Remote Peers
-          if (remotePeers.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Text(
-              'JOINED NEARBY HOSTS (${remotePeers.length})',
-              style: theme.textTheme.labelSmall?.copyWith(
-                fontFamily: 'monospace',
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 6),
-            for (final remote in remotePeers)
-              Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: (remote.status == 'accepted'
-                          ? EarthlyColors.commentGreen
-                          : remote.status == 'rejected'
-                              ? EarthlyColors.destructive
-                              : EarthlyColors.proposedAmber)
-                      .withValues(alpha: 0.10),
-                  border: Border.all(
-                    color: remote.status == 'accepted'
-                        ? EarthlyColors.commentGreen
-                        : remote.status == 'rejected'
-                            ? EarthlyColors.destructive
-                            : EarthlyColors.proposedAmber,
+                if (_node != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Scope: ${_node!.scope ?? "—"}\nRelay: ${_node!.relayUrl ?? "—"}\nBlossom: ${_node!.blossomUrl ?? "—"}',
+                    style:
+                        const TextStyle(fontFamily: 'monospace', fontSize: 11),
                   ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+                ],
+                if (pairingUri != null) ...[
+                  const SizedBox(height: 12),
+                  Center(child: EarthlyQrCode(data: pairingUri, size: 200)),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: theme.dividerColor),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
                       children: [
-                        Text(
-                          remote.status == 'accepted'
-                              ? '✓ PAIRED & APPROVED'
-                              : remote.status == 'rejected'
-                                  ? '✗ REJECTED'
-                                  : '⏳ PENDING HOST APPROVAL',
-                          style: TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: remote.status == 'accepted'
-                                ? EarthlyColors.commentGreen
-                                : remote.status == 'rejected'
-                                    ? EarthlyColors.destructive
-                                    : EarthlyColors.proposedAmber,
+                        Expanded(
+                          child: Text(
+                            '${pairingUri.substring(0, pairingUri.length.clamp(0, 44))}…',
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                            ),
                           ),
                         ),
-                        const Spacer(),
-                        if (remote.status == 'accepted')
-                          FilledButton.icon(
-                            onPressed: _busy ? null : () => _syncRemote(remote),
-                            icon: const Icon(Icons.sync, size: 14),
-                            label: const Text('Sync'),
-                          ),
                         IconButton(
-                          tooltip: 'Disconnect',
-                          visualDensity: VisualDensity.compact,
-                          onPressed: _busy
-                              ? null
-                              : () async {
-                                  await forgetNearbyPeer(nodeId: remote.nodeId);
-                                  await _pollPeers();
-                                },
-                          icon: const Icon(Icons.close, size: 16),
+                          tooltip: 'Copy pairing link',
+                          onPressed: () {
+                            Clipboard.setData(ClipboardData(text: pairingUri));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content:
+                                    Text('Copied Field Session pairing link'),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.copy, size: 18),
                         ),
                       ],
                     ),
-                    Text(
-                      '${remote.sessionName ?? "Field Session"} · ${remote.relayUrl}',
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 11,
-                      ),
+                  ),
+                ],
+                if (approvedPeers.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'APPROVED PEERS (${approvedPeers.length})',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.w700,
+                      color: EarthlyColors.commentGreen,
                     ),
-                    if (remote.rejectionReason != null)
-                      Text(
-                        remote.rejectionReason!,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: EarthlyColors.destructive,
+                  ),
+                  const SizedBox(height: 6),
+                  for (final peer in approvedPeers)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: EarthlyColors.commentGreen.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color:
+                              EarthlyColors.commentGreen.withValues(alpha: 0.6),
                         ),
                       ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.devices,
+                            size: 16,
+                            color: EarthlyColors.commentGreen,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${peer.peerPubkey.substring(0, peer.peerPubkey.length.clamp(0, 16))}…',
+                                  style: const TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                Text(
+                                  peer.sessionIds.isNotEmpty
+                                      ? 'Sessions: ${peer.sessionIds.join(", ")}'
+                                      : 'Capabilities: ${peer.capabilities.join(", ")}',
+                                  style: const TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: _busy
+                                ? null
+                                : () async {
+                                    await revokeNearbyPeer(
+                                      peerPubkey: peer.peerPubkey,
+                                    );
+                                    await _pollPeers();
+                                  },
+                            child: const Text(
+                              'Revoke',
+                              style:
+                                  TextStyle(color: EarthlyColors.destructive),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          // Expandable: Join Field Session
+          _buildExpandableCard(
+            theme,
+            child: ExpansionTile(
+              key: const Key('spaces-join-session-tile'),
+              initiallyExpanded:
+                  (widget.initialPairingLink?.isNotEmpty ?? false) ||
+                      remotePeers.isNotEmpty,
+              shape: const Border(),
+              collapsedShape: const Border(),
+              tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+              childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              leading: const Icon(Icons.qr_code_scanner, size: 18),
+              title: Text(
+                'Join Field Session',
+                style: theme.textTheme.titleSmall,
+              ),
+              subtitle: Text(
+                remotePeers.isNotEmpty
+                    ? '${remotePeers.length} joined host${remotePeers.length == 1 ? '' : 's'}'
+                    : 'Scan QR or paste pairing link',
+                style: theme.textTheme.bodySmall,
+              ),
+              children: [
+                if (Platform.isAndroid) ...[
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _busy ? null : _scanQrAndJoin,
+                      icon: const Icon(Icons.qr_code_scanner, size: 18),
+                      label: const Text('Scan Pairing QR Code'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _inviteInputController,
+                        decoration: const InputDecoration(
+                          hintText: 'Or paste earthly://pair?invitation=…',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton(
+                      onPressed: _busy ? null : _submitPairingJoin,
+                      child: const Text('Join'),
+                    ),
                   ],
                 ),
+                if (remotePeers.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'JOINED NEARBY HOSTS (${remotePeers.length})',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  for (final remote in remotePeers)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: (remote.status == 'accepted'
+                                ? EarthlyColors.commentGreen
+                                : remote.status == 'rejected'
+                                    ? EarthlyColors.destructive
+                                    : EarthlyColors.proposedAmber)
+                            .withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: remote.status == 'accepted'
+                              ? EarthlyColors.commentGreen
+                              : remote.status == 'rejected'
+                                  ? EarthlyColors.destructive
+                                  : EarthlyColors.proposedAmber,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                remote.status == 'accepted'
+                                    ? '✓ PAIRED & APPROVED'
+                                    : remote.status == 'rejected'
+                                        ? '✗ REJECTED'
+                                        : '⏳ PENDING HOST APPROVAL',
+                                style: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                  color: remote.status == 'accepted'
+                                      ? EarthlyColors.commentGreen
+                                      : remote.status == 'rejected'
+                                          ? EarthlyColors.destructive
+                                          : EarthlyColors.proposedAmber,
+                                ),
+                              ),
+                              const Spacer(),
+                              if (remote.status == 'accepted')
+                                FilledButton.icon(
+                                  onPressed:
+                                      _busy ? null : () => _syncRemote(remote),
+                                  icon: const Icon(Icons.sync, size: 14),
+                                  label: const Text('Sync'),
+                                ),
+                              IconButton(
+                                tooltip: 'Disconnect',
+                                visualDensity: VisualDensity.compact,
+                                onPressed: _busy
+                                    ? null
+                                    : () async {
+                                        await forgetNearbyPeer(
+                                          nodeId: remote.nodeId,
+                                        );
+                                        await _pollPeers();
+                                      },
+                                icon: const Icon(Icons.close, size: 16),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            '${remote.sessionName ?? "Field Session"} · ${remote.relayUrl}',
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                            ),
+                          ),
+                          if (remote.rejectionReason != null)
+                            Text(
+                              remote.rejectionReason!,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: EarthlyColors.destructive,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                ],
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          // Expandable: Live Beacon
+          _buildExpandableCard(
+            theme,
+            child: ExpansionTile(
+              key: const Key('spaces-live-beacon-tile'),
+              initiallyExpanded: false,
+              shape: const Border(),
+              collapsedShape: const Border(),
+              tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+              childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              leading: const Icon(
+                Icons.sensors,
+                size: 18,
+                color: Color(0xFF0891B2),
               ),
-          ],
+              title: Text(
+                'Live Beacon',
+                style: theme.textTheme.titleSmall,
+              ),
+              subtitle: Text(
+                'Share temporary location (kind 37521)',
+                style: theme.textTheme.bodySmall,
+              ),
+              children: [
+                TextField(
+                  controller: _beaconStatusController,
+                  decoration: const InputDecoration(
+                    hintText: 'Status note (e.g. Surveying north ridge)',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final mins in const [15, 60, 240])
+                      ChoiceChip(
+                        label: Text(mins < 60 ? '${mins}m' : '${mins ~/ 60}h'),
+                        selected: _beaconDurationMinutes == mins,
+                        onSelected: (_) =>
+                            setState(() => _beaconDurationMinutes = mins),
+                      ),
+                    ChoiceChip(
+                      label: const Text('Public'),
+                      selected: !_beaconNearby,
+                      onSelected: (_) => setState(() => _beaconNearby = false),
+                    ),
+                    ChoiceChip(
+                      label: const Text('Nearby'),
+                      selected: _beaconNearby,
+                      onSelected: (_) => setState(() => _beaconNearby = true),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _busy ? null : _broadcastBeacon,
+                    icon: const Icon(Icons.sensors, size: 18),
+                    label: Text(
+                      Platform.isAndroid
+                          ? 'Broadcast Live GPS Beacon'
+                          : 'Broadcast Map Center Beacon',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-          const Divider(height: 22),
+  Widget _buildNetworkTab(ThemeData theme) {
+    final account = widget.account;
+    final hasTools = widget.onOpenCashuWallet != null ||
+        widget.onOpenMcpBridge != null ||
+        widget.onOpenShoutbox != null ||
+        widget.onOpenHelp != null;
 
-          // Multi-Relay Configuration (persisted in SQLite + NIP-65 10002)
+    return MediaQuery.removePadding(
+      context: context,
+      removeTop: true,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
+        children: [
+          // Compact single-row Account summary / sign-in
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: theme.dividerColor),
+            ),
+            child: account != null
+                ? Row(
+                    children: [
+                      const Icon(
+                        Icons.verified_user,
+                        size: 18,
+                        color: EarthlyColors.commentGreen,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '${account.shortLabel} (${widget.localNsec != null ? "Local key" : "Amber"})',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                        onPressed: () {
+                          widget.onAccountChanged(null);
+                          widget.onLocalKeyChanged(null);
+                        },
+                        child: const Text('Sign out'),
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      const Icon(Icons.person_outline, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Not signed in',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ),
+                      if (Platform.isAndroid && _amberInstalled)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: FilledButton(
+                            style: FilledButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                            ),
+                            onPressed: _busy ? null : _signInWithAmber,
+                            child: const Text('Amber'),
+                          ),
+                        ),
+                      OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                        ),
+                        onPressed: _busy ? null : _generateLocalKeypair,
+                        child: const Text('Local Key'),
+                      ),
+                    ],
+                  ),
+          ),
+
+          const SizedBox(height: 14),
+
+          // Nostr Relays section
           Text(
             'NOSTR RELAYS (${widget.relayUrls.length} · PERSISTED)',
             style: theme.textTheme.labelSmall?.copyWith(
@@ -1403,6 +1613,7 @@ class _SpacesSheetState extends State<SpacesSheet> {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
                 border: Border.all(color: theme.dividerColor),
+                borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
                 children: [
@@ -1476,79 +1687,153 @@ class _SpacesSheetState extends State<SpacesSheet> {
             ],
           ),
 
-          const Divider(height: 22),
+          // Tools list
+          if (hasTools) ...[
+            const SizedBox(height: 14),
+            Text(
+              'TOOLS',
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Builder(
+              builder: (_) {
+                final toolRows = <Widget>[
+                  if (widget.onOpenCashuWallet != null)
+                    _buildToolRow(
+                      theme,
+                      key: const Key('spaces-cashu-wallet-btn'),
+                      icon: Icons.account_balance_wallet_outlined,
+                      title: 'Cashu Ecash Wallet',
+                      trailing: widget.cashuWalletEnabled
+                          ? (widget.cashuBalanceSats != null
+                              ? '${widget.cashuBalanceSats} sats'
+                              : 'Enabled (NIP-60)')
+                          : 'Disabled (opt-in)',
+                      onTap: widget.onOpenCashuWallet!,
+                    ),
+                  if (widget.onOpenMcpBridge != null)
+                    _buildToolRow(
+                      theme,
+                      key: const Key('spaces-mcp-bridge-btn'),
+                      icon: Icons.dns_outlined,
+                      title: 'Local MCP Desktop Bridge',
+                      trailing: widget.mcpBridgeRunning ? 'Running' : 'Stopped',
+                      onTap: widget.onOpenMcpBridge!,
+                    ),
+                  if (widget.onOpenShoutbox != null)
+                    _buildToolRow(
+                      theme,
+                      key: const Key('spaces-shoutbox-btn'),
+                      icon: Icons.campaign_outlined,
+                      title: 'Community Shoutbox',
+                      onTap: widget.onOpenShoutbox!,
+                    ),
+                  if (widget.onOpenHelp != null)
+                    _buildToolRow(
+                      theme,
+                      key: const Key('spaces-help-btn'),
+                      icon: Icons.help_outline,
+                      title: 'Help & Keyboard Shortcuts',
+                      onTap: widget.onOpenHelp!,
+                    ),
+                ];
+                return Container(
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: theme.dividerColor),
+                  ),
+                  child: Column(
+                    children: [
+                      for (var i = 0; i < toolRows.length; i++) ...[
+                        if (i > 0) const Divider(height: 1, indent: 40),
+                        toolRows[i],
+                      ],
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
 
-          OutlinedButton.icon(
-            onPressed: () {
-              showModalBottomSheet<void>(
-                context: context,
-                builder: (_) => const RustNodeSheet(),
-              );
-            },
-            icon: const Icon(Icons.hub_outlined, size: 18),
-            label: const Text('Open Rust Core & Outbox Diagnostics'),
+          const SizedBox(height: 12),
+
+          // Collapsed-by-default Diagnostics ExpansionTile
+          _buildExpandableCard(
+            theme,
+            child: ExpansionTile(
+              key: const Key('spaces-diagnostics-tile'),
+              initiallyExpanded: false,
+              shape: const Border(),
+              collapsedShape: const Border(),
+              tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+              childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              leading: const Icon(Icons.hub_outlined, size: 18),
+              title: Text('Diagnostics', style: theme.textTheme.titleSmall),
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      showModalBottomSheet<void>(
+                        context: context,
+                        builder: (_) => const RustNodeSheet(),
+                      );
+                    },
+                    icon: const Icon(Icons.hub_outlined, size: 18),
+                    label: const Text('Open Rust Core & Outbox Diagnostics'),
+                  ),
+                ),
+              ],
+            ),
           ),
-          if (widget.onOpenCashuWallet != null) ...[
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              key: const Key('spaces-cashu-wallet-btn'),
-              onPressed: widget.onOpenCashuWallet,
-              icon: const Icon(Icons.account_balance_wallet_outlined, size: 18),
-              label: Text(
-                widget.cashuBalanceSats != null
-                    ? 'Cashu Ecash Wallet (${widget.cashuBalanceSats} sats)'
-                    : 'Cashu Ecash Wallet (NIP-60)',
-              ),
-            ),
-          ],
-          if (widget.onOpenMcpBridge != null) ...[
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              key: const Key('spaces-mcp-bridge-btn'),
-              onPressed: widget.onOpenMcpBridge,
-              icon: const Icon(Icons.dns_outlined, size: 18),
-              label: Text(
-                widget.mcpBridgeRunning
-                    ? 'Local MCP Desktop Bridge (Running)'
-                    : 'Local MCP Desktop Bridge',
-              ),
-            ),
-          ],
-          if (widget.onOpenShoutbox != null) ...[
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              key: const Key('spaces-shoutbox-btn'),
-              onPressed: widget.onOpenShoutbox,
-              icon: const Icon(Icons.campaign_outlined, size: 18),
-              label: const Text('Community Shoutbox'),
-            ),
-          ],
-          if (widget.onOpenHelp != null) ...[
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              key: const Key('spaces-help-btn'),
-              onPressed: widget.onOpenHelp,
-              icon: const Icon(Icons.help_outline, size: 18),
-              label: const Text('Help & Keyboard Shortcuts'),
-            ),
-          ],
+        ],
+      ),
+    );
+  }
 
-          if (_error != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(10),
-              color: EarthlyColors.destructive.withValues(alpha: 0.12),
+  Widget _buildToolRow(
+    ThemeData theme, {
+    required Key key,
+    required IconData icon,
+    required String title,
+    String? trailing,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      key: key,
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Icon(icon, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
               child: Text(
-                _error!,
-                style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 12,
-                  color: EarthlyColors.destructive,
+                title,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
+            if (trailing != null) ...[
+              Text(
+                trailing,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontFamily: 'monospace',
+                  fontSize: 11,
+                ),
+              ),
+              const SizedBox(width: 4),
+            ],
+            const Icon(Icons.chevron_right, size: 17),
           ],
-        ],
+        ),
       ),
     );
   }

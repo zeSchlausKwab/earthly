@@ -355,6 +355,12 @@ void main() {
       ),
     );
 
+    await tester.tap(find.byKey(const Key('spaces-tab-network')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('spaces-tab-network')));
+    await tester.pumpAndSettle();
+
     final probeBtn = find.byKey(const Key('spaces-probe-relays-btn'));
     await tester.ensureVisible(probeBtn);
     await tester.tap(probeBtn);
@@ -623,5 +629,130 @@ void main() {
     await tester.tap(deskOutboxBtn);
     await tester.pump();
     expect(deskOutboxTapped, isTrue);
+  });
+
+  testWidgets(
+      'SpacesSheet renders 3 tabs (Groups | Nearby | Network), MLS group list, expandable Nearby/Diagnostics sections',
+      (WidgetTester tester) async {
+    setTestViewport(tester, const Size(440, 900));
+
+    final ws = CircleWorkspaceDto(
+      workspaceId: 'ws-ridge',
+      groupId: 'grp-ridge',
+      name: 'Ridge Mappers',
+      description: 'Private group',
+      recommendedBasemap: 'OpenFreeMap Liberty',
+      role: 'admin',
+      status: 'active',
+      cursor: BigInt.from(1),
+      epoch: BigInt.from(1),
+      coordinatorPubkey: 'c' * 64,
+      relays: const ['wss://relay.earthly.city'],
+      members: const ['a', 'b'],
+      administrators: const ['a'],
+      datasets: const [],
+      messages: const [],
+      createdAtMs: BigInt.from(1791000000000),
+    );
+
+    CircleWorkspaceDto? selectedCircle;
+    var openedCircles = false;
+
+    await tester.pumpWidget(
+      wrapSheetInStack(
+        SpacesSheet(
+          account: const Nip55Account(pubkey: 'alice'),
+          localNsec: null,
+          relayUrls: const ['wss://relay.earthly.city'],
+          circles: [ws],
+          pendingCircleJoinsCount: 2,
+          activeCircleId: 'ws-ridge',
+          onOpenCircles: () => openedCircles = true,
+          onSelectCircle: (c) => selectedCircle = c,
+          inboxUnreadCount: 1,
+          onOpenInbox: () {},
+          pendingOutboxCount: 1,
+          onOpenOutbox: () {},
+          onOpenShoutbox: () {},
+          onOpenHelp: () {},
+          onOpenCashuWallet: () {},
+          onOpenMcpBridge: () {},
+          onRelayUrlsChanged: (_) {},
+          onAccountChanged: (_) {},
+          onLocalKeyChanged: (_) {},
+          onSessionStateChanged: (_, _) {},
+          onNearbySynced: () {},
+          onBroadcastBeacon: (_, _, _) async => testPublishOutcome('b1'),
+          onClose: () {},
+        ),
+      ),
+    );
+
+    // No old banner; 3 tabs visible
+    expect(find.text('SPACES · CIRCLES & NEARBY'), findsNothing);
+    expect(find.byKey(const Key('spaces-tab-groups')), findsOneWidget);
+    expect(find.byKey(const Key('spaces-tab-nearby')), findsOneWidget);
+    expect(find.byKey(const Key('spaces-tab-network')), findsOneWidget);
+
+    // Groups tab: MLS group row + pending badge + Create or Join MLS Group
+    expect(find.text('Ridge Mappers'), findsOneWidget);
+    expect(find.text('2 PENDING'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('spaces-circle-ws-ridge')));
+    await tester.pump();
+    expect(selectedCircle?.workspaceId, 'ws-ridge');
+
+    await tester.tap(find.byKey(const Key('spaces-open-circles-btn')));
+    await tester.pump();
+    expect(openedCircles, isTrue);
+
+    // Nearby tab: expandable Host / Join / Live Beacon sections
+    await tester.tap(find.byKey(const Key('spaces-tab-nearby')));
+    await tester.pumpAndSettle();
+    expect(find.text('Host Field Session'), findsOneWidget);
+    expect(find.text('Join Field Session'), findsOneWidget);
+    expect(find.text('Live Beacon'), findsOneWidget);
+
+    // Collapsed by default -> expand Host Field Session
+    expect(find.text('Start LAN Node & Show Pairing QR'), findsNothing);
+    await tester.tap(find.byKey(const Key('spaces-host-session-tile')));
+    await tester.pumpAndSettle();
+    expect(find.text('Start LAN Node & Show Pairing QR'), findsOneWidget);
+
+    // Expand Live Beacon
+    final verticalScrollable = find
+        .byWidgetPredicate(
+          (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+        )
+        .first;
+    final liveBeaconTile = find.byKey(const Key('spaces-live-beacon-tile'));
+    await tester.scrollUntilVisible(
+      liveBeaconTile,
+      160,
+      scrollable: verticalScrollable,
+    );
+    await tester.ensureVisible(liveBeaconTile);
+    await tester.pumpAndSettle();
+    await tester.tap(liveBeaconTile);
+    await tester.pumpAndSettle();
+    expect(find.text('Broadcast Map Center Beacon'), findsOneWidget);
+
+    // Network tab: Account, Relays, Tools, collapsed Diagnostics
+    await tester.tap(find.byKey(const Key('spaces-tab-network')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('spaces-cashu-wallet-btn')), findsOneWidget);
+    expect(find.text('Disabled (opt-in)'), findsOneWidget);
+    expect(find.text('Open Rust Core & Outbox Diagnostics'), findsNothing);
+
+    final diagnosticsTile = find.byKey(const Key('spaces-diagnostics-tile'));
+    await tester.scrollUntilVisible(
+      diagnosticsTile,
+      160,
+      scrollable: verticalScrollable,
+    );
+    await tester.ensureVisible(diagnosticsTile);
+    await tester.pumpAndSettle();
+    await tester.tap(diagnosticsTile);
+    await tester.pumpAndSettle();
+    expect(find.text('Open Rust Core & Outbox Diagnostics'), findsOneWidget);
   });
 }

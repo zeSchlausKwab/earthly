@@ -279,6 +279,7 @@ void main() {
                     account: null,
                     localNsec: null,
                     relayUrls: const ['wss://relay.earthly.city'],
+                    cashuWalletEnabled: false,
                     cashuBalanceSats: 777,
                     onOpenCashuWallet: () => spacesWalletOpened = true,
                     mcpBridgeRunning: true,
@@ -302,6 +303,9 @@ void main() {
           ),
         );
 
+        await tester.tap(find.byKey(const Key('spaces-tab-network')));
+        await tester.pumpAndSettle();
+
         final spacesWalletBtn =
             find.byKey(const Key('spaces-cashu-wallet-btn'));
         await tester.scrollUntilVisible(
@@ -309,7 +313,51 @@ void main() {
           160,
           scrollable: find.byType(Scrollable).first,
         );
-        expect(find.text('Cashu Ecash Wallet (777 sats)'), findsOneWidget);
+        expect(find.text('Cashu Ecash Wallet'), findsOneWidget);
+        expect(find.text('Disabled (opt-in)'), findsOneWidget);
+
+        // When Cashu Wallet is enabled, balance sats display cleanly.
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Stack(
+                children: [
+                  SpacesSheet(
+                    account: null,
+                    localNsec: null,
+                    relayUrls: const ['wss://relay.earthly.city'],
+                    cashuWalletEnabled: true,
+                    cashuBalanceSats: 777,
+                    onOpenCashuWallet: () => spacesWalletOpened = true,
+                    mcpBridgeRunning: true,
+                    onOpenMcpBridge: () => spacesMcpOpened = true,
+                    onRelayUrlsChanged: (_) {},
+                    onAccountChanged: (_) {},
+                    onLocalKeyChanged: (_) {},
+                    onSessionStateChanged: (_, _) {},
+                    onNearbySynced: () {},
+                    onBroadcastBeacon: (_, _, _) async =>
+                        const PublishOutcomeDto(
+                      eventId: 'ev1',
+                      outboxState: 'sent',
+                      relays: [],
+                    ),
+                    onClose: () {},
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.scrollUntilVisible(
+          spacesWalletBtn,
+          160,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(find.text('Cashu Ecash Wallet'), findsOneWidget);
+        expect(find.text('777 sats'), findsOneWidget);
         await tester.tap(spacesWalletBtn);
         await tester.pump();
         expect(spacesWalletOpened, isTrue);
@@ -320,7 +368,8 @@ void main() {
           160,
           scrollable: find.byType(Scrollable).first,
         );
-        expect(find.text('Local MCP Desktop Bridge (Running)'), findsOneWidget);
+        expect(find.text('Local MCP Desktop Bridge'), findsOneWidget);
+        expect(find.text('Running'), findsOneWidget);
         await tester.tap(spacesMcpBtn);
         await tester.pump();
         expect(spacesMcpOpened, isTrue);

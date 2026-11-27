@@ -537,11 +537,11 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
       ),
     );
     await tester.scrollUntilVisible(
-      find.text('Import GeoJSON / GPX / KML / SHP / CSV'),
+      find.byKey(const Key('desk-import-file-btn')),
       140,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text('Import GeoJSON / GPX / KML / SHP / CSV'), findsOneWidget);
+    expect(find.byKey(const Key('desk-import-file-btn')), findsOneWidget);
     expect(find.text('Export ▾'), findsOneWidget);
     expect(exportedGpx, isFalse);
     expect(exportedKml, isFalse);

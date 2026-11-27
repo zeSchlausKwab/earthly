@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:earthly_native/controllers/draft_workbench_controller.dart';
 import 'package:earthly_native/drawing/drawing_model.dart';
 import 'package:earthly_native/main.dart';
 import 'package:earthly_native/nostr/shelf_renderer.dart';
@@ -9,6 +10,7 @@ import 'package:earthly_native/shell/help_shortcuts_sheet.dart';
 import 'package:earthly_native/shell/raw_event_inspector_dialog.dart';
 import 'package:earthly_native/src/rust/api/blossom.dart';
 import 'package:earthly_native/src/rust/api/geo.dart';
+import 'package:earthly_native/src/rust/api/private_groups.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maplibre/maplibre.dart';
 import 'package:material_ui/material_ui.dart';
@@ -469,7 +471,6 @@ void main() {
     var duplicatedSelected = false;
     var deletedSelected = false;
     var pastedClipboard = false;
-    (String, double)? addedPrimitive;
     (RustGeoAction, double?, double?)? lastWorkbenchOp;
 
     const draftFeatures = [
@@ -529,9 +530,7 @@ void main() {
             featureCount: 3,
             message: 'Valid RFC 7946 GeoJSON (3 features)',
           ),
-          onAddPrimitiveShape: (shape, r) async {
-            addedPrimitive = (shape, r);
-          },
+          onAddPrimitiveShape: (shape, r) async {},
           onSelectDraft: (_) {},
           onCreateNewDraft: () {},
           onDeleteDraft: (_) {},
@@ -592,10 +591,16 @@ void main() {
     expect(deletedSelected, isTrue);
     expect(toggledFeatureId, 'p-1');
 
-    // 3. Meter step preset (250m) + Primitive shape + Parameterized geo actions
+    // 3. Demo primitive chips removed + collapsed Spatial Tools accordion with meter preset (250m) & geo actions
+    expect(find.byKey(const Key('primitive-circle')), findsNothing);
+    expect(find.textContaining('PRIMITIVE SHAPES'), findsNothing);
+    expect(find.byKey(const Key('workbench-meters-250')), findsNothing);
+
+    await scrollAndTap(
+      tester,
+      find.byKey(const Key('desk-spatial-tools-tile')),
+    );
     await scrollAndTap(tester, find.byKey(const Key('workbench-meters-250')));
-    await scrollAndTap(tester, find.byKey(const Key('primitive-circle')));
-    expect(addedPrimitive, ('circle', 250.0));
 
     await scrollAndTap(tester, find.byKey(const Key('workbench-connect-lines')));
     expect(lastWorkbenchOp, (RustGeoAction.connectLines, 250.0, null));
@@ -883,6 +888,12 @@ void main() {
 
     await scrollAndTap(
       tester,
+      find.byKey(const Key('desk-spatial-tools-tile')),
+      delta: 200,
+    );
+
+    await scrollAndTap(
+      tester,
       find.byKey(const Key('workbench-merge-multipart')),
       delta: 200,
     );
@@ -894,5 +905,369 @@ void main() {
       delta: 120,
     );
     expect(triggered, contains(RustGeoAction.explodeMultipart));
+  });
+
+  testWidgets(
+      'DeskSheet 2-tab layout, title reset, 3-way publish (with & without MLS groups), and group picker',
+      (WidgetTester tester) async {
+    setTestViewport(tester, const Size(440, 900));
+
+    final circles = [
+      CircleWorkspaceDto(
+        workspaceId: 'ws-alpha',
+        groupId: 'grp-alpha',
+        name: 'Alpine Crew',
+        description: 'Mountain crew',
+        recommendedBasemap: 'OpenFreeMap Liberty',
+        role: 'admin',
+        status: 'active',
+        cursor: BigInt.from(1),
+        epoch: BigInt.from(1),
+        coordinatorPubkey: 'c' * 64,
+        relays: const ['wss://relay.earthly.city'],
+        members: const ['a', 'b'],
+        administrators: const ['a'],
+        datasets: const [],
+        messages: const [],
+        createdAtMs: BigInt.from(1791000000000),
+      ),
+      CircleWorkspaceDto(
+        workspaceId: 'ws-beta',
+        groupId: 'grp-beta',
+        name: 'River Watch',
+        description: 'Danube crew',
+        recommendedBasemap: 'OpenFreeMap Liberty',
+        role: 'member',
+        status: 'active',
+        cursor: BigInt.from(2),
+        epoch: BigInt.from(1),
+        coordinatorPubkey: 'c' * 64,
+        relays: const ['wss://relay.earthly.city'],
+        members: const ['a'],
+        administrators: const ['a'],
+        datasets: const [],
+        messages: const [],
+        createdAtMs: BigInt.from(1791000000000),
+      ),
+    ];
+
+    const sampleFeature = DrawnFeature(
+      id: 'pt-1',
+      kind: DrawToolMode.point,
+      name: 'Marker',
+      vertices: [Geographic(lon: 16.37, lat: 48.20)],
+    );
+
+    var openedCircles = false;
+    String? selectedCircleId;
+    var audience = DraftAudienceChoice.publicRelay;
+    var draftId = 'draft-1';
+    var draftTitle = 'Old Frozen Name';
+    (String, DraftAudienceChoice)? published;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setModalState) => Stack(
+              children: [
+                DeskSheet(
+                  activeDraftId: draftId,
+                  savedDrafts: const [],
+                  relayUrls: const ['wss://relay.earthly.city'],
+                  draftTitle: draftTitle,
+                  audience: audience,
+                  account: null,
+                  shelfMaps: [
+                    ShelfMapEntry(
+                      summary: makeTestMap(
+                        address: '37515:aaa:shelf-1',
+                        title: 'Shelf Trail',
+                      ),
+                      shapes: const [],
+                      visible: true,
+                    ),
+                  ],
+                  deskStories: const [],
+                  deskAtlases: const [],
+                  drawnFeatures: const [sampleFeature],
+                  circles: const [],
+                  selectedCircleId: selectedCircleId,
+                  onSelectedCircleChanged: (id) =>
+                      setModalState(() => selectedCircleId = id),
+                  onOpenCircles: () => openedCircles = true,
+                  onSelectDraft: (_) {},
+                  onCreateNewDraft: () => setModalState(() {
+                    draftId = 'draft-2';
+                    draftTitle = '';
+                    audience = DraftAudienceChoice.publicRelay;
+                  }),
+                  onDeleteDraft: (_) {},
+                  onDraftTitleChanged: (t) =>
+                      setModalState(() => draftTitle = t),
+                  onAudienceChanged: (a) => setModalState(() => audience = a),
+                  onToggleShelfVisibility: (_) {},
+                  onRemoveShelfMap: (_) {},
+                  onInspectShelfMap: (_) {},
+                  onFlyToShelfMap: (_) {},
+                  onCloneShelfMapToDraft: (_) {},
+                  onOpenShelfDiscussion: (_) {},
+                  onOpenDeskStory: (_) {},
+                  onRemoveDeskStory: (_) {},
+                  onOpenDeskAtlas: (_) {},
+                  onRemoveDeskAtlas: (_) {},
+                  onRunGeoAction: (_) {},
+                  onPublishDraft: (t, a) async {
+                    published = (t, a);
+                    return testPublishOutcome();
+                  },
+                  onComposeStory: () {},
+                  onCreateAtlas: () {},
+                  onImportGeoJson: () {},
+                  onExportGeoJsonFile: () {},
+                  onCopyGeoJson: () {},
+                  onClearDraftFeatures: () =>
+                      setModalState(() => draftTitle = ''),
+                  onClose: () {},
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // Header uses clean 2-tab bar without old banner
+    expect(find.text('DESK · SHELF, DRAFT & PUBLISH'), findsNothing);
+    expect(find.byKey(const Key('desk-tab-draft')), findsOneWidget);
+    expect(find.byKey(const Key('desk-tab-shelf')), findsOneWidget);
+
+    // Title updates cleanly when cleared / reset via didUpdateWidget
+    expect(find.text('Old Frozen Name'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('desk-clear-title-btn')));
+    await tester.pump();
+    expect(draftTitle, '');
+    expect(find.text('Old Frozen Name'), findsNothing);
+
+    // 3-way SegmentedButton always shows Public, Nearby, MLS Group even with 0 groups
+    expect(find.text('Public'), findsOneWidget);
+    expect(find.text('Nearby'), findsOneWidget);
+    expect(find.text('MLS Group'), findsOneWidget);
+
+    final verticalScrollable = find
+        .byWidgetPredicate(
+          (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+        )
+        .first;
+
+    await tester.scrollUntilVisible(
+      find.text('MLS Group'),
+      160,
+      scrollable: verticalScrollable,
+    );
+    await tester.ensureVisible(find.text('MLS Group'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('MLS Group'));
+    await tester.pumpAndSettle();
+    expect(find.text('No MLS groups yet'), findsOneWidget);
+
+    final publishBtnFinder = find.byKey(const Key('desk-publish-btn'));
+    await tester.scrollUntilVisible(
+      publishBtnFinder,
+      160,
+      scrollable: verticalScrollable,
+    );
+    final publishWhenEmpty = tester.widget<FilledButton>(publishBtnFinder);
+    expect(publishWhenEmpty.onPressed, isNull);
+
+    final createJoinBtn = find.byKey(const Key('desk-create-join-mls-btn'));
+    await tester.scrollUntilVisible(
+      createJoinBtn,
+      -160,
+      scrollable: verticalScrollable,
+    );
+    await tester.ensureVisible(createJoinBtn);
+    await tester.pumpAndSettle();
+    await tester.tap(createJoinBtn);
+    await tester.pumpAndSettle();
+    expect(openedCircles, isTrue);
+
+    // Switch to Shelf tab and verify shelf map is displayed
+    await tester.tap(find.byKey(const Key('desk-tab-shelf')));
+    await tester.pumpAndSettle();
+    expect(find.text('Shelf Trail'), findsOneWidget);
+
+    // Now render with 2 MLS groups, verify auto-select & group switching
+    audience = DraftAudienceChoice.publicRelay;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setModalState) => Stack(
+              children: [
+                DeskSheet(
+                  key: const ValueKey('desk-groups-test'),
+                  activeDraftId: 'draft-groups',
+                  savedDrafts: const [],
+                  relayUrls: const ['wss://relay.earthly.city'],
+                  draftTitle: '',
+                  audience: audience,
+                  account: null,
+                  shelfMaps: const [],
+                  deskStories: const [],
+                  deskAtlases: const [],
+                  drawnFeatures: const [sampleFeature],
+                  circles: circles,
+                  selectedCircleId: selectedCircleId,
+                  onSelectedCircleChanged: (id) =>
+                      setModalState(() => selectedCircleId = id),
+                  onOpenCircles: () {},
+                  onSelectDraft: (_) {},
+                  onCreateNewDraft: () {},
+                  onDeleteDraft: (_) {},
+                  onDraftTitleChanged: (_) {},
+                  onAudienceChanged: (a) => setModalState(() => audience = a),
+                  onToggleShelfVisibility: (_) {},
+                  onRemoveShelfMap: (_) {},
+                  onInspectShelfMap: (_) {},
+                  onFlyToShelfMap: (_) {},
+                  onCloneShelfMapToDraft: (_) {},
+                  onOpenShelfDiscussion: (_) {},
+                  onOpenDeskStory: (_) {},
+                  onRemoveDeskStory: (_) {},
+                  onOpenDeskAtlas: (_) {},
+                  onRemoveDeskAtlas: (_) {},
+                  onRunGeoAction: (_) {},
+                  onPublishDraft: (t, a) async {
+                    published = (t, a);
+                    return testPublishOutcome();
+                  },
+                  onComposeStory: () {},
+                  onCreateAtlas: () {},
+                  onImportGeoJson: () {},
+                  onExportGeoJsonFile: () {},
+                  onCopyGeoJson: () {},
+                  onClearDraftFeatures: () {},
+                  onClose: () {},
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final verticalScrollable2 = find
+        .byWidgetPredicate(
+          (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+        )
+        .first;
+    final mlsSegment = find.text('MLS Group');
+    await tester.scrollUntilVisible(
+      mlsSegment,
+      160,
+      scrollable: verticalScrollable2,
+    );
+    await tester.ensureVisible(mlsSegment);
+    await tester.pumpAndSettle();
+    await tester.tap(mlsSegment);
+    await tester.pumpAndSettle();
+
+    final publishGroupBtn = find.byKey(const Key('desk-publish-btn'));
+    await tester.scrollUntilVisible(
+      publishGroupBtn,
+      160,
+      scrollable: verticalScrollable2,
+    );
+    expect(find.text('Publish to "Alpine Crew"'), findsOneWidget);
+
+    final betaGroupBtn = find.byKey(const Key('desk-mls-group-ws-beta'));
+    await tester.scrollUntilVisible(
+      betaGroupBtn,
+      -160,
+      scrollable: verticalScrollable2,
+    );
+    await tester.ensureVisible(betaGroupBtn);
+    await tester.pumpAndSettle();
+    await tester.tap(betaGroupBtn);
+    await tester.pumpAndSettle();
+    expect(selectedCircleId, 'ws-beta');
+
+    await tester.scrollUntilVisible(
+      publishGroupBtn,
+      160,
+      scrollable: verticalScrollable2,
+    );
+    expect(find.text('Publish to "River Watch"'), findsOneWidget);
+    await tester.ensureVisible(publishGroupBtn);
+    await tester.pumpAndSettle();
+    await tester.tap(publishGroupBtn);
+    await tester.pumpAndSettle();
+    expect(published, ('Untitled Map', DraftAudienceChoice.privateCircle));
+  });
+
+  test(
+      'DraftWorkbenchController resets draftTitle, mints fresh IDs on clear/new/clone, and round-trips 3 audiences',
+      () {
+    final controller = DraftWorkbenchController();
+    addTearDown(controller.dispose);
+
+    expect(controller.draftTitle, '');
+    expect(controller.effectiveDraftTitle, 'Untitled Map');
+
+    controller.setDraftTitle('Survey Alpha');
+    controller.setDraftAudience(DraftAudienceChoice.privateCircle);
+    controller.dropDraftPointAt(const Geographic(lon: 16.37, lat: 48.20));
+    final firstDTag = controller.draftDTag;
+
+    controller.clearDraftFeatures();
+    expect(controller.features, isEmpty);
+    expect(controller.draftTitle, '');
+    expect(controller.draftDTag, isNot(firstDTag));
+
+    controller.setDraftTitle('Survey Beta');
+    controller.setDraftAudience(DraftAudienceChoice.nearbyLocalNode);
+    final prevDraftId = controller.activeDraftId;
+    final prevDTag = controller.draftDTag;
+
+    controller.createNewDraft();
+    expect(controller.draftTitle, '');
+    expect(controller.draftAudience, DraftAudienceChoice.publicRelay);
+    expect(controller.activeDraftId, isNot(prevDraftId));
+    expect(controller.draftDTag, isNot(prevDTag));
+
+    const sampleGeo =
+        '{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[16.37,48.20]},"properties":{"name":"Camp"}}]}';
+    final draftIdBeforeClone = controller.activeDraftId;
+    final dTagBeforeClone = controller.draftDTag;
+    final clonedCount = controller.cloneGeoJsonToDraft('Danube Route', sampleGeo);
+    expect(clonedCount, 1);
+    expect(controller.activeDraftId, isNot(draftIdBeforeClone));
+    expect(controller.draftDTag, isNot(dTagBeforeClone));
+    expect(controller.draftTitle, 'Danube Route (Draft)');
+
+    expect(
+      DraftWorkbenchController.audienceFromChannel('nearby'),
+      DraftAudienceChoice.nearbyLocalNode,
+    );
+    expect(
+      DraftWorkbenchController.audienceFromChannel('circle'),
+      DraftAudienceChoice.privateCircle,
+    );
+    expect(
+      DraftWorkbenchController.audienceFromChannel('mls'),
+      DraftAudienceChoice.privateCircle,
+    );
+    expect(
+      DraftWorkbenchController.audienceFromChannel('public'),
+      DraftAudienceChoice.publicRelay,
+    );
+    expect(
+      DraftWorkbenchController.audienceToChannel(
+        DraftAudienceChoice.privateCircle,
+      ),
+      'circle',
+    );
   });
 }
