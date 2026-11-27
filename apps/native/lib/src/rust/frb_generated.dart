@@ -9374,8 +9374,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   AppSettingsDto dco_decode_app_settings_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 28)
-      throw Exception('unexpected arr length: expect 28 but see ${arr.length}');
+    if (arr.length != 34)
+      throw Exception('unexpected arr length: expect 34 but see ${arr.length}');
     return AppSettingsDto(
       relayUrls: dco_decode_list_String(arr[0]),
       localPubkeyHex: dco_decode_opt_String(arr[1]),
@@ -9407,6 +9407,12 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       agentMessagesJson: dco_decode_opt_String(arr[25]),
       nwcUri: dco_decode_opt_String(arr[26]),
       nip60WalletEnabled: dco_decode_bool(arr[27]),
+      pointClusteringEnabled: dco_decode_bool(arr[28]),
+      pointClusterRadius: dco_decode_u_32(arr[29]),
+      pointClusterMaxZoom: dco_decode_u_8(arr[30]),
+      agentProviderType: dco_decode_opt_String(arr[31]),
+      agentAutoPayCashu: dco_decode_bool(arr[32]),
+      agentCashuMaxSats: dco_decode_u_32(arr[33]),
     );
   }
 
@@ -11891,6 +11897,12 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     var var_agentMessagesJson = sse_decode_opt_String(deserializer);
     var var_nwcUri = sse_decode_opt_String(deserializer);
     var var_nip60WalletEnabled = sse_decode_bool(deserializer);
+    var var_pointClusteringEnabled = sse_decode_bool(deserializer);
+    var var_pointClusterRadius = sse_decode_u_32(deserializer);
+    var var_pointClusterMaxZoom = sse_decode_u_8(deserializer);
+    var var_agentProviderType = sse_decode_opt_String(deserializer);
+    var var_agentAutoPayCashu = sse_decode_bool(deserializer);
+    var var_agentCashuMaxSats = sse_decode_u_32(deserializer);
     return AppSettingsDto(
       relayUrls: var_relayUrls,
       localPubkeyHex: var_localPubkeyHex,
@@ -11920,6 +11932,12 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       agentMessagesJson: var_agentMessagesJson,
       nwcUri: var_nwcUri,
       nip60WalletEnabled: var_nip60WalletEnabled,
+      pointClusteringEnabled: var_pointClusteringEnabled,
+      pointClusterRadius: var_pointClusterRadius,
+      pointClusterMaxZoom: var_pointClusterMaxZoom,
+      agentProviderType: var_agentProviderType,
+      agentAutoPayCashu: var_agentAutoPayCashu,
+      agentCashuMaxSats: var_agentCashuMaxSats,
     );
   }
 
@@ -15329,6 +15347,12 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     sse_encode_opt_String(self.agentMessagesJson, serializer);
     sse_encode_opt_String(self.nwcUri, serializer);
     sse_encode_bool(self.nip60WalletEnabled, serializer);
+    sse_encode_bool(self.pointClusteringEnabled, serializer);
+    sse_encode_u_32(self.pointClusterRadius, serializer);
+    sse_encode_u_8(self.pointClusterMaxZoom, serializer);
+    sse_encode_opt_String(self.agentProviderType, serializer);
+    sse_encode_bool(self.agentAutoPayCashu, serializer);
+    sse_encode_u_32(self.agentCashuMaxSats, serializer);
   }
 
   @protected

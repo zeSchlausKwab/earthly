@@ -28,6 +28,8 @@ class MapLayerSnapshot {
     required this.visibleArrowheads,
     required this.externalSnapShapes,
     required this.combinedProposalShapes,
+    this.clusteredShelfPoints = const <Feature<Point>>[],
+    this.clusteredShelfPointMeta = const <InspectedFeature>[],
   });
 
   final List<Layer> gpuLayers;
@@ -36,6 +38,8 @@ class MapLayerSnapshot {
   final List<MapArrowheadItem> visibleArrowheads;
   final List<List<Geographic>> externalSnapShapes;
   final List<ShelfShape> combinedProposalShapes;
+  final List<Feature<Point>> clusteredShelfPoints;
+  final List<InspectedFeature> clusteredShelfPointMeta;
 }
 
 /// Content/revision key used by [MapLayerCache] to memoize heavy GeoJSON and
@@ -57,6 +61,9 @@ class MapLayerCacheKey {
     required this.isDarkMap,
     required this.showLabels,
     required this.effectiveBasemap,
+    required this.pointClusteringEnabled,
+    required this.pointClusterRadius,
+    required this.pointClusterMaxZoom,
   });
 
   final int shelfRevision;
@@ -73,6 +80,9 @@ class MapLayerCacheKey {
   final bool isDarkMap;
   final bool showLabels;
   final BasemapKind effectiveBasemap;
+  final bool pointClusteringEnabled;
+  final int pointClusterRadius;
+  final int pointClusterMaxZoom;
 
   @override
   bool operator ==(Object other) =>
@@ -91,7 +101,10 @@ class MapLayerCacheKey {
           other.accentColorValue == accentColorValue &&
           other.isDarkMap == isDarkMap &&
           other.showLabels == showLabels &&
-          other.effectiveBasemap == effectiveBasemap;
+          other.effectiveBasemap == effectiveBasemap &&
+          other.pointClusteringEnabled == pointClusteringEnabled &&
+          other.pointClusterRadius == pointClusterRadius &&
+          other.pointClusterMaxZoom == pointClusterMaxZoom;
 
   @override
   int get hashCode => Object.hash(
@@ -109,6 +122,9 @@ class MapLayerCacheKey {
         isDarkMap,
         showLabels,
         effectiveBasemap,
+        pointClusteringEnabled,
+        pointClusterRadius,
+        pointClusterMaxZoom,
       );
 }
 
@@ -126,8 +142,13 @@ class MapLayerCache extends ChangeNotifier {
   final List<MountedAtlasWorkspaceDto> mountedAtlasWorkspaces =
       <MountedAtlasWorkspaceDto>[];
   bool showLabels = true;
+  bool pointClusteringEnabled = true;
+  int pointClusterRadius = 50;
+  int pointClusterMaxZoom = 14;
   CalloutDisplayMode calloutMode = CalloutDisplayMode.full;
   final Map<String, String> macOsSecurityBookmarks = <String, String>{};
+  int _lastSyncedClusterRadius = 50;
+  int _lastSyncedClusterMaxZoom = 14;
 
   MapLayerCacheKey? _lastKey;
   MapLayerSnapshot? _lastSnapshot;
@@ -210,6 +231,9 @@ class MapLayerCache extends ChangeNotifier {
       isDarkMap: darkMap,
       showLabels: effectiveShowLabels,
       effectiveBasemap: selectedBasemap,
+      pointClusteringEnabled: pointClusteringEnabled,
+      pointClusterRadius: pointClusterRadius,
+      pointClusterMaxZoom: pointClusterMaxZoom,
     );
 
     final cached = _lastSnapshot;
@@ -246,6 +270,16 @@ class MapLayerCache extends ChangeNotifier {
       ...aiGhostShapes,
     ];
 
+    final clustered = pointClusteringEnabled
+        ? collectClusterableShelfPoints(
+            shelfMaps: shelfMaps,
+            activeStory: activeStory,
+          )
+        : (
+            points: const <Feature<Point>>[],
+            meta: const <InspectedFeature>[],
+          );
+
     final gpuLayers = buildEarthlyGpuLayers(
       shelfMaps: shelfMaps,
       sightings: sightings,
@@ -255,6 +289,7 @@ class MapLayerCache extends ChangeNotifier {
       isDarkMap: darkMap,
       showLabels: effectiveShowLabels,
       onInspectFeature: onInspectFeature,
+      clusterShelfPoints: pointClusteringEnabled,
       gpsTrackPoints: gpsTrackRecording ? gpsTrackPoints : const [],
       activeStory: activeStory,
       commentOverlayShapes: commentOverlayShapes,
@@ -269,6 +304,8 @@ class MapLayerCache extends ChangeNotifier {
       visibleArrowheads: visibleArrowheads,
       externalSnapShapes: externalSnapShapes,
       combinedProposalShapes: combinedProposalShapes,
+      clusteredShelfPoints: clustered.points,
+      clusteredShelfPointMeta: clustered.meta,
     );
 
     _lastKey = key;
@@ -321,6 +358,26 @@ class MapLayerCache extends ChangeNotifier {
     _notifyLayerConfig();
   }
 
+  void setPointClusteringEnabled(bool value) {
+    if (pointClusteringEnabled == value) return;
+    pointClusteringEnabled = value;
+    _notifyLayerConfig();
+  }
+
+  void setPointClusterRadius(int radius) {
+    final clamped = radius.clamp(20, 120);
+    if (pointClusterRadius == clamped) return;
+    pointClusterRadius = clamped;
+    _notifyLayerConfig();
+  }
+
+  void setPointClusterMaxZoom(int maxZoom) {
+    final clamped = maxZoom.clamp(4, 18);
+    if (pointClusterMaxZoom == clamped) return;
+    pointClusterMaxZoom = clamped;
+    _notifyLayerConfig();
+  }
+
   void setCalloutMode(CalloutDisplayMode mode) {
     if (calloutMode == mode) return;
     calloutMode = mode;
@@ -338,6 +395,9 @@ class MapLayerCache extends ChangeNotifier {
     required BasemapKind restoredBasemap,
     required MapBackgroundMode restoredBackgroundMode,
     required double restoredSatelliteOpacity,
+    bool restoredPointClusteringEnabled = true,
+    int restoredPointClusterRadius = 50,
+    int restoredPointClusterMaxZoom = 14,
   }) {
     savedOfflinePacks
       ..clear()
@@ -351,6 +411,9 @@ class MapLayerCache extends ChangeNotifier {
     }
     backgroundMode = restoredBackgroundMode;
     satelliteOpacity = restoredSatelliteOpacity.clamp(0.05, 1.0);
+    pointClusteringEnabled = restoredPointClusteringEnabled;
+    pointClusterRadius = restoredPointClusterRadius.clamp(20, 120);
+    pointClusterMaxZoom = restoredPointClusterMaxZoom.clamp(4, 18);
     _notifyLayerConfig();
   }
 
@@ -396,6 +459,31 @@ class MapLayerCache extends ChangeNotifier {
       mode: backgroundMode,
       opacity: satelliteOpacity,
       isOfflinePmtiles: isOffline,
+    );
+  }
+
+  Future<void> syncClusteredPoints({
+    required MapController? controller,
+    required ValueChanged<InspectedFeature> onInspectFeature,
+  }) async {
+    final style = controller?.style;
+    if (controller == null || style == null) return;
+    final snap = _lastSnapshot;
+    final forceRebuild = _lastSyncedClusterRadius != pointClusterRadius ||
+        _lastSyncedClusterMaxZoom != pointClusterMaxZoom;
+    _lastSyncedClusterRadius = pointClusterRadius;
+    _lastSyncedClusterMaxZoom = pointClusterMaxZoom;
+    await syncClusteredShelfPointsLayer(
+      controller: controller,
+      style: style,
+      enabled: pointClusteringEnabled,
+      clusterRadius: pointClusterRadius,
+      clusterMaxZoom: pointClusterMaxZoom,
+      points: snap?.clusteredShelfPoints ?? const <Feature<Point>>[],
+      meta: snap?.clusteredShelfPointMeta ?? const <InspectedFeature>[],
+      forceRebuildSource: forceRebuild,
+      onInspectFeature: onInspectFeature,
+      showCountLabels: selectedBasemap != BasemapKind.offlinePmtiles,
     );
   }
 

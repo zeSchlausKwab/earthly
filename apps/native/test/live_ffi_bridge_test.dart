@@ -134,6 +134,12 @@ void main() {
         agentMessagesJson: null,
         nwcUri: secretNwc,
         nip60WalletEnabled: false,
+        pointClusteringEnabled: true,
+        pointClusterRadius: 64,
+        pointClusterMaxZoom: 15,
+        agentProviderType: 'routstr',
+        agentAutoPayCashu: true,
+        agentCashuMaxSats: 42,
       );
 
       final saved = await saveAppSettings(databasePath: dbPath, settings: input);
@@ -141,6 +147,12 @@ void main() {
       expect(saved.nwcUri, secretNwc);
       expect(saved.agentApiKey, secretApiKey);
       expect(saved.nip60WalletEnabled, isFalse);
+      expect(saved.pointClusteringEnabled, isTrue);
+      expect(saved.pointClusterRadius, 64);
+      expect(saved.pointClusterMaxZoom, 15);
+      expect(saved.agentProviderType, 'routstr');
+      expect(saved.agentAutoPayCashu, isTrue);
+      expect(saved.agentCashuMaxSats, 42);
 
       final loaded = await loadAppSettings(databasePath: dbPath);
       expect(loaded.localNsec, secretNsec);
@@ -149,6 +161,12 @@ void main() {
       expect(loaded.bunkerClientNsec, 'nsec1clientbunkertest');
       expect(loaded.savedAccounts.single.localNsec, secretNsec);
       expect(loaded.nip60WalletEnabled, isFalse);
+      expect(loaded.pointClusteringEnabled, isTrue);
+      expect(loaded.pointClusterRadius, 64);
+      expect(loaded.pointClusterMaxZoom, 15);
+      expect(loaded.agentProviderType, 'routstr');
+      expect(loaded.agentAutoPayCashu, isTrue);
+      expect(loaded.agentCashuMaxSats, 42);
 
       // Raw SQLite bytes must never leak plaintext sensitive credentials.
       final rawText = latin1.decode(await File(dbPath).readAsBytes());

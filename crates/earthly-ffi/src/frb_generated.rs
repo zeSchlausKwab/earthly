@@ -8059,6 +8059,12 @@ impl SseDecode for crate::api::settings::AppSettingsDto {
         let mut var_agentMessagesJson = <Option<String>>::sse_decode(deserializer);
         let mut var_nwcUri = <Option<String>>::sse_decode(deserializer);
         let mut var_nip60WalletEnabled = <bool>::sse_decode(deserializer);
+        let mut var_pointClusteringEnabled = <bool>::sse_decode(deserializer);
+        let mut var_pointClusterRadius = <u32>::sse_decode(deserializer);
+        let mut var_pointClusterMaxZoom = <u8>::sse_decode(deserializer);
+        let mut var_agentProviderType = <Option<String>>::sse_decode(deserializer);
+        let mut var_agentAutoPayCashu = <bool>::sse_decode(deserializer);
+        let mut var_agentCashuMaxSats = <u32>::sse_decode(deserializer);
         return crate::api::settings::AppSettingsDto {
             relay_urls: var_relayUrls,
             local_pubkey_hex: var_localPubkeyHex,
@@ -8088,6 +8094,12 @@ impl SseDecode for crate::api::settings::AppSettingsDto {
             agent_messages_json: var_agentMessagesJson,
             nwc_uri: var_nwcUri,
             nip60_wallet_enabled: var_nip60WalletEnabled,
+            point_clustering_enabled: var_pointClusteringEnabled,
+            point_cluster_radius: var_pointClusterRadius,
+            point_cluster_max_zoom: var_pointClusterMaxZoom,
+            agent_provider_type: var_agentProviderType,
+            agent_auto_pay_cashu: var_agentAutoPayCashu,
+            agent_cashu_max_sats: var_agentCashuMaxSats,
         };
     }
 }
@@ -12131,6 +12143,12 @@ impl flutter_rust_bridge::IntoDart for crate::api::settings::AppSettingsDto {
             self.agent_messages_json.into_into_dart().into_dart(),
             self.nwc_uri.into_into_dart().into_dart(),
             self.nip60_wallet_enabled.into_into_dart().into_dart(),
+            self.point_clustering_enabled.into_into_dart().into_dart(),
+            self.point_cluster_radius.into_into_dart().into_dart(),
+            self.point_cluster_max_zoom.into_into_dart().into_dart(),
+            self.agent_provider_type.into_into_dart().into_dart(),
+            self.agent_auto_pay_cashu.into_into_dart().into_dart(),
+            self.agent_cashu_max_sats.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -14753,6 +14771,12 @@ impl SseEncode for crate::api::settings::AppSettingsDto {
         <Option<String>>::sse_encode(self.agent_messages_json, serializer);
         <Option<String>>::sse_encode(self.nwc_uri, serializer);
         <bool>::sse_encode(self.nip60_wallet_enabled, serializer);
+        <bool>::sse_encode(self.point_clustering_enabled, serializer);
+        <u32>::sse_encode(self.point_cluster_radius, serializer);
+        <u8>::sse_encode(self.point_cluster_max_zoom, serializer);
+        <Option<String>>::sse_encode(self.agent_provider_type, serializer);
+        <bool>::sse_encode(self.agent_auto_pay_cashu, serializer);
+        <u32>::sse_encode(self.agent_cashu_max_sats, serializer);
     }
 }
 

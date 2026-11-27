@@ -147,6 +147,8 @@ class BasemapSwitcherSheet extends StatefulWidget {
     this.onBackgroundModeChanged,
     this.onSatelliteOpacityChanged,
     this.onExportMapPosterPng,
+    this.pointClusteringEnabled = true,
+    this.onTogglePointClustering,
     super.key,
   });
 
@@ -172,6 +174,8 @@ class BasemapSwitcherSheet extends StatefulWidget {
   final ValueChanged<MapBackgroundMode>? onBackgroundModeChanged;
   final ValueChanged<double>? onSatelliteOpacityChanged;
   final VoidCallback? onExportMapPosterPng;
+  final bool pointClusteringEnabled;
+  final ValueChanged<bool>? onTogglePointClustering;
 
   @override
   State<BasemapSwitcherSheet> createState() => _BasemapSwitcherSheetState();
@@ -189,6 +193,7 @@ class _BasemapSwitcherSheetState extends State<BasemapSwitcherSheet> {
   late ThemeMode _themeMode = widget.themeMode;
   late MapBackgroundMode _backgroundMode = widget.backgroundMode;
   late double _satelliteOpacity = widget.satelliteOpacity;
+  late bool _pointClusteringEnabled = widget.pointClusteringEnabled;
 
   @override
   void dispose() {
@@ -698,7 +703,21 @@ class _BasemapSwitcherSheetState extends State<BasemapSwitcherSheet> {
 
             const Divider(height: 20),
 
-            // Labels & Callouts presentation toggles
+            // Labels, Clustering & Callouts presentation toggles
+            if (widget.onTogglePointClustering != null)
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Point Clustering'),
+                subtitle: const Text(
+                  'Group nearby points into clusters while zoomed out',
+                  style: TextStyle(fontSize: 12),
+                ),
+                value: _pointClusteringEnabled,
+                onChanged: (val) {
+                  setState(() => _pointClusteringEnabled = val);
+                  widget.onTogglePointClustering!(val);
+                },
+              ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Feature Labels on Map'),

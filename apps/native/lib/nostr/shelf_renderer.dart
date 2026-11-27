@@ -1185,6 +1185,297 @@ Expression<Color> _safeColorProp(String property, Color fallback) =>
       Expression.literal(fallback),
     ]).convertToColor([Expression.literal(fallback)]);
 
+const String earthlyClusteredPointsSourceId = 'earthly-clustered-points';
+const String earthlyClusterCirclesLayerId = 'earthly-cluster-circles';
+const String earthlyClusterCountLayerId = 'earthly-cluster-count';
+const String earthlyUnclusteredPointsLayerId = 'earthly-unclustered-points';
+
+/// Collects all visible Shelf & Active Story Point features (with embedded
+/// `__metaIndex` for tap-to-inspect) suitable for MapLibre GPU clustering.
+({List<Feature<Point>> points, List<InspectedFeature> meta})
+    collectClusterableShelfPoints({
+  required List<ShelfMapEntry> shelfMaps,
+  ActiveStoryRenderContext? activeStory,
+}) {
+  final points = <Feature<Point>>[];
+  final meta = <InspectedFeature>[];
+
+  void emitDataset({
+    required ShelfMapEntry entry,
+    required String sourcePrefix,
+    Set<String>? allowedFeatureIds,
+    StoryLayerStyleOverride? styleOverride,
+  }) {
+    for (final shape in entry.shapes) {
+      if (shape.kind != ShelfShapeKind.point || shape.coords.isEmpty) continue;
+      if (allowedFeatureIds != null &&
+          (shape.featureId == null ||
+              !allowedFeatureIds.contains(shape.featureId))) {
+        continue;
+      }
+      final fillHex = _sanitizeCssColor(
+            styleOverride?.fillColor ?? styleOverride?.color,
+          ) ??
+          shape.fillColorHex ??
+          shape.colorHex;
+      final strokeHex = _sanitizeCssColor(
+            styleOverride?.strokeColor ?? styleOverride?.color,
+          ) ??
+          shape.strokeColorHex ??
+          shape.colorHex;
+      final explicitPointRingHex =
+          _sanitizeCssColor(styleOverride?.strokeColor) ??
+              _sanitizeCssColor(shape.properties['strokeColor'] as String?);
+      final metaIndex = meta.length;
+      points.add(
+        Feature(
+          geometry: Point(shape.coords.first),
+          properties: <String, Object?>{
+            'fillColor': ?fillHex,
+            'color': ?strokeHex,
+            'pointStroke': ?explicitPointRingHex,
+            'radius': ?shape.radius,
+            'title': ?shape.label,
+            '__metaIndex': metaIndex,
+          },
+        ),
+      );
+      meta.add(
+        InspectedFeature(
+          sourceLabel: '$sourcePrefix · ${entry.summary.title}',
+          isDraft: false,
+          geometryType: 'Point',
+          featureId: shape.featureId,
+          title: shape.label ?? entry.summary.title,
+          properties: shape.properties,
+          callouts: shape.callouts,
+          datasetAddress: entry.summary.address,
+          datasetPubkey: entry.summary.pubkey,
+          datasetTitle: entry.summary.title,
+          datasetEventId: entry.summary.eventId,
+          datasetGeojson: entry.summary.geojson,
+        ),
+      );
+    }
+  }
+
+  final storyManagedAddresses = activeStory != null
+      ? activeStory.datasetsByAddress.keys.toSet()
+      : const <String>{};
+  for (final entry in shelfMaps) {
+    if (!entry.visible) continue;
+    if (storyManagedAddresses.contains(entry.summary.address)) continue;
+    emitDataset(entry: entry, sourcePrefix: 'Published');
+  }
+  if (activeStory != null) {
+    if (activeStory.presentationLayers.isNotEmpty) {
+      final emitted = <String>{};
+      for (final layer in activeStory.presentationLayers) {
+        emitted.add(layer.sourceAddress);
+        if (!layer.visible) continue;
+        final dataset = activeStory.datasetsByAddress[layer.sourceAddress];
+        if (dataset == null) continue;
+        emitDataset(
+          entry: dataset,
+          sourcePrefix: 'Story',
+          allowedFeatureIds: layer.featureIds,
+          styleOverride: layer.style,
+        );
+      }
+      for (final entry in activeStory.datasetsByAddress.entries) {
+        if (emitted.contains(entry.key)) continue;
+        emitDataset(entry: entry.value, sourcePrefix: 'Story');
+      }
+    } else {
+      for (final dataset in activeStory.datasetsByAddress.values) {
+        emitDataset(entry: dataset, sourcePrefix: 'Story');
+      }
+    }
+  }
+
+  return (points: points, meta: meta);
+}
+
+/// Synchronizes the native GPU clustered point source & layers on an active
+/// MapLibre [StyleController]. Tapping a cluster zooms smoothly to its
+/// expansion zoom; tapping an unclustered point inspects its feature metadata.
+Future<void> syncClusteredShelfPointsLayer({
+  required MapController controller,
+  required StyleController style,
+  required bool enabled,
+  required int clusterRadius,
+  required int clusterMaxZoom,
+  required List<Feature<Point>> points,
+  required List<InspectedFeature> meta,
+  required bool forceRebuildSource,
+  required ValueChanged<InspectedFeature> onInspectFeature,
+  required bool showCountLabels,
+}) async {
+  Future<void> removeAll() async {
+    for (final layerId in const [
+      earthlyClusterCountLayerId,
+      earthlyClusterCirclesLayerId,
+      earthlyUnclusteredPointsLayerId,
+    ]) {
+      if (style.layers[layerId] != null) {
+        await style.layers.remove(layerId);
+      }
+    }
+    if (style.sources[earthlyClusteredPointsSourceId] != null) {
+      await style.sources.remove(earthlyClusteredPointsSourceId);
+    }
+  }
+
+  try {
+    if (!enabled || points.isEmpty) {
+      await removeAll();
+      return;
+    }
+
+    final data = GeoJsonData.featureCollection(FeatureCollection(points));
+    final existingSource = style.sources[earthlyClusteredPointsSourceId];
+
+    if (forceRebuildSource && existingSource != null) {
+      await removeAll();
+    }
+
+    if (style.sources[earthlyClusteredPointsSourceId] == null) {
+      await style.sources.add(
+        GeoJsonSource.data(
+          id: earthlyClusteredPointsSourceId,
+          data: data,
+          cluster: GeoJsonCluster(
+            radius: clusterRadius.clamp(20, 120),
+            maxZoom: clusterMaxZoom.clamp(4, 18).toDouble(),
+          ),
+        ),
+      );
+    } else {
+      await style.sources.updateGeoJsonData(
+        earthlyClusteredPointsSourceId,
+        data,
+      );
+    }
+
+    final shelfFillExpr =
+        _safeColorProp('fillColor', EarthlyColors.commentGreen);
+    final shelfPointStrokeExpr = _safeColorProp('pointStroke', Colors.white);
+
+    // Refresh layers so onClick closures always reference the latest `meta`.
+    for (final layerId in const [
+      earthlyClusterCountLayerId,
+      earthlyClusterCirclesLayerId,
+      earthlyUnclusteredPointsLayerId,
+    ]) {
+      if (style.layers[layerId] != null) {
+        await style.layers.remove(layerId);
+      }
+    }
+
+    String? belowLayerId;
+    for (final layer in style.layers) {
+      if (layer.id == 'earthly-draft-polygons' ||
+          layer.id == 'earthly-draft-lines' ||
+          layer.id == 'earthly-draft-points' ||
+          layer.id == 'earthly-feature-labels') {
+        belowLayerId = layer.id;
+        break;
+      }
+    }
+
+    await style.layers.add(
+      CircleStyleLayer(
+        id: earthlyUnclusteredPointsLayerId,
+        sourceId: earthlyClusteredPointsSourceId,
+        filter: const Expression.raw(['!', ['has', 'point_count']]),
+        color: shelfFillExpr,
+        radius: _safeNumberProp('radius', 6.5),
+        strokeColor: shelfPointStrokeExpr,
+        strokeWidth: const Expression.literal(2.0),
+        onClick: (event) {
+          final rawIdx = event.feature.properties['__metaIndex'];
+          final idx = rawIdx is num ? rawIdx.toInt() : int.tryParse('$rawIdx');
+          if (idx != null && idx >= 0 && idx < meta.length) {
+            onInspectFeature(meta[idx]);
+          }
+        },
+      ),
+      belowLayerId: belowLayerId,
+    );
+
+    await style.layers.add(
+      CircleStyleLayer(
+        id: earthlyClusterCirclesLayerId,
+        sourceId: earthlyClusteredPointsSourceId,
+        filter: const Expression.raw(['has', 'point_count']),
+        color: const Expression.raw([
+          'step',
+          ['get', 'point_count'],
+          '#2563EB',
+          10,
+          '#D97706',
+          50,
+          '#DC2626',
+        ]),
+        radius: const Expression.raw([
+          'step',
+          ['get', 'point_count'],
+          16,
+          10,
+          20,
+          50,
+          25,
+        ]),
+        strokeColor: const Expression.literal(Colors.white),
+        strokeWidth: const Expression.literal(2.2),
+        onClick: (event) {
+          final rawClusterId = event.feature.properties['cluster_id'];
+          final clusterId = rawClusterId is num
+              ? rawClusterId.toInt()
+              : int.tryParse('$rawClusterId');
+          if (clusterId == null) return;
+          controller
+              .getClusterExpansionZoom(
+                earthlyClusteredPointsSourceId,
+                clusterId,
+              )
+              .then((zoom) {
+            controller.animateCamera(
+              CameraUpdate.position(
+                center: event.point,
+                zoom: (zoom + 0.5).clamp(2.0, 18.0),
+              ),
+              animation: const CameraAnimation.ease(
+                duration: Duration(milliseconds: 260),
+              ),
+            );
+          }).catchError((_) {});
+        },
+      ),
+      belowLayerId: belowLayerId,
+    );
+
+    if (showCountLabels) {
+      await style.layers.add(
+        SymbolStyleLayer(
+          id: earthlyClusterCountLayerId,
+          sourceId: earthlyClusteredPointsSourceId,
+          filter: const Expression.raw(['has', 'point_count']),
+          textField: const Expression.raw(['get', 'point_count_abbreviated']),
+          textFont: const Expression.literal(['Noto Sans Regular']),
+          textSize: const Expression.literal(12.0),
+          textColor: const Expression.literal(Colors.white),
+          textAllowOverlap: const Expression.literal(true),
+          textIgnorePlacement: const Expression.literal(true),
+        ),
+        belowLayerId: belowLayerId,
+      );
+    }
+  } catch (_) {
+    // Ignore detached StyleController errors during rapid basemap transitions.
+  }
+}
+
 /// Builds MapLibre Native GPU layers for all Shelf maps, active Story datasets
 /// (with presentation overrides + focused feature highlight), Sightings,
 /// committed working draft features, and collision-free GPU feature labels.
@@ -1196,6 +1487,7 @@ List<Layer> buildEarthlyGpuLayers({
   required bool isDarkMap,
   required bool showLabels,
   required ValueChanged<InspectedFeature> onInspectFeature,
+  bool clusterShelfPoints = false,
   List<LiveBeaconDto> beacons = const [],
   List<Geographic> measurePoints = const [],
   List<Geographic> gpsTrackPoints = const [],
@@ -1756,7 +2048,7 @@ List<Layer> buildEarthlyGpuLayers({
           }
         },
       ),
-    if (shelfPoints.isNotEmpty)
+    if (!clusterShelfPoints && shelfPoints.isNotEmpty)
       CircleLayer(
         id: 'earthly-shelf-points',
         points: shelfPoints,

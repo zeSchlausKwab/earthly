@@ -57,6 +57,12 @@ class AppSettingsDto {
   final String? agentMessagesJson;
   final String? nwcUri;
   final bool nip60WalletEnabled;
+  final bool pointClusteringEnabled;
+  final int pointClusterRadius;
+  final int pointClusterMaxZoom;
+  final String? agentProviderType;
+  final bool agentAutoPayCashu;
+  final int agentCashuMaxSats;
 
   const AppSettingsDto({
     required this.relayUrls,
@@ -87,6 +93,12 @@ class AppSettingsDto {
     this.agentMessagesJson,
     this.nwcUri,
     required this.nip60WalletEnabled,
+    required this.pointClusteringEnabled,
+    required this.pointClusterRadius,
+    required this.pointClusterMaxZoom,
+    this.agentProviderType,
+    required this.agentAutoPayCashu,
+    required this.agentCashuMaxSats,
   });
 
   @override
@@ -118,7 +130,13 @@ class AppSettingsDto {
       storyDraftJson.hashCode ^
       agentMessagesJson.hashCode ^
       nwcUri.hashCode ^
-      nip60WalletEnabled.hashCode;
+      nip60WalletEnabled.hashCode ^
+      pointClusteringEnabled.hashCode ^
+      pointClusterRadius.hashCode ^
+      pointClusterMaxZoom.hashCode ^
+      agentProviderType.hashCode ^
+      agentAutoPayCashu.hashCode ^
+      agentCashuMaxSats.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -152,7 +170,13 @@ class AppSettingsDto {
           storyDraftJson == other.storyDraftJson &&
           agentMessagesJson == other.agentMessagesJson &&
           nwcUri == other.nwcUri &&
-          nip60WalletEnabled == other.nip60WalletEnabled;
+          nip60WalletEnabled == other.nip60WalletEnabled &&
+          pointClusteringEnabled == other.pointClusteringEnabled &&
+          pointClusterRadius == other.pointClusterRadius &&
+          pointClusterMaxZoom == other.pointClusterMaxZoom &&
+          agentProviderType == other.agentProviderType &&
+          agentAutoPayCashu == other.agentAutoPayCashu &&
+          agentCashuMaxSats == other.agentCashuMaxSats;
 }
 
 class MountedAtlasWorkspaceDto {

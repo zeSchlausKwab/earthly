@@ -438,6 +438,12 @@ void main() {
               satelliteMode: 'osm',
               satelliteOpacity: 0.75,
               nip60WalletEnabled: enabled,
+              pointClusteringEnabled: true,
+              pointClusterRadius: 50,
+              pointClusterMaxZoom: 14,
+              agentProviderType: null,
+              agentAutoPayCashu: false,
+              agentCashuMaxSats: 25,
             );
 
         account.applyRestoredSessions(buildSettings(enabled: true));

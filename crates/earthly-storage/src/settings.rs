@@ -36,6 +36,22 @@ fn default_satellite_opacity() -> f64 {
     0.75
 }
 
+fn default_point_clustering_enabled() -> bool {
+    true
+}
+
+fn default_point_cluster_radius() -> u32 {
+    50
+}
+
+fn default_point_cluster_max_zoom() -> u8 {
+    14
+}
+
+fn default_agent_cashu_max_sats() -> u32 {
+    25
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SavedAccountSessionRecord {
@@ -134,6 +150,18 @@ pub struct PersistedAppSettings {
     pub nwc_uri: Option<String>,
     #[serde(default)]
     pub nip60_wallet_enabled: bool,
+    #[serde(default = "default_point_clustering_enabled")]
+    pub point_clustering_enabled: bool,
+    #[serde(default = "default_point_cluster_radius")]
+    pub point_cluster_radius: u32,
+    #[serde(default = "default_point_cluster_max_zoom")]
+    pub point_cluster_max_zoom: u8,
+    #[serde(default)]
+    pub agent_provider_type: Option<String>,
+    #[serde(default)]
+    pub agent_auto_pay_cashu: bool,
+    #[serde(default = "default_agent_cashu_max_sats")]
+    pub agent_cashu_max_sats: u32,
 }
 
 impl Default for PersistedAppSettings {
@@ -167,6 +195,12 @@ impl Default for PersistedAppSettings {
             agent_messages_json: None,
             nwc_uri: None,
             nip60_wallet_enabled: false,
+            point_clustering_enabled: default_point_clustering_enabled(),
+            point_cluster_radius: default_point_cluster_radius(),
+            point_cluster_max_zoom: default_point_cluster_max_zoom(),
+            agent_provider_type: None,
+            agent_auto_pay_cashu: false,
+            agent_cashu_max_sats: default_agent_cashu_max_sats(),
         }
     }
 }
@@ -316,6 +350,9 @@ impl AppSettingsStore {
         } else {
             default_satellite_opacity()
         };
+        normalized.point_cluster_radius = normalized.point_cluster_radius.clamp(20, 120);
+        normalized.point_cluster_max_zoom = normalized.point_cluster_max_zoom.clamp(4, 18);
+        normalized.agent_cashu_max_sats = normalized.agent_cashu_max_sats.clamp(1, 100_000);
 
         let mut persisted = normalized.clone();
         if let Some(ref box_cipher) = secret_box {

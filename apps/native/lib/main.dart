@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/rendering.dart';
@@ -49,6 +50,7 @@ import 'shell/outbox_queue_sheet.dart';
 import 'shell/person_margin.dart';
 import 'shell/place_search_sheet.dart';
 import 'shell/routing_sheet.dart';
+import 'shell/settings_sheet.dart';
 import 'shell/shoutbox_sheet.dart';
 import 'shell/sighting_composer_sheet.dart';
 import 'shell/spaces_sheet.dart';
@@ -107,6 +109,7 @@ enum _ActiveDrawer {
   routing,
   shoutbox,
   help,
+  settings,
 }
 
 class EarthlyNativeApp extends StatefulWidget {
@@ -156,6 +159,8 @@ class EarthlySpikeHome extends StatefulWidget {
     this.accountController,
     this.catalogController,
     this.spacesController,
+    this.cameraOrientationNotifier,
+    this.onReNorthRequested,
     super.key,
   });
 
@@ -173,6 +178,9 @@ class EarthlySpikeHome extends StatefulWidget {
   final AccountWalletController? accountController;
   final CatalogShelfController? catalogController;
   final SpacesSyncController? spacesController;
+  final ValueNotifier<({double bearing, double pitch})>?
+      cameraOrientationNotifier;
+  final VoidCallback? onReNorthRequested;
 
   @override
   State<EarthlySpikeHome> createState() => _EarthlySpikeHomeState();
@@ -193,6 +201,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
   late final bool _ownsAccountWallet;
   late final bool _ownsCatalog;
   late final bool _ownsSpaces;
+  late final ValueNotifier<({double bearing, double pitch})>
+      _cameraOrientationNotifier;
+  late final bool _ownsCameraOrientationNotifier;
+  EarthlySettingsTab _settingsInitialTab = EarthlySettingsTab.map;
+  int _lastClusteredSyncRevision = -1;
 
   final ValueNotifier<MapController?> _controllerNotifier =
       ValueNotifier<MapController?>(null);
@@ -218,6 +231,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     _ownsAccountWallet = widget.accountController == null;
     _ownsCatalog = widget.catalogController == null;
     _ownsSpaces = widget.spacesController == null;
+    _ownsCameraOrientationNotifier = widget.cameraOrientationNotifier == null;
 
     _mapLayers = widget.mapLayerCache ?? MapLayerCache();
     _agent = widget.agentController ?? AgentController();
@@ -225,6 +239,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     _accountWallet = widget.accountController ?? AccountWalletController();
     _catalog = widget.catalogController ?? CatalogShelfController();
     _spaces = widget.spacesController ?? SpacesSyncController();
+    _cameraOrientationNotifier = widget.cameraOrientationNotifier ??
+        ValueNotifier<({double bearing, double pitch})>(
+          (bearing: 0.0, pitch: 0.0),
+        );
 
     WidgetsBinding.instance.addObserver(this);
     if (!_isHeadlessTest) {
@@ -250,6 +268,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     WidgetsBinding.instance.removeObserver(this);
     _controllerNotifier.dispose();
     _drawerNotifier.dispose();
+    if (_ownsCameraOrientationNotifier) _cameraOrientationNotifier.dispose();
     if (_ownsMapLayers) _mapLayers.dispose();
     if (_ownsAgent) _agent.dispose();
     if (_ownsDraft) _draft.dispose();
@@ -361,6 +380,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           baseUrl: loaded.agentBaseUrl,
           model: loaded.agentModel,
           apiKey: loaded.agentApiKey,
+          providerType: loaded.agentProviderType,
+          autoPayCashu: loaded.agentAutoPayCashu,
+          cashuMaxSats: loaded.agentCashuMaxSats,
         ),
       );
       _agent.restoreThreadsFromJson(loaded.agentMessagesJson);
@@ -377,6 +399,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         restoredBasemap: basemapKindFromId(loaded.basemapStyle),
         restoredBackgroundMode: backgroundModeFromId(loaded.satelliteMode),
         restoredSatelliteOpacity: loaded.satelliteOpacity,
+        restoredPointClusteringEnabled: loaded.pointClusteringEnabled,
+        restoredPointClusterRadius: loaded.pointClusterRadius,
+        restoredPointClusterMaxZoom: loaded.pointClusterMaxZoom,
       );
       widget.onThemeModeChanged?.call(themeModeFromId(loaded.themeMode));
 
@@ -439,6 +464,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           agentMessagesJson: _agent.encodePersistedThreadsJson(),
           nwcUri: _accountWallet.nwcUri,
           nip60WalletEnabled: _accountWallet.nip60WalletEnabled,
+          pointClusteringEnabled: _mapLayers.pointClusteringEnabled,
+          pointClusterRadius: _mapLayers.pointClusterRadius,
+          pointClusterMaxZoom: _mapLayers.pointClusterMaxZoom,
+          agentProviderType: _agent.settings.providerType,
+          agentAutoPayCashu: _agent.settings.autoPayCashu,
+          agentCashuMaxSats: _agent.settings.cashuMaxSats,
         ),
       );
     } catch (_) {}
@@ -501,6 +532,96 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         center: Geographic(lon: lon, lat: lat),
         zoom: zoom,
       ),
+    );
+  }
+
+  bool get _isMapRotatedOrTilted {
+    final ori = _cameraOrientationNotifier.value;
+    final b = ((ori.bearing % 360) + 360) % 360;
+    final offNorth = b > 1.0 && b < 359.0;
+    return offNorth || ori.pitch.abs() > 1.0;
+  }
+
+  String _reNorthTooltip(({double bearing, double pitch}) ori) {
+    final b = ((ori.bearing % 360) + 360) % 360;
+    if (b > 1.0 && b < 359.0) {
+      return 'Re-north map (${b.round()}°)';
+    }
+    if (ori.pitch.abs() > 1.0) {
+      return 'Reset map tilt (${ori.pitch.round()}°)';
+    }
+    return 'Re-north map';
+  }
+
+  void _reNorthMap() {
+    _cameraOrientationNotifier.value = (bearing: 0.0, pitch: 0.0);
+    widget.onReNorthRequested?.call();
+    _controller?.animateCamera(
+      CameraUpdate.position(bearing: 0.0, pitch: 0.0),
+      animation: const CameraAnimation.ease(
+        duration: Duration(milliseconds: 240),
+      ),
+    );
+  }
+
+  void _scheduleClusteredPointsSync({bool force = false}) {
+    if (_isHeadlessTest) return;
+    final rev = _mapLayers.revision;
+    if (!force && _lastClusteredSyncRevision == rev) return;
+    _lastClusteredSyncRevision = rev;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(
+        _mapLayers.syncClusteredPoints(
+          controller: _controller,
+          onInspectFeature: _inspectFeature,
+        ),
+      );
+    });
+  }
+
+  void _openSettings({EarthlySettingsTab tab = EarthlySettingsTab.map}) {
+    setState(() => _settingsInitialTab = tab);
+    _openDrawer(_ActiveDrawer.settings);
+  }
+
+  String _signerModeLabel() {
+    if (_accountWallet.account == null) return 'Not signed in';
+    if (_accountWallet.isReadOnlySession) return 'Read-only watch (npub)';
+    if (_accountWallet.localNsec?.trim().isNotEmpty ?? false) {
+      return 'Local nsec key';
+    }
+    if (_accountWallet.bunkerUri?.trim().isNotEmpty ?? false) {
+      return 'NIP-46 Remote Bunker';
+    }
+    if (Platform.isAndroid) return 'Android Amber (NIP-55)';
+    return 'Signed in';
+  }
+
+  void _handleLoadedOfflinePmtiles(OfflinePmtilesBasemap offline) {
+    final s = offline.snapshot;
+    final h = s.header;
+    final record = SavedOfflinePackDto(
+      label: s.label,
+      sha256: s.sha256,
+      sizeBytes: s.sizeBytes,
+      format: h.format,
+      minZoom: h.minZoom,
+      maxZoom: h.maxZoom,
+      west: h.west,
+      south: h.south,
+      east: h.east,
+      north: h.north,
+      centerLon: h.centerLon,
+      centerLat: h.centerLat,
+      centerZoom: h.centerZoom,
+    );
+    _mapLayers.setOfflineBasemap(offline, packRecord: record);
+    unawaited(_persistAppSettings());
+    _animateCameraPosition(
+      h.centerLon,
+      h.centerLat,
+      h.centerZoom.toDouble().clamp(2.0, 18.0),
     );
   }
 
@@ -1906,7 +2027,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         _ActiveDrawer.locationInspector ||
         _ActiveDrawer.osmImport ||
         _ActiveDrawer.routing ||
-        _ActiveDrawer.help =>
+        _ActiveDrawer.help ||
+        _ActiveDrawer.settings =>
           true,
         _ => false,
       };
@@ -2071,32 +2193,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             _mapLayers.setSelectedBasemap(kind);
             unawaited(_persistAppSettings());
           },
-          onLoadedOfflinePmtiles: (offline) {
-            final s = offline.snapshot;
-            final h = s.header;
-            final record = SavedOfflinePackDto(
-              label: s.label,
-              sha256: s.sha256,
-              sizeBytes: s.sizeBytes,
-              format: h.format,
-              minZoom: h.minZoom,
-              maxZoom: h.maxZoom,
-              west: h.west,
-              south: h.south,
-              east: h.east,
-              north: h.north,
-              centerLon: h.centerLon,
-              centerLat: h.centerLat,
-              centerZoom: h.centerZoom,
-            );
-            _mapLayers.setOfflineBasemap(offline, packRecord: record);
-            unawaited(_persistAppSettings());
-            _animateCameraPosition(
-              h.centerLon,
-              h.centerLat,
-              h.centerZoom.toDouble().clamp(2.0, 18.0),
-            );
-          },
+          onLoadedOfflinePmtiles: _handleLoadedOfflinePmtiles,
           onMountSavedPack: (pack) async {
             try {
               await _mapLayers.mountSavedOfflinePack(
@@ -2114,6 +2211,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           },
           onToggleLabels: _mapLayers.setShowLabels,
           onChangeCalloutMode: _mapLayers.setCalloutMode,
+          pointClusteringEnabled: _mapLayers.pointClusteringEnabled,
+          onTogglePointClustering: (enabled) {
+            _mapLayers.setPointClusteringEnabled(enabled);
+            unawaited(_persistAppSettings());
+          },
           mountedAtlasWorkspaces: _mapLayers.mountedAtlasWorkspaces,
           onMountAtlasWorkspace: _mountAtlasWorkspace,
           onUnmountAtlasWorkspace: (path) {
@@ -2137,7 +2239,21 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     final zoom = cam?.zoom ?? 13.5;
     final geoUri =
         'geo:${center.lat.toStringAsFixed(5)},${center.lon.toStringAsFixed(5)}';
-    final effectiveBasemap = _mapLayers.selectedBasemap;
+    final nextTheme = switch (widget.themeMode) {
+      ThemeMode.system => ThemeMode.light,
+      ThemeMode.light => ThemeMode.dark,
+      ThemeMode.dark => ThemeMode.system,
+    };
+    final themeLabel = switch (widget.themeMode) {
+      ThemeMode.system => 'System',
+      ThemeMode.light => 'Light',
+      ThemeMode.dark => 'Dark',
+    };
+    final themeIcon = switch (widget.themeMode) {
+      ThemeMode.system => Icons.brightness_auto_outlined,
+      ThemeMode.light => Icons.light_mode_outlined,
+      ThemeMode.dark => Icons.dark_mode_outlined,
+    };
 
     showModalBottomSheet<void>(
       context: context,
@@ -2145,7 +2261,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       builder: (ctx) {
         final theme = Theme.of(ctx);
         return SafeArea(
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -2165,15 +2281,15 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                 Row(
                   children: [
                     Container(
-                      width: 28,
-                      height: 28,
+                      width: 30,
+                      height: 30,
                       decoration: const BoxDecoration(
                         color: EarthlyColors.amber,
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
                         Icons.explore,
-                        size: 17,
+                        size: 18,
                         color: EarthlyColors.amberInk,
                       ),
                     ),
@@ -2191,7 +2307,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                           ),
                           Text(
                             _spaces.relayStreamLive
-                                ? 'Live stream · ${_catalog.relayUrls.first}'
+                                ? 'Live · ${_catalog.relayUrls.first}'
                                 : 'Connecting · ${_catalog.relayUrls.first}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -2206,6 +2322,15 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                         ],
                       ),
                     ),
+                    IconButton(
+                      tooltip: 'Theme: $themeLabel (tap to cycle)',
+                      onPressed: () {
+                        widget.onThemeModeChanged?.call(nextTheme);
+                        unawaited(_persistAppSettings());
+                        Navigator.of(ctx).pop();
+                      },
+                      icon: Icon(themeIcon, size: 19),
+                    ),
                     OutlinedButton.icon(
                       onPressed: () {
                         Navigator.of(ctx).pop();
@@ -2218,62 +2343,140 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                   ],
                 ),
                 const SizedBox(height: 14),
-                Text(
-                  'APPEARANCE & MAP STYLE',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontFamily: 'monospace',
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final m in const [
-                      (ThemeMode.system, 'System'),
-                      (ThemeMode.light, 'Light'),
-                      (ThemeMode.dark, 'Dark'),
-                    ])
-                      ChoiceChip(
-                        label: Text(m.$2),
-                        selected: widget.themeMode == m.$1,
-                        onSelected: (_) {
-                          widget.onThemeModeChanged?.call(m.$1);
-                          unawaited(_persistAppSettings());
-                        },
-                      ),
-                    for (final b in const [
-                      BasemapKind.auto,
-                      BasemapKind.openFreeMapPositron,
-                      BasemapKind.openFreeMapBright,
-                      BasemapKind.openFreeMapLiberty,
-                      BasemapKind.openFreeMapDark,
-                      BasemapKind.openFreeMapFiord,
-                    ])
-                      ChoiceChip(
-                        label: Text(basemapStyleLabel(b)),
-                        selected: effectiveBasemap == b,
-                        onSelected: (_) {
-                          _mapLayers.setSelectedBasemap(b);
-                          unawaited(_persistAppSettings());
-                          Navigator.of(ctx).pop();
-                        },
-                      ),
-                    ActionChip(
-                      avatar: const Icon(Icons.satellite_alt_outlined, size: 15),
-                      label: const Text('Satellite / Offline…'),
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        _openBasemapSwitcher();
-                      },
+                Material(
+                  color: theme.colorScheme.surfaceContainerHighest
+                      .withValues(alpha: 0.7),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    side: BorderSide(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.35),
                     ),
-                  ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      InkWell(
+                        key: const Key('earthly-pill-settings-btn'),
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(14),
+                        ),
+                        onTap: () {
+                          Navigator.of(ctx).pop();
+                          _openSettings(tab: EarthlySettingsTab.map);
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 12, 12, 10),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 34,
+                                height: 34,
+                                decoration: BoxDecoration(
+                                  color: EarthlyColors.amber
+                                      .withValues(alpha: 0.18),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(
+                                  Icons.settings_outlined,
+                                  size: 19,
+                                  color: EarthlyColors.amber,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Settings',
+                                      style:
+                                          theme.textTheme.titleSmall?.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Map source, clustering, relays, chat credentials & more',
+                                      style:
+                                          theme.textTheme.bodySmall?.copyWith(
+                                        color:
+                                            theme.colorScheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(
+                                Icons.chevron_right,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      Divider(
+                        height: 1,
+                        color: theme.dividerColor.withValues(alpha: 0.6),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            ActionChip(
+                              key: const Key('earthly-pill-jump-map'),
+                              visualDensity: VisualDensity.compact,
+                              avatar: const Icon(Icons.map_outlined, size: 14),
+                              label: const Text('Map'),
+                              onPressed: () {
+                                Navigator.of(ctx).pop();
+                                _openSettings(tab: EarthlySettingsTab.map);
+                              },
+                            ),
+                            ActionChip(
+                              key: const Key('earthly-pill-jump-relays'),
+                              visualDensity: VisualDensity.compact,
+                              avatar: const Icon(Icons.hub_outlined, size: 14),
+                              label: Text('Relays (${_catalog.relayUrls.length})'),
+                              onPressed: () {
+                                Navigator.of(ctx).pop();
+                                _openSettings(tab: EarthlySettingsTab.relays);
+                              },
+                            ),
+                            ActionChip(
+                              key: const Key('earthly-pill-jump-chat'),
+                              visualDensity: VisualDensity.compact,
+                              avatar: const Icon(Icons.auto_awesome, size: 14),
+                              label: const Text('Chat AI'),
+                              onPressed: () {
+                                Navigator.of(ctx).pop();
+                                _openSettings(tab: EarthlySettingsTab.chat);
+                              },
+                            ),
+                            ActionChip(
+                              key: const Key('earthly-pill-jump-account'),
+                              visualDensity: VisualDensity.compact,
+                              avatar: const Icon(
+                                Icons.account_circle_outlined,
+                                size: 14,
+                              ),
+                              label: const Text('Account'),
+                              onPressed: () {
+                                Navigator.of(ctx).pop();
+                                _openSettings(tab: EarthlySettingsTab.account);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
-                    vertical: 9,
+                    vertical: 8,
                   ),
                   decoration: BoxDecoration(
                     color: theme.colorScheme.surfaceContainerHighest,
@@ -2294,6 +2497,17 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                           ),
                         ),
                       ),
+                      if (_isMapRotatedOrTilted)
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          onPressed: () {
+                            Navigator.of(ctx).pop();
+                            _reNorthMap();
+                          },
+                          child: const Text('Re-north'),
+                        ),
                       TextButton(
                         style: TextButton.styleFrom(
                           visualDensity: VisualDensity.compact,
@@ -2356,6 +2570,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                     OutlinedButton.icon(
                       onPressed: () {
                         Navigator.of(ctx).pop();
+                        unawaited(_exportMapPosterPng());
+                      },
+                      icon: const Icon(Icons.image_outlined, size: 16),
+                      label: const Text('Export Poster'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
                         _openDrawer(_ActiveDrawer.inbox);
                         unawaited(_refreshInbox());
                       },
@@ -2381,13 +2603,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                     OutlinedButton.icon(
                       onPressed: () {
                         Navigator.of(ctx).pop();
-                        showModalBottomSheet<void>(
-                          context: context,
-                          builder: (_) => const RustNodeSheet(),
-                        );
+                        _openDrawer(_ActiveDrawer.help);
                       },
-                      icon: const Icon(Icons.memory, size: 16),
-                      label: const Text('Rust Node & Outbox'),
+                      icon: const Icon(Icons.help_outline, size: 16),
+                      label: const Text('Help'),
                     ),
                   ],
                 ),
@@ -2555,6 +2774,16 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           ]),
         _ActiveDrawer.mcpBridge => _agent.mcpListenable,
         _ActiveDrawer.account => Listenable.merge([_accountWallet, _catalog]),
+        _ActiveDrawer.settings => Listenable.merge([
+            _mapLayers,
+            _catalog,
+            _spaces,
+            _agent,
+            _agent.mcpListenable,
+            _accountWallet,
+            _accountWallet.walletListenable,
+            _draft.placementListenable,
+          ]),
         _ => Listenable.merge([_catalog, _draft, _accountWallet]),
       };
 
@@ -4232,6 +4461,198 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         return HelpShortcutsSheet(
           onClose: () => _closeDrawer(_ActiveDrawer.help),
         );
+      case _ActiveDrawer.settings:
+        return SettingsSheet(
+          initialTab: _settingsInitialTab,
+          themeMode: widget.themeMode,
+          onThemeModeChanged: (mode) {
+            widget.onThemeModeChanged?.call(mode);
+            unawaited(_persistAppSettings());
+          },
+          activeBasemap: _mapLayers.selectedBasemap,
+          offlineBasemap: _mapLayers.offlineBasemap,
+          onSelectBasemap: (kind) {
+            _mapLayers.setSelectedBasemap(kind);
+            unawaited(_persistAppSettings());
+          },
+          onLoadedOfflinePmtiles: _handleLoadedOfflinePmtiles,
+          backgroundMode: _mapLayers.backgroundMode,
+          satelliteOpacity: _mapLayers.satelliteOpacity,
+          onBackgroundModeChanged: (bg) {
+            _mapLayers.setBackgroundMode(bg);
+            unawaited(_mapLayers.syncSatellite(_controller?.style));
+            unawaited(_persistAppSettings());
+          },
+          onSatelliteOpacityChanged: (v) {
+            _mapLayers.setSatelliteOpacity(v);
+            unawaited(_mapLayers.syncSatellite(_controller?.style));
+            unawaited(_persistAppSettings());
+          },
+          pointClusteringEnabled: _mapLayers.pointClusteringEnabled,
+          pointClusterRadius: _mapLayers.pointClusterRadius,
+          pointClusterMaxZoom: _mapLayers.pointClusterMaxZoom,
+          onPointClusteringChanged: (enabled) {
+            _mapLayers.setPointClusteringEnabled(enabled);
+            unawaited(_persistAppSettings());
+          },
+          onPointClusterRadiusChanged: (radius) {
+            _mapLayers.setPointClusterRadius(radius);
+            unawaited(_persistAppSettings());
+          },
+          onPointClusterMaxZoomChanged: (maxZoom) {
+            _mapLayers.setPointClusterMaxZoom(maxZoom);
+            unawaited(_persistAppSettings());
+          },
+          showLabels: _mapLayers.showLabels,
+          onToggleLabels: _mapLayers.setShowLabels,
+          calloutMode: _mapLayers.calloutMode,
+          onChangeCalloutMode: _mapLayers.setCalloutMode,
+          savedOfflinePacks: _mapLayers.savedOfflinePacks,
+          onMountSavedPack: (pack) async {
+            try {
+              await _mapLayers.mountSavedOfflinePack(
+                pack,
+                onFlyTo: (center, zoom) =>
+                    _animateCameraPosition(center.lon, center.lat, zoom),
+              );
+            } catch (err) {
+              _showSnack('Could not mount offline pack: $err');
+            }
+          },
+          onRemoveSavedPack: (sha) {
+            _mapLayers.removeSavedOfflinePack(sha);
+            unawaited(_persistAppSettings());
+          },
+          mountedAtlasWorkspaces: _mapLayers.mountedAtlasWorkspaces,
+          onMountAtlasWorkspace: _mountAtlasWorkspace,
+          onUnmountAtlasWorkspace: (path) {
+            _mapLayers.removeMountedAtlasWorkspace(path);
+            unawaited(
+              _mapLayers.removeMacOsSecurityScopedBookmark(
+                path,
+                supportDirPath: _spaces.supportDirPath,
+              ),
+            );
+            unawaited(_persistAppSettings());
+          },
+          onExportMapPosterPng: () => unawaited(_exportMapPosterPng()),
+          relayUrls: _catalog.relayUrls,
+          relayStreamLive: _spaces.relayStreamLive,
+          onRelayUrlsChanged: (next) => _catalog.updateRelayUrls(
+            next,
+            onPersist: () => unawaited(_persistAppSettings()),
+            onSyncRelays: () => unawaited(_syncRelayPoolAndRefresh()),
+          ),
+          blossomServerUrl: _catalog.blossomServerUrl,
+          onBlossomServerChanged: (url) => _catalog.setBlossomServerUrl(
+            url,
+            onPersist: () => unawaited(_persistAppSettings()),
+          ),
+          cordnServerPubkey: _spaces.cordnServerPubkey,
+          onCordnPubkeyChanged: (pk) => _spaces.setCordnServerPubkey(
+            pk,
+            onPersist: () => unawaited(_persistAppSettings()),
+          ),
+          onProbeRelaysHealth: (urls) async {
+            await RustBridge.ensureInitialized();
+            return probeRelaysHealth(relayUrls: urls);
+          },
+          onFetchNip65Relays: () => _spaces.fetchNip65Relays(
+            relayUrls: _catalog.relayUrls,
+            ensureAccount: _ensureAccount,
+          ),
+          onPublishNip65Relays: (relays) => _spaces.publishNip65Relays(
+            relays,
+            relayUrls: _catalog.relayUrls,
+            ensureAccount: _ensureAccount,
+            signUnsignedEvent: _accountWallet.signUnsignedEvent,
+          ),
+          agentSettings: _agent.settings,
+          onAgentSettingsChanged: (s) => _agent.updateSettings(
+            s,
+            isHeadlessTest: _isHeadlessTest,
+            onPersistSettings: () => unawaited(_persistAppSettings()),
+          ),
+          safeEditing: _agent.safeEditing,
+          onSafeEditingChanged: _agent.setSafeEditing,
+          visionSupport: _agent.visionSupport,
+          attachMapView: _agent.attachMapView,
+          onAttachMapViewChanged: _agent.setAttachMapView,
+          onDiscoverModels: (baseUrl, apiKey) async {
+            await RustBridge.ensureInitialized();
+            return fetchAgentProviderModels(
+              baseUrl: baseUrl,
+              apiKey: apiKey.trim().isEmpty ? null : apiKey.trim(),
+            );
+          },
+          mcpBridgeRunning: _agent.mcpBridgeStatus?.running ?? false,
+          onOpenMcpBridge: () => _openDrawer(_ActiveDrawer.mcpBridge),
+          account: _accountWallet.account,
+          signerModeLabel: _signerModeLabel(),
+          cashuWalletEnabled: _accountWallet.nip60WalletEnabled,
+          onSetCashuWalletEnabled: (enabled) {
+            _accountWallet.setNip60WalletEnabled(
+              enabled,
+              onPersistSettings: () => unawaited(_persistAppSettings()),
+            );
+            if (enabled) {
+              unawaited(
+                _accountWallet.refreshCashuWalletState(
+                  isHeadlessTest: _isHeadlessTest,
+                ),
+              );
+              if (!_isHeadlessTest) {
+                unawaited(
+                  _accountWallet.syncNip60WalletForActiveAccount(
+                    _catalog.relayUrls,
+                    isHeadlessTest: _isHeadlessTest,
+                  ),
+                );
+              }
+            }
+          },
+          cashuBalanceSats: _accountWallet.nip60WalletEnabled
+              ? _accountWallet.cashuWalletState?.balanceSats.toInt()
+              : null,
+          onOpenCashuWallet: () => _openDrawer(_ActiveDrawer.cashuWallet),
+          onOpenAccount: () => _openDrawer(_ActiveDrawer.account),
+          mutedPubkeys: _accountWallet.mutedPubkeys.toList(growable: false),
+          onUnmutePubkey: (pk) => _accountWallet.unmutePubkey(
+            pk,
+            onPersistSettings: () => unawaited(_persistAppSettings()),
+          ),
+          placementStyle: _draft.placementStyle,
+          onPlacementStyleChanged: _draft.setPlacementStyle,
+          loupeEnabled: _draft.loupeEnabled,
+          onLoupeChanged: (enabled) {
+            if (enabled != _draft.loupeEnabled) {
+              _draft.toggleLoupeEnabled();
+            }
+          },
+          snappingEnabled: _draft.snappingEnabled,
+          onSnappingChanged: _draft.setSnappingEnabled,
+          snapToEdgesEnabled: _draft.snapToEdgesEnabled,
+          onSnapToEdgesChanged: _draft.setSnapToEdgesEnabled,
+          pendingOutboxCount: _spaces.pendingOutboxCount,
+          onOpenRustNode: () {
+            showModalBottomSheet<void>(
+              context: context,
+              builder: (_) => const RustNodeSheet(),
+            );
+          },
+          onOpenOutbox: () {
+            _openDrawer(_ActiveDrawer.outbox);
+            unawaited(
+              _spaces.refreshOutboxItems(isHeadlessTest: _isHeadlessTest),
+            );
+          },
+          onRefreshCatalog: () {
+            unawaited(_preloadCatalog());
+            _showSnack('Refreshing Nostr catalog…');
+          },
+          onOpenHelp: () => _openDrawer(_ActiveDrawer.help),
+          onClose: () => _closeDrawer(_ActiveDrawer.settings),
+        );
     }
   }
 
@@ -4786,6 +5207,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       ]),
       builder: (context, _) {
         final snapshot = _resolveMapLayers(systemIsDark: systemIsDark);
+        _scheduleClusteredPointsSync();
         final gestures = _draft.activeMapGestures;
         final mapStyle = _mapLayers.resolveMapStyle(systemIsDark: systemIsDark);
 
@@ -4805,10 +5227,26 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                   ),
                   gestures: gestures,
                 ),
-                onMapCreated: (controller) =>
-                    _controllerNotifier.value = controller,
-                onStyleLoaded: (style) =>
-                    unawaited(_mapLayers.syncSatellite(style)),
+                onMapCreated: (controller) {
+                  _controllerNotifier.value = controller;
+                  _scheduleClusteredPointsSync(force: true);
+                },
+                onStyleLoaded: (style) {
+                  unawaited(_mapLayers.syncSatellite(style));
+                  _scheduleClusteredPointsSync(force: true);
+                },
+                onCameraMove: (event) {
+                  final nextBearing = event.camera.bearing;
+                  final nextPitch = event.camera.pitch;
+                  final prev = _cameraOrientationNotifier.value;
+                  if ((nextBearing - prev.bearing).abs() > 0.4 ||
+                      (nextPitch - prev.pitch).abs() > 0.4) {
+                    _cameraOrientationNotifier.value = (
+                      bearing: nextBearing,
+                      pitch: nextPitch,
+                    );
+                  }
+                },
                 onLongClick: (event) {
                   if (!_draft.isDrawingMode) {
                     _openLocationInspector(event.point);
@@ -5310,12 +5748,40 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                         ),
                       ),
                       const SizedBox(width: 6),
+                      ValueListenableBuilder<({double bearing, double pitch})>(
+                        valueListenable: _cameraOrientationNotifier,
+                        builder: (context, ori, _) {
+                          final rotated = ((ori.bearing % 360) + 360) % 360;
+                          final isOffNorth = (rotated > 1.0 && rotated < 359.0) ||
+                              ori.pitch.abs() > 1.0;
+                          return _MiniIconButton(
+                            key: const Key('earthly-renorth-btn'),
+                            tooltip: _reNorthTooltip(ori),
+                            iconWidget: _CompassNorthIcon(
+                              bearingDegrees: ori.bearing,
+                              size: 18,
+                              highlighted: isOffNorth,
+                            ),
+                            active: isOffNorth,
+                            onTap: _reNorthMap,
+                          );
+                        },
+                      ),
+                      const SizedBox(width: 6),
                       _MiniIconButton(
                         tooltip: 'Basemap & Overlays',
                         icon: Icons.map_outlined,
                         active: _mapLayers.selectedBasemap ==
                             BasemapKind.offlinePmtiles,
                         onTap: _openBasemapSwitcher,
+                      ),
+                      const SizedBox(width: 6),
+                      _MiniIconButton(
+                        key: const Key('earthly-desktop-settings-btn'),
+                        tooltip: 'Settings',
+                        icon: Icons.settings_outlined,
+                        active: _isDrawerOpen(_ActiveDrawer.settings),
+                        onTap: () => _toggleDrawer(_ActiveDrawer.settings),
                       ),
                     ],
                     const SizedBox(width: 6),
@@ -5470,6 +5936,26 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                   onTap: _mapLayers.cycleCalloutMode,
                 ),
               ],
+              const SizedBox(height: 8),
+              ValueListenableBuilder<({double bearing, double pitch})>(
+                valueListenable: _cameraOrientationNotifier,
+                builder: (context, ori, _) {
+                  final rotated = ((ori.bearing % 360) + 360) % 360;
+                  final isOffNorth = (rotated > 1.0 && rotated < 359.0) ||
+                      ori.pitch.abs() > 1.0;
+                  return _ThumbMapButton(
+                    key: const Key('earthly-renorth-btn'),
+                    tooltip: _reNorthTooltip(ori),
+                    iconWidget: _CompassNorthIcon(
+                      bearingDegrees: ori.bearing,
+                      size: 22,
+                      highlighted: isOffNorth,
+                    ),
+                    active: isOffNorth,
+                    onTap: _reNorthMap,
+                  );
+                },
+              ),
               if (Platform.isAndroid) ...[
                 const SizedBox(height: 8),
                 _ThumbMapButton(
@@ -6690,16 +7176,19 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
 class _ThumbMapButton extends StatelessWidget {
   const _ThumbMapButton({
     required this.tooltip,
-    required this.icon,
+    this.icon,
+    this.iconWidget,
     required this.active,
     required this.onTap,
     this.activeBackground,
     this.activeForeground,
     this.badgeDotColor,
-  });
+    super.key,
+  }) : assert(icon != null || iconWidget != null);
 
   final String tooltip;
-  final IconData icon;
+  final IconData? icon;
+  final Widget? iconWidget;
   final bool active;
   final VoidCallback onTap;
   final Color? activeBackground;
@@ -6752,7 +7241,7 @@ class _ThumbMapButton extends StatelessWidget {
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  Icon(icon, size: 20, color: fg),
+                  iconWidget ?? Icon(icon, size: 20, color: fg),
                   if (badgeDotColor != null && !active)
                     Positioned(
                       top: 8,
@@ -6779,13 +7268,16 @@ class _ThumbMapButton extends StatelessWidget {
 class _MiniIconButton extends StatelessWidget {
   const _MiniIconButton({
     required this.tooltip,
-    required this.icon,
+    this.icon,
+    this.iconWidget,
     required this.active,
     required this.onTap,
-  });
+    super.key,
+  }) : assert(icon != null || iconWidget != null);
 
   final String tooltip;
-  final IconData icon;
+  final IconData? icon;
+  final Widget? iconWidget;
   final bool active;
   final VoidCallback onTap;
 
@@ -6808,13 +7300,14 @@ class _MiniIconButton extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
               onTap: onTap,
               child: Center(
-                child: Icon(
-                  icon,
-                  size: 18,
-                  color: active
-                      ? EarthlyColors.amberInk
-                      : theme.colorScheme.onSurface,
-                ),
+                child: iconWidget ??
+                    Icon(
+                      icon,
+                      size: 18,
+                      color: active
+                          ? EarthlyColors.amberInk
+                          : theme.colorScheme.onSurface,
+                    ),
               ),
             ),
           ),
@@ -6822,6 +7315,105 @@ class _MiniIconButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Crisp icon-only compass needle (zero `Text` descendants) that rotates live
+/// against the map's bearing so tapping it intuitively snaps the map back to
+/// true north (bearing 0°, pitch 0°).
+class _CompassNorthIcon extends StatelessWidget {
+  const _CompassNorthIcon({
+    required this.bearingDegrees,
+    this.size = 22,
+    this.highlighted = false,
+  });
+
+  final double bearingDegrees;
+  final double size;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final northColor = highlighted
+        ? const Color(0xFFB91C1C)
+        : const Color(0xFFDC2626);
+    final southColor = highlighted
+        ? EarthlyColors.amberInk.withValues(alpha: 0.78)
+        : theme.colorScheme.onSurface.withValues(alpha: 0.55);
+    final ringColor = highlighted
+        ? EarthlyColors.amberInk.withValues(alpha: 0.45)
+        : theme.colorScheme.onSurface.withValues(alpha: 0.28);
+
+    return Transform.rotate(
+      angle: -bearingDegrees * math.pi / 180.0,
+      child: CustomPaint(
+        size: Size.square(size),
+        painter: _CompassNorthPainter(
+          northColor: northColor,
+          southColor: southColor,
+          ringColor: ringColor,
+        ),
+      ),
+    );
+  }
+}
+
+class _CompassNorthPainter extends CustomPainter {
+  const _CompassNorthPainter({
+    required this.northColor,
+    required this.southColor,
+    required this.ringColor,
+  });
+
+  final Color northColor;
+  final Color southColor;
+  final Color ringColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    final r = size.shortestSide / 2;
+
+    // Subtle compass bezel ring
+    canvas.drawCircle(
+      Offset(cx, cy),
+      r - 1.0,
+      Paint()
+        ..color = ringColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.35,
+    );
+
+    // Red north arrowhead
+    final northPath = Path()
+      ..moveTo(cx, cy - r * 0.72)
+      ..lineTo(cx + r * 0.28, cy)
+      ..lineTo(cx - r * 0.28, cy)
+      ..close();
+    canvas.drawPath(northPath, Paint()..color = northColor);
+
+    // Muted south pointer
+    final southPath = Path()
+      ..moveTo(cx, cy + r * 0.72)
+      ..lineTo(cx + r * 0.28, cy)
+      ..lineTo(cx - r * 0.28, cy)
+      ..close();
+    canvas.drawPath(southPath, Paint()..color = southColor);
+
+    // Center pivot dot
+    canvas.drawCircle(
+      Offset(cx, cy),
+      r * 0.13,
+      Paint()..color = Colors.white,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _CompassNorthPainter oldDelegate) =>
+      northColor != oldDelegate.northColor ||
+      southColor != oldDelegate.southColor ||
+      ringColor != oldDelegate.ringColor;
 }
 
 class _MiniToggle extends StatelessWidget {

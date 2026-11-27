@@ -100,6 +100,12 @@ pub struct AppSettingsDto {
     pub agent_messages_json: Option<String>,
     pub nwc_uri: Option<String>,
     pub nip60_wallet_enabled: bool,
+    pub point_clustering_enabled: bool,
+    pub point_cluster_radius: u32,
+    pub point_cluster_max_zoom: u8,
+    pub agent_provider_type: Option<String>,
+    pub agent_auto_pay_cashu: bool,
+    pub agent_cashu_max_sats: u32,
 }
 
 pub fn load_app_settings(database_path: String) -> Result<AppSettingsDto, String> {
@@ -195,6 +201,12 @@ fn from_record(r: PersistedAppSettings) -> AppSettingsDto {
         agent_messages_json: r.agent_messages_json,
         nwc_uri: r.nwc_uri,
         nip60_wallet_enabled: r.nip60_wallet_enabled,
+        point_clustering_enabled: r.point_clustering_enabled,
+        point_cluster_radius: r.point_cluster_radius,
+        point_cluster_max_zoom: r.point_cluster_max_zoom,
+        agent_provider_type: r.agent_provider_type,
+        agent_auto_pay_cashu: r.agent_auto_pay_cashu,
+        agent_cashu_max_sats: r.agent_cashu_max_sats,
     }
 }
 
@@ -269,6 +281,12 @@ fn to_record(d: AppSettingsDto) -> PersistedAppSettings {
         agent_messages_json: d.agent_messages_json,
         nwc_uri: d.nwc_uri,
         nip60_wallet_enabled: d.nip60_wallet_enabled,
+        point_clustering_enabled: d.point_clustering_enabled,
+        point_cluster_radius: d.point_cluster_radius,
+        point_cluster_max_zoom: d.point_cluster_max_zoom,
+        agent_provider_type: d.agent_provider_type,
+        agent_auto_pay_cashu: d.agent_auto_pay_cashu,
+        agent_cashu_max_sats: d.agent_cashu_max_sats,
     }
 }
 
@@ -315,6 +333,11 @@ mod tests {
         let db = dir.path().join("settings.sqlite3").display().to_string();
         let mut s = load_app_settings(db.clone()).unwrap();
         assert!(!s.nip60_wallet_enabled);
+        assert!(s.point_clustering_enabled);
+        assert_eq!(s.point_cluster_radius, 50);
+        assert_eq!(s.point_cluster_max_zoom, 14);
+        assert!(!s.agent_auto_pay_cashu);
+        assert_eq!(s.agent_cashu_max_sats, 25);
         assert_eq!(s.blossom_server_url, "https://blossom.earthly.city");
         assert_eq!(s.theme_mode, "system");
         assert_eq!(s.basemap_style, "auto");
@@ -331,12 +354,30 @@ mod tests {
         s.agent_messages_json = Some(r#"[{"role":"user","content":"Measure draft"}]"#.to_owned());
         s.nwc_uri = Some("nostr+walletconnect://abc?relay=wss%3A%2F%2Frelay.earthly.city&secret=def".to_owned());
         s.nip60_wallet_enabled = true;
+        s.point_clustering_enabled = false;
+        s.point_cluster_radius = 80;
+        s.point_cluster_max_zoom = 12;
+        s.agent_provider_type = Some("routstr".to_owned());
+        s.agent_auto_pay_cashu = true;
+        s.agent_cashu_max_sats = 40;
         let saved = save_app_settings(db.clone(), s).unwrap();
         assert!(saved.nip60_wallet_enabled);
+        assert!(!saved.point_clustering_enabled);
+        assert_eq!(saved.point_cluster_radius, 80);
+        assert_eq!(saved.point_cluster_max_zoom, 12);
+        assert_eq!(saved.agent_provider_type.as_deref(), Some("routstr"));
+        assert!(saved.agent_auto_pay_cashu);
+        assert_eq!(saved.agent_cashu_max_sats, 40);
         assert_eq!(saved.blossom_server_url, "https://blossom.primal.net");
         assert_eq!(saved.muted_pubkeys, vec!["f".repeat(64)]);
         let reloaded = load_app_settings(db).unwrap();
         assert!(reloaded.nip60_wallet_enabled);
+        assert!(!reloaded.point_clustering_enabled);
+        assert_eq!(reloaded.point_cluster_radius, 80);
+        assert_eq!(reloaded.point_cluster_max_zoom, 12);
+        assert_eq!(reloaded.agent_provider_type.as_deref(), Some("routstr"));
+        assert!(reloaded.agent_auto_pay_cashu);
+        assert_eq!(reloaded.agent_cashu_max_sats, 40);
         assert_eq!(reloaded.inbox_read_all_before, 1_790_000_000);
         assert_eq!(reloaded.inbox_read_ids, vec!["reply:abc".to_owned()]);
         assert_eq!(reloaded.muted_pubkeys, vec!["f".repeat(64)]);
