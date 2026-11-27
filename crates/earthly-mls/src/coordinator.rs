@@ -550,6 +550,134 @@ pub fn is_transient_transport_error(err: &str) -> bool {
         || lower.contains("failed to subscribe to cordn")
 }
 
+/// CEP-41 `open-stream` control frames sent inside `notifications/progress` (`params.cvm`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OpenStreamControlFrame {
+    Ping { nonce: Option<String> },
+    Close,
+    Abort(String),
+}
+
+/// Inspects a JSON-RPC `notifications/progress` frame for CEP-41 `open-stream` control signals
+/// (`ping`, `close`, `abort`).
+pub fn parse_open_stream_control(frame: &serde_json::Value) -> Option<OpenStreamControlFrame> {
+    if frame.get("method").and_then(|m| m.as_str()) != Some("notifications/progress") {
+        return None;
+    }
+    let cvm = frame.pointer("/params/cvm")?;
+    if cvm.get("type").and_then(|t| t.as_str()) != Some("open-stream") {
+        return None;
+    }
+    match cvm.get("frameType").and_then(|f| f.as_str()) {
+        Some("ping") => {
+            let nonce = cvm
+                .get("nonce")
+                .and_then(|n| n.as_str())
+                .map(ToOwned::to_owned);
+            Some(OpenStreamControlFrame::Ping { nonce })
+        }
+        Some("close") => Some(OpenStreamControlFrame::Close),
+        Some("abort") => {
+            let reason = cvm
+                .get("reason")
+                .and_then(|r| r.as_str())
+                .unwrap_or("aborted")
+                .to_owned();
+            Some(OpenStreamControlFrame::Abort(reason))
+        }
+        _ => None,
+    }
+}
+
+/// Builds a CEP-41 `open-stream` keepalive `pong` `notifications/progress` payload replying to
+/// a server `ping`.
+pub fn build_open_stream_pong_frame(
+    progress_token: &str,
+    progress: u64,
+    nonce: Option<&str>,
+) -> serde_json::Value {
+    let mut cvm = serde_json::json!({
+        "type": "open-stream",
+        "frameType": "pong",
+    });
+    if let Some(n) = nonce {
+        cvm["nonce"] = serde_json::json!(n);
+    }
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/progress",
+        "params": {
+            "progressToken": progress_token,
+            "progress": progress,
+            "cvm": cvm,
+        }
+    })
+}
+
+/// Builds the Nostr event tags (`["p", server_pubkey]`, `["e", request_event_id]`) for a CEP-41
+/// `open-stream` keepalive `pong`.
+pub fn build_open_stream_pong_tags(server_pubkey: &str, request_event_id: &str) -> Vec<Vec<String>> {
+    vec![
+        vec!["p".to_owned(), server_pubkey.to_owned()],
+        vec!["e".to_owned(), request_event_id.to_owned()],
+    ]
+}
+
+async fn send_open_stream_pong(
+    client: &NostrClient,
+    signer: &dyn NostrEventSigner,
+    server_pubkey: &str,
+    request_event_id: &str,
+    progress_token: &str,
+    progress: u64,
+    nonce: Option<&str>,
+) -> Result<(), String> {
+    let payload = build_open_stream_pong_frame(progress_token, progress, nonce);
+    let tags = build_open_stream_pong_tags(server_pubkey, request_event_id);
+    let ev = signer
+        .sign_event_template(
+            CTXVM_MESSAGES_KIND,
+            Timestamp::now().as_secs(),
+            tags,
+            payload.to_string(),
+        )
+        .await?;
+    client
+        .send_event(&ev)
+        .await
+        .map(|_| ())
+        .map_err(|e| format!("Failed to publish CEP-41 open-stream pong: {e}"))
+}
+
+/// Executes a Cordn v0.5 RPC with cached protocol-mode detection and automatic downgrade
+/// to the Cordn v0.4 fallback when the server rejects unknown tool / method not found.
+async fn execute_with_v5_v4_fallback<T, FV5, FutV5, FV4, FutV4>(
+    conn: &PooledCordnConnection,
+    try_v5: FV5,
+    fallback_v4: FV4,
+) -> Result<T, String>
+where
+    FV5: FnOnce() -> FutV5,
+    FutV5: Future<Output = Result<T, String>>,
+    FV4: FnOnce() -> FutV4,
+    FutV4: Future<Output = Result<T, String>>,
+{
+    if conn.protocol_mode() == CordnProtocolMode::V4 {
+        return fallback_v4().await;
+    }
+    match try_v5().await {
+        Ok(val) => {
+            conn.set_protocol_mode(CordnProtocolMode::V5);
+            Ok(val)
+        }
+        Err(err) if is_unsupported_tool_error(&err) => {
+            conn.set_protocol_mode(CordnProtocolMode::V4);
+            fallback_v4().await
+        }
+        Err(err) => Err(err),
+    }
+}
+
 /// Parses one or more `CoordinatorMessage` items out of a streaming ContextVM
 /// `notifications/progress` JSON-RPC frame produced by Cordn v0.5 (`msg_sub_many`).
 pub fn parse_stream_progress_messages(frame: &serde_json::Value) -> Vec<CoordinatorMessage> {
@@ -567,6 +695,10 @@ pub fn parse_stream_progress_messages(frame: &serde_json::Value) -> Vec<Coordina
     {
         return Vec::new();
     }
+    // Skip CEP-41 open-stream control frames (ping/close/abort).
+    if parse_open_stream_control(frame).is_some() {
+        return Vec::new();
+    }
 
     let mut out = Vec::new();
     extract_messages_from_value(params, &mut out);
@@ -579,6 +711,7 @@ pub fn parse_stream_progress_messages(frame: &serde_json::Value) -> Vec<Coordina
         "/cvm/messages",
         "/cvm/message",
         "/cvm/data",
+        "/cvm/chunk",
         "/cvm",
         "/structuredContent/messages",
         "/structuredContent/message",
@@ -627,10 +760,20 @@ fn extract_messages_from_value(val: &serde_json::Value, out: &mut Vec<Coordinato
         }
         serde_json::Value::String(s) => {
             let trimmed = s.trim();
-            if (trimmed.starts_with('{') || trimmed.starts_with('['))
-                && trimmed.contains("msg_64")
-            {
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            if trimmed.is_empty() || !trimmed.contains("msg_64") {
+                return;
+            }
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                extract_messages_from_value(&parsed, out);
+                return;
+            }
+            // Fallback: NDJSON (newline-delimited JSON chunks emitted by CEP-41 open-stream).
+            for line in trimmed.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(line) {
                     extract_messages_from_value(&parsed, out);
                 }
             }
@@ -1061,13 +1204,37 @@ impl CordnCoordinatorClient {
         }
     }
 
+    async fn fetch_messages_v4(
+        &self,
+        gid: String,
+        after: Option<u64>,
+    ) -> Result<FetchMessagesResult, String> {
+        let mut obj = serde_json::json!({ "gid": gid });
+        if let Some(cursor) = after {
+            obj["after"] = serde_json::json!(cursor);
+        }
+        self.call_tool(false, "msg_fetch", obj).await
+    }
+
+    async fn take_join_requests_v4(
+        &self,
+        gid: String,
+        consumed: Option<Vec<ConsumedJoinRequest>>,
+    ) -> Result<TakeJoinRequestsResult, String> {
+        let mut obj = serde_json::json!({ "gid": gid });
+        if let Some(items) = consumed.filter(|v| !v.is_empty()) {
+            obj["consumed"] = serde_json::json!(items);
+        }
+        self.call_tool(false, "join_request_take", obj).await
+    }
+
     async fn fetch_many_v4_fallback(
         &self,
         groups: Vec<GroupCursorQuery>,
     ) -> Result<FetchMessagesResult, String> {
         let mut all = Vec::new();
         for group in groups {
-            let res = self.fetch_messages(group.gid, group.after).await?;
+            let res = self.fetch_messages_v4(group.gid, group.after).await?;
             all.extend(res.messages);
         }
         Ok(FetchMessagesResult { messages: all })
@@ -1090,7 +1257,9 @@ impl CordnCoordinatorClient {
                     .collect()
             });
             let non_empty = group_consumed.filter(|v| !v.is_empty());
-            let res = self.take_join_requests(group.gid.clone(), non_empty).await?;
+            let res = self
+                .take_join_requests_v4(group.gid.clone(), non_empty)
+                .await?;
             for req in res.requests {
                 all.push(PendingGroupJoinRequest {
                     gid: group.gid.clone(),
@@ -1235,11 +1404,43 @@ impl PrivateWorkspaceCoordinator for CordnCoordinatorClient {
         consumed: Option<Vec<ConsumedJoinRequest>>,
     ) -> BoxFuture<'_, TakeJoinRequestsResult> {
         Box::pin(async move {
-            let mut obj = serde_json::json!({ "gid": gid });
-            if let Some(items) = consumed {
-                obj["consumed"] = serde_json::json!(items);
-            }
-            self.call_tool(false, "join_request_take", obj).await
+            let conn = cordn_pool()
+                .get_or_connect(&self.server_pubkey, &self.relays)
+                .await?;
+            let gid_v5 = gid.clone();
+            let consumed_v5 = consumed.clone();
+            let gid_v4 = gid.clone();
+            execute_with_v5_v4_fallback(
+                conn.as_ref(),
+                move || async move {
+                    let mut args = serde_json::json!({
+                        "groups": [GroupQuery { gid: gid_v5.clone() }],
+                    });
+                    if let Some(items) = consumed_v5.filter(|v| !v.is_empty()) {
+                        let mapped: Vec<ConsumedGroupJoinRequest> = items
+                            .into_iter()
+                            .map(|c| ConsumedGroupJoinRequest {
+                                pk: c.pk,
+                                at: c.at,
+                                gid: gid_v5.clone(),
+                            })
+                            .collect();
+                        args["consumed"] = serde_json::json!(mapped);
+                    }
+                    let res: TakeManyJoinRequestsResult = self
+                        .call_tool(false, "join_request_take_many", args)
+                        .await?;
+                    let requests = res
+                        .requests
+                        .into_iter()
+                        .filter(|r| r.gid == gid_v5)
+                        .map(PendingGroupJoinRequest::into_pending_join_request)
+                        .collect();
+                    Ok(TakeJoinRequestsResult { requests })
+                },
+                move || async move { self.take_join_requests_v4(gid_v4, consumed).await },
+            )
+            .await
         })
     }
 
@@ -1260,11 +1461,36 @@ impl PrivateWorkspaceCoordinator for CordnCoordinatorClient {
         after: Option<u64>,
     ) -> BoxFuture<'_, FetchMessagesResult> {
         Box::pin(async move {
-            let mut obj = serde_json::json!({ "gid": gid });
-            if let Some(cursor) = after {
-                obj["after"] = serde_json::json!(cursor);
-            }
-            self.call_tool(false, "msg_fetch", obj).await
+            let conn = cordn_pool()
+                .get_or_connect(&self.server_pubkey, &self.relays)
+                .await?;
+            let gid_v5 = gid.clone();
+            let gid_v4 = gid.clone();
+            execute_with_v5_v4_fallback(
+                conn.as_ref(),
+                move || async move {
+                    let res: FetchMessagesResult = self
+                        .call_tool(
+                            false,
+                            "msg_fetch_many",
+                            serde_json::json!({
+                                "groups": [GroupCursorQuery {
+                                    gid: gid_v5.clone(),
+                                    after,
+                                }]
+                            }),
+                        )
+                        .await?;
+                    let messages = res
+                        .messages
+                        .into_iter()
+                        .filter(|m| m.gid == gid_v5)
+                        .collect();
+                    Ok(FetchMessagesResult { messages })
+                },
+                move || async move { self.fetch_messages_v4(gid_v4, after).await },
+            )
+            .await
         })
     }
 
@@ -1281,27 +1507,20 @@ impl PrivateWorkspaceCoordinator for CordnCoordinatorClient {
             let conn = cordn_pool()
                 .get_or_connect(&self.server_pubkey, &self.relays)
                 .await?;
-            if conn.protocol_mode() == CordnProtocolMode::V4 {
-                return self.fetch_many_v4_fallback(groups).await;
-            }
-            match self
-                .call_tool::<FetchMessagesResult>(
-                    false,
-                    "msg_fetch_many",
-                    serde_json::json!({ "groups": groups }),
-                )
-                .await
-            {
-                Ok(res) => {
-                    conn.set_protocol_mode(CordnProtocolMode::V5);
-                    Ok(res)
-                }
-                Err(err) if is_unsupported_tool_error(&err) => {
-                    conn.set_protocol_mode(CordnProtocolMode::V4);
-                    self.fetch_many_v4_fallback(groups).await
-                }
-                Err(err) => Err(err),
-            }
+            let groups_v5 = groups.clone();
+            execute_with_v5_v4_fallback(
+                conn.as_ref(),
+                move || async move {
+                    self.call_tool::<FetchMessagesResult>(
+                        false,
+                        "msg_fetch_many",
+                        serde_json::json!({ "groups": groups_v5 }),
+                    )
+                    .await
+                },
+                move || async move { self.fetch_many_v4_fallback(groups).await },
+            )
+            .await
         })
     }
 
@@ -1319,30 +1538,28 @@ impl PrivateWorkspaceCoordinator for CordnCoordinatorClient {
             let conn = cordn_pool()
                 .get_or_connect(&self.server_pubkey, &self.relays)
                 .await?;
-            if conn.protocol_mode() == CordnProtocolMode::V4 {
-                return self
-                    .take_many_join_requests_v4_fallback(groups, consumed)
-                    .await;
-            }
-            let mut args = serde_json::json!({ "groups": groups });
-            if let Some(items) = consumed.as_ref().filter(|v| !v.is_empty()) {
-                args["consumed"] = serde_json::json!(items);
-            }
-            match self
-                .call_tool::<TakeManyJoinRequestsResult>(false, "join_request_take_many", args)
-                .await
-            {
-                Ok(res) => {
-                    conn.set_protocol_mode(CordnProtocolMode::V5);
-                    Ok(res)
-                }
-                Err(err) if is_unsupported_tool_error(&err) => {
-                    conn.set_protocol_mode(CordnProtocolMode::V4);
+            let groups_v5 = groups.clone();
+            let consumed_v5 = consumed.clone();
+            execute_with_v5_v4_fallback(
+                conn.as_ref(),
+                move || async move {
+                    let mut args = serde_json::json!({ "groups": groups_v5 });
+                    if let Some(items) = consumed_v5.as_ref().filter(|v| !v.is_empty()) {
+                        args["consumed"] = serde_json::json!(items);
+                    }
+                    self.call_tool::<TakeManyJoinRequestsResult>(
+                        false,
+                        "join_request_take_many",
+                        args,
+                    )
+                    .await
+                },
+                move || async move {
                     self.take_many_join_requests_v4_fallback(groups, consumed)
                         .await
-                }
-                Err(err) => Err(err),
-            }
+                },
+            )
+            .await
         })
     }
 
@@ -1416,6 +1633,7 @@ impl PrivateWorkspaceCoordinator for CordnCoordinatorClient {
             let (tx, rx) = mpsc::channel(STREAM_CHANNEL_CAPACITY);
             let probe_deadline =
                 tokio::time::Instant::now() + Duration::from_millis(STREAM_HANDSHAKE_PROBE_MS);
+            let mut pong_progress: u64 = 1;
 
             // Brief probe window so a v0.4 coordinator's immediate `-32601` / Unknown tool error
             // surfaces synchronously as `Err(CoordinatorStreamError::UnsupportedStreaming)`.
@@ -1447,6 +1665,32 @@ impl PrivateWorkspaceCoordinator for CordnCoordinatorClient {
                             == Some("notifications/progress")
                         {
                             conn.set_protocol_mode(CordnProtocolMode::V5);
+                            if let Some(ctrl) = parse_open_stream_control(&val) {
+                                match ctrl {
+                                    OpenStreamControlFrame::Ping { nonce } => {
+                                        let _ = send_open_stream_pong(
+                                            conn.client(),
+                                            signer.as_ref(),
+                                            &self.server_pubkey,
+                                            &request_event_id,
+                                            &progress_token,
+                                            pong_progress,
+                                            nonce.as_deref(),
+                                        )
+                                        .await;
+                                        pong_progress += 1;
+                                        break;
+                                    }
+                                    OpenStreamControlFrame::Close => {
+                                        return Ok(rx);
+                                    }
+                                    OpenStreamControlFrame::Abort(reason) => {
+                                        return Err(CoordinatorStreamError::Transport(format!(
+                                            "Cordn aborted open-stream: {reason}"
+                                        )));
+                                    }
+                                }
+                            }
                             for msg in parse_stream_progress_messages(&val) {
                                 let _ = tx.try_send(msg);
                             }
@@ -1485,7 +1729,8 @@ impl PrivateWorkspaceCoordinator for CordnCoordinatorClient {
             }
 
             // Spawn background pump forwarding subsequent streaming `notifications/progress`
-            // frames until the receiver is dropped or the stream closes.
+            // frames and replying to CEP-41 `open-stream` keepalive `ping` frames with `pong`
+            // until the receiver is dropped or the stream closes/aborts.
             let server_pubkey = self.server_pubkey.clone();
             let conn_clone = Arc::clone(&conn);
             tokio::spawn(async move {
@@ -1513,6 +1758,31 @@ impl PrivateWorkspaceCoordinator for CordnCoordinatorClient {
                             if val.get("method").and_then(|m| m.as_str())
                                 == Some("notifications/progress")
                             {
+                                // Handle CEP-41 open-stream control frames (ping/pong, close, abort).
+                                if let Some(ctrl) = parse_open_stream_control(&val) {
+                                    conn_clone.set_protocol_mode(CordnProtocolMode::V5);
+                                    match ctrl {
+                                        OpenStreamControlFrame::Ping { nonce } => {
+                                            let _ = send_open_stream_pong(
+                                                conn_clone.client(),
+                                                conn_clone.delivery_signer().as_ref(),
+                                                &server_pubkey,
+                                                &request_event_id,
+                                                &progress_token,
+                                                pong_progress,
+                                                nonce.as_deref(),
+                                            )
+                                            .await;
+                                            pong_progress += 1;
+                                            continue;
+                                        }
+                                        OpenStreamControlFrame::Close
+                                        | OpenStreamControlFrame::Abort(_) => {
+                                            break;
+                                        }
+                                    }
+                                }
+
                                 // Support CEP-22 chunked progress payloads if a streamed frame is oversized.
                                 if val.pointer("/params/cvm/type").and_then(|t| t.as_str())
                                     == Some("oversized-transfer")
@@ -1748,5 +2018,169 @@ mod tests {
         assert!(is_transient_transport_error(
             "Failed to publish Cordn RPC msg_post: relay disconnected"
         ));
+    }
+
+    #[tokio::test]
+    async fn single_group_v5_to_v4_fallback_caches_mode_and_preserves_transient_errors() {
+        let server_pk = Keys::generate().public_key().to_hex();
+        let relays = vec!["wss://fallback-test.invalid".to_owned()];
+        let conn = cordn_pool()
+            .insert_for_test(&server_pk, &relays, CordnProtocolMode::Unknown)
+            .await;
+
+        // 1. Transient error must NOT downgrade protocol_mode to V4.
+        let err = execute_with_v5_v4_fallback(
+            conn.as_ref(),
+            || async { Err::<&str, String>("Cordn msg_fetch_many timed out after 25s".to_owned()) },
+            || async { Ok("v4") },
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("timed out"));
+        assert_eq!(conn.protocol_mode(), CordnProtocolMode::Unknown);
+
+        // 2. Unknown-tool error downgrades protocol_mode to V4 and runs the v0.4 fallback.
+        let mut v5_calls = 0usize;
+        let mut v4_calls = 0usize;
+        let res = execute_with_v5_v4_fallback(
+            conn.as_ref(),
+            || {
+                v5_calls += 1;
+                async {
+                    Err::<&str, String>(
+                        "Cordn msg_fetch_many failed (-32601): Method not found".to_owned(),
+                    )
+                }
+            },
+            || {
+                v4_calls += 1;
+                async { Ok("v4-single") }
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(res, "v4-single");
+        assert_eq!(v5_calls, 1);
+        assert_eq!(v4_calls, 1);
+        assert_eq!(conn.protocol_mode(), CordnProtocolMode::V4);
+
+        // 3. Subsequent single-group call skips v0.5 completely because V4 is cached.
+        let mut v5_calls_after = 0usize;
+        let res2 = execute_with_v5_v4_fallback(
+            conn.as_ref(),
+            || {
+                v5_calls_after += 1;
+                async { Ok("v5-should-not-run") }
+            },
+            || async { Ok("v4-cached") },
+        )
+        .await
+        .unwrap();
+        assert_eq!(res2, "v4-cached");
+        assert_eq!(v5_calls_after, 0);
+
+        // 4. Fresh connection succeeding on v0.5 caches V5.
+        reset_cordn_pool_connection(&server_pk, &relays).await;
+        let conn_v5 = cordn_pool()
+            .insert_for_test(&server_pk, &relays, CordnProtocolMode::Unknown)
+            .await;
+        let res_v5 = execute_with_v5_v4_fallback(
+            conn_v5.as_ref(),
+            || async { Ok("v5-ok") },
+            || async { Ok("v4-unused") },
+        )
+        .await
+        .unwrap();
+        assert_eq!(res_v5, "v5-ok");
+        assert_eq!(conn_v5.protocol_mode(), CordnProtocolMode::V5);
+        reset_cordn_pool_connection(&server_pk, &relays).await;
+    }
+
+    #[test]
+    fn parses_cep41_open_stream_ping_pong_close_abort_and_ndjson_chunks() {
+        let ping = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/progress",
+            "params": {
+                "progressToken": "sub-abc",
+                "progress": 1,
+                "cvm": {
+                    "type": "open-stream",
+                    "frameType": "ping",
+                    "nonce": "n-12345"
+                }
+            }
+        });
+        assert_eq!(
+            parse_open_stream_control(&ping),
+            Some(OpenStreamControlFrame::Ping {
+                nonce: Some("n-12345".to_owned())
+            })
+        );
+        // Control frames do not produce CoordinatorMessages.
+        assert!(parse_stream_progress_messages(&ping).is_empty());
+
+        let pong = build_open_stream_pong_frame("sub-abc", 2, Some("n-12345"));
+        assert_eq!(pong["method"], "notifications/progress");
+        assert_eq!(pong["params"]["progressToken"], "sub-abc");
+        assert_eq!(pong["params"]["cvm"]["type"], "open-stream");
+        assert_eq!(pong["params"]["cvm"]["frameType"], "pong");
+        assert_eq!(pong["params"]["cvm"]["nonce"], "n-12345");
+        let pong_tags = build_open_stream_pong_tags("serverpk", "reqeventid");
+        assert_eq!(
+            pong_tags,
+            vec![
+                vec!["p".to_owned(), "serverpk".to_owned()],
+                vec!["e".to_owned(), "reqeventid".to_owned()],
+            ]
+        );
+
+        let close = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/progress",
+            "params": {
+                "progressToken": "sub-abc",
+                "cvm": { "type": "open-stream", "frameType": "close" }
+            }
+        });
+        assert_eq!(
+            parse_open_stream_control(&close),
+            Some(OpenStreamControlFrame::Close)
+        );
+
+        let abort = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/progress",
+            "params": {
+                "progressToken": "sub-abc",
+                "cvm": { "type": "open-stream", "frameType": "abort", "reason": "ping timeout" }
+            }
+        });
+        assert_eq!(
+            parse_open_stream_control(&abort),
+            Some(OpenStreamControlFrame::Abort("ping timeout".to_owned()))
+        );
+
+        // NDJSON chunk payload inside `params.cvm.data`
+        let ndjson_frame = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/progress",
+            "params": {
+                "progressToken": "sub-abc",
+                "progress": 3,
+                "cvm": {
+                    "type": "open-stream",
+                    "frameType": "chunk",
+                    "data": "{\"cursor\":21,\"gid\":\"earthly:g1\",\"msg_64\":\"AAA\",\"at\":100}\n{\"cursor\":22,\"gid\":\"earthly:g2\",\"msg_64\":\"BBB\",\"at\":101,\"encrypted\":false}\n"
+                }
+            }
+        });
+        assert_eq!(parse_open_stream_control(&ndjson_frame), None);
+        let parsed = parse_stream_progress_messages(&ndjson_frame);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].cursor, 21);
+        assert!(parsed[0].encrypted);
+        assert_eq!(parsed[1].cursor, 22);
+        assert!(!parsed[1].encrypted);
     }
 }

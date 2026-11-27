@@ -50,7 +50,7 @@ pub struct MultiDeviceGroupDocument {
     #[serde(rename = "type")]
     pub doc_type: String,
     pub issued_at: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub prev: Option<String>,
     pub gid: String,
     pub coordinator: String,
@@ -90,8 +90,8 @@ pub struct MultiDeviceLastResortKeyPackage {
     pub private_kp_64: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rust_bundle_b64: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub published_at: Option<u64>,
+    #[serde(default)]
+    pub created_at: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,24 +112,28 @@ pub struct MultiDeviceMetaDocument {
 pub struct MultiDeviceDocPointer {
     /// Lowercase 64-char hex SHA-256 of the sealed Blossom blob.
     pub x: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub urls: Vec<String>,
+    #[serde(default)]
+    pub issued_at: u64,
 }
 
 /// Inner content of the opaque `kind 30078` (`d: "cordn-md-tip-v1"`) tip event.
 /// Always NIP-44 v2 self-encrypted before placing into `event.content`.
+/// Shared cross-stack JSON schema with Earthly Web (`multi-device.ts`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MultiDeviceTipPayload {
     pub schema_version: u8,
     /// Lowercase 64-char hex 32-byte per-identity DEK used to seal/unseal Blossom docs.
     pub dek_hex: String,
+    #[serde(default)]
+    pub blossom_servers: Vec<String>,
+    #[serde(default)]
+    pub groups: BTreeMap<String, MultiDeviceDocPointer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<MultiDeviceDocPointer>,
     #[serde(default)]
-    pub groups: Vec<MultiDeviceDocPointer>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub blossom_servers: Vec<String>,
     pub updated_at: u64,
 }
 
@@ -377,7 +381,10 @@ pub fn validate_tip_payload(payload: &MultiDeviceTipPayload) -> Result<[u8; 32],
             return Err("Multi-device tip meta `x` must be 64-char lowercase hex".to_owned());
         }
     }
-    for g in &payload.groups {
+    for (gid, g) in &payload.groups {
+        if gid.trim().is_empty() {
+            return Err("Multi-device tip group key `gid` cannot be empty".to_owned());
+        }
         if !is_sha256_hex(&g.x) {
             return Err("Multi-device tip group `x` must be 64-char lowercase hex".to_owned());
         }
@@ -744,6 +751,11 @@ mod tests {
             envelope_epochs: BTreeMap::new(),
         };
 
+        // Verify `"prev": null` is explicitly emitted on wire (required by Cordn spec & Web).
+        let group_json_val = serde_json::to_value(&group_doc).unwrap();
+        assert!(group_json_val.as_object().unwrap().contains_key("prev"));
+        assert!(group_json_val["prev"].is_null());
+
         let (sealed_group, group_x) = seal_group_document(&group_doc, &dek).unwrap();
         assert_eq!(group_x.len(), 64);
         assert_eq!(unseal_group_document(&sealed_group, &dek).unwrap(), group_doc);
@@ -752,7 +764,7 @@ mod tests {
         let wrong_dek = generate_multi_device_dek();
         assert!(unseal_group_document(&sealed_group, &wrong_dek).is_err());
 
-        // Meta doc roundtrip
+        // Meta doc roundtrip including `lastResortKeyPackage.createdAt`
         let meta_doc = MultiDeviceMetaDocument {
             schema_version: 1,
             doc_type: "meta".to_owned(),
@@ -761,26 +773,59 @@ mod tests {
                 gid: "earthly:old-group".to_owned(),
                 removed_at: 1_759_000_000,
             }],
-            last_resort_key_package: None,
+            last_resort_key_package: Some(MultiDeviceLastResortKeyPackage {
+                kp_ref: "abcd".to_owned(),
+                kp_64: "AAAA".to_owned(),
+                private_kp_64: None,
+                rust_bundle_b64: None,
+                created_at: 1_760_000_001,
+            }),
         };
+        let meta_json_val = serde_json::to_value(&meta_doc).unwrap();
+        assert_eq!(
+            meta_json_val["lastResortKeyPackage"]["createdAt"],
+            serde_json::json!(1_760_000_001)
+        );
         let (sealed_meta, meta_x) = seal_meta_document(&meta_doc, &dek).unwrap();
         assert_eq!(unseal_meta_document(&sealed_meta, &dek).unwrap(), meta_doc);
 
-        // Opaque kind 30078 tip event roundtrip
+        // Opaque kind 30078 tip event roundtrip using shared cross-stack schema
+        let mut groups_map = BTreeMap::new();
+        groups_map.insert(
+            "earthly:md-test".to_owned(),
+            MultiDeviceDocPointer {
+                x: group_x.clone(),
+                urls: vec!["https://blossom.earthly.city/grp".to_owned()],
+                issued_at: 1_760_000_000,
+            },
+        );
         let tip = MultiDeviceTipPayload {
             schema_version: 1,
             dek_hex: hex::encode(dek),
-            meta: Some(MultiDeviceDocPointer {
-                x: meta_x,
-                urls: vec!["https://blossom.earthly.city/meta".to_owned()],
-            }),
-            groups: vec![MultiDeviceDocPointer {
-                x: group_x,
-                urls: vec!["https://blossom.earthly.city/grp".to_owned()],
-            }],
             blossom_servers: vec!["https://blossom.earthly.city".to_owned()],
+            groups: groups_map,
+            meta: Some(MultiDeviceDocPointer {
+                x: meta_x.clone(),
+                urls: vec!["https://blossom.earthly.city/meta".to_owned()],
+                issued_at: 1_760_000_005,
+            }),
             updated_at: 1_760_000_010,
         };
+        let tip_json_val = serde_json::to_value(&tip).unwrap();
+        assert_eq!(tip_json_val["schemaVersion"], serde_json::json!(1));
+        assert_eq!(
+            tip_json_val["groups"]["earthly:md-test"]["x"],
+            serde_json::json!(group_x)
+        );
+        assert_eq!(
+            tip_json_val["groups"]["earthly:md-test"]["issuedAt"],
+            serde_json::json!(1_760_000_000)
+        );
+        assert_eq!(
+            tip_json_val["meta"]["urls"][0],
+            serde_json::json!("https://blossom.earthly.city/meta")
+        );
+
         let tip_ev = build_signed_tip_event(&keys, &tip, 1_760_000_010).unwrap();
         assert_eq!(tip_ev.kind, Kind::Custom(30_078));
         // Opaque check: tags only contain `d` = `cordn-md-tip-v1`, NO cleartext gid or hashes!
@@ -790,6 +835,28 @@ mod tests {
 
         let parsed_tip = parse_signed_tip_event(&keys, &tip_ev).unwrap();
         assert_eq!(parsed_tip, tip);
+
+        // Decoding a tip payload from Web that omits optional `updatedAt` still succeeds cleanly.
+        let web_tip_json = serde_json::json!({
+            "schemaVersion": 1,
+            "dekHex": hex::encode(dek),
+            "blossomServers": ["https://blossom.earthly.city"],
+            "groups": {
+                "earthly:md-test": {
+                    "x": group_x,
+                    "urls": ["https://blossom.earthly.city/grp"],
+                    "issuedAt": 1_760_000_000
+                }
+            },
+            "meta": {
+                "x": meta_x,
+                "urls": ["https://blossom.earthly.city/meta"],
+                "issuedAt": 1_760_000_005
+            }
+        });
+        let parsed_web_tip: MultiDeviceTipPayload = serde_json::from_value(web_tip_json).unwrap();
+        assert_eq!(parsed_web_tip.updated_at, 0);
+        assert_eq!(validate_tip_payload(&parsed_web_tip).unwrap(), dek);
 
         // Another user cannot decrypt our self-sealed tip
         let other = Keys::generate();

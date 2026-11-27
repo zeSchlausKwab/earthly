@@ -294,4 +294,18 @@ mod tests {
         let bad_encoded = bech32::encode::<Bech32>(hrp, &no_gid).unwrap();
         assert!(decode_cordn_group_ref(&bad_encoded).is_err());
     }
+
+    #[test]
+    fn matches_earthly_web_cordn1_wire_vector_char_for_char() {
+        let gref = CordnGroupRef {
+            gid: "earthly:alp-expedition-2026".to_owned(),
+            relays: vec!["wss://relay.earthly.city".to_owned()],
+            coordinator_pubkey: Some(
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_owned(),
+            ),
+        };
+        let web_encoded = "cordn1qqdk2ctjw35xc7f6v9k8qtt90pcx2erfw35k7m3dxgcrydsprpmhxue69uhhyetvv9ujuetpwf6xsmre9e3kjareqgsqzg69v7y6hn00qy352euf40x77qfrg4ncn27dauqjx3t83x4ummcngg363";
+        assert_eq!(encode_cordn_group_ref(&gref).unwrap(), web_encoded);
+        assert_eq!(decode_cordn_group_ref(web_encoded).unwrap(), gref);
+    }
 }

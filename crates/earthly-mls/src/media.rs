@@ -750,6 +750,64 @@ mod tests {
     }
 
     #[test]
+    fn matches_earthly_web_cordn_em_v1_wire_vector_byte_for_byte() {
+        let key_bytes =
+            hex::decode("0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")
+                .unwrap();
+        let nonce_bytes = hex::decode("a1a2a3a4a5a6a7a8a9aaabac").unwrap();
+        let mut key = [0u8; 32];
+        let mut nonce = [0u8; 12];
+        key.copy_from_slice(&key_bytes);
+        nonce.copy_from_slice(&nonce_bytes);
+        let plaintext = b"Hello Earthly MLS encrypted media!";
+        let mime = "image/jpeg";
+        let filename = "a1b2c3d4.jpg";
+
+        let pt_hash: [u8; 32] = Sha256::digest(plaintext).into();
+        let aad = build_encrypted_media_aad(mime, filename, &pt_hash).unwrap();
+        assert_eq!(
+            hex::encode(&aad),
+            "696d6167652f6a7065670061316232633364342e6a706700b7f02ee5453cfa7647b9d85da786a29eb6f52d469a6e1bdeee1435d2de969dfc"
+        );
+
+        let blob = encrypt_media_with_nonce(
+            plaintext,
+            &key,
+            &nonce,
+            mime,
+            filename,
+            CORDN_ENCRYPTED_MEDIA_VERSION,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            blob.plaintext_sha256_hex,
+            "b7f02ee5453cfa7647b9d85da786a29eb6f52d469a6e1bdeee1435d2de969dfc"
+        );
+        assert_eq!(
+            hex::encode(&blob.ciphertext),
+            "9d481a09c8d08d284463446d7a820b764379166871a6e7855f8fcedad76202e945f872e5e03dd538cecdee6c9c7fffdb6ede"
+        );
+
+        let web_imeta_tag: Vec<String> = vec![
+            "imeta",
+            "url https://blossom.earthly.city/deadbeef",
+            "m image/jpeg",
+            "filename a1b2c3d4.jpg",
+            "x b7f02ee5453cfa7647b9d85da786a29eb6f52d469a6e1bdeee1435d2de969dfc",
+            "n a1a2a3a4a5a6a7a8a9aaabac",
+            "v cordn-em-v1",
+        ]
+        .into_iter()
+        .map(ToOwned::to_owned)
+        .collect();
+        let parsed = parse_imeta_tag(&web_imeta_tag).unwrap();
+        assert_eq!(build_imeta_tag(&parsed).unwrap(), web_imeta_tag);
+        let decrypted = decrypt_media_attachment(&blob.ciphertext, &parsed, Some(&key)).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
     fn earthly_pm_v1_persistent_map_media_roundtrip_without_epoch_key() {
         let plaintext = b"Historical survey site photo for late joiners";
         let blob = encrypt_persistent_map_media(plaintext, "image/webp", "site.webp").unwrap();
