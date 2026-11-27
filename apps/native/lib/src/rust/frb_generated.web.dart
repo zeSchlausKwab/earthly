@@ -59,6 +59,10 @@ abstract class EarthlyRustLibApiImplPlatform
   dco_decode_StreamSink_agent_stream_event_dto_Sse(dynamic raw);
 
   @protected
+  RustStreamSink<CircleWorkspaceDto>
+  dco_decode_StreamSink_circle_workspace_dto_Sse(dynamic raw);
+
+  @protected
   RustStreamSink<LiveRelayEventDto>
   dco_decode_StreamSink_live_relay_event_dto_Sse(dynamic raw);
 
@@ -134,6 +138,11 @@ abstract class EarthlyRustLibApiImplPlatform
   double dco_decode_box_autoadd_f_64(dynamic raw);
 
   @protected
+  FetchedMultiDeviceTipDto dco_decode_box_autoadd_fetched_multi_device_tip_dto(
+    dynamic raw,
+  );
+
+  @protected
   LiveBeaconDto dco_decode_box_autoadd_live_beacon_dto(dynamic raw);
 
   @protected
@@ -200,6 +209,9 @@ abstract class EarthlyRustLibApiImplPlatform
   CircleJoinRequestDto dco_decode_circle_join_request_dto(dynamic raw);
 
   @protected
+  CircleMediaAttachmentDto dco_decode_circle_media_attachment_dto(dynamic raw);
+
+  @protected
   CircleMessageDto dco_decode_circle_message_dto(dynamic raw);
 
   @protected
@@ -213,6 +225,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   DecodedCircleInviteDto dco_decode_decoded_circle_invite_dto(dynamic raw);
+
+  @protected
+  DecodedCordnGroupRefDto dco_decode_decoded_cordn_group_ref_dto(dynamic raw);
 
   @protected
   DecodedFieldSessionInviteDto dco_decode_decoded_field_session_invite_dto(
@@ -242,6 +257,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   double dco_decode_f_64(dynamic raw);
+
+  @protected
+  FetchedMultiDeviceTipDto dco_decode_fetched_multi_device_tip_dto(dynamic raw);
 
   @protected
   GeoCommentDto dco_decode_geo_comment_dto(dynamic raw);
@@ -299,6 +317,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  List<CircleMediaAttachmentDto> dco_decode_list_circle_media_attachment_dto(
+    dynamic raw,
+  );
+
+  @protected
   List<CircleMessageDto> dco_decode_list_circle_message_dto(dynamic raw);
 
   @protected
@@ -324,6 +347,9 @@ abstract class EarthlyRustLibApiImplPlatform
   List<InboxItemDto> dco_decode_list_inbox_item_dto(dynamic raw);
 
   @protected
+  List<List<String>> dco_decode_list_list_String(dynamic raw);
+
+  @protected
   List<List<LonLatPoint>> dco_decode_list_list_lon_lat_point(dynamic raw);
 
   @protected
@@ -346,6 +372,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   List<MountedAtlasWorkspaceDto> dco_decode_list_mounted_atlas_workspace_dto(
+    dynamic raw,
+  );
+
+  @protected
+  List<MultiDeviceUploadBlobDto> dco_decode_list_multi_device_upload_blob_dto(
     dynamic raw,
   );
 
@@ -463,6 +494,14 @@ abstract class EarthlyRustLibApiImplPlatform
   MountedAtlasWorkspaceDto dco_decode_mounted_atlas_workspace_dto(dynamic raw);
 
   @protected
+  MultiDeviceSyncSummaryDto dco_decode_multi_device_sync_summary_dto(
+    dynamic raw,
+  );
+
+  @protected
+  MultiDeviceUploadBlobDto dco_decode_multi_device_upload_blob_dto(dynamic raw);
+
+  @protected
   NearbyPeersSnapshot dco_decode_nearby_peers_snapshot(dynamic raw);
 
   @protected
@@ -527,6 +566,10 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   double? dco_decode_opt_box_autoadd_f_64(dynamic raw);
+
+  @protected
+  FetchedMultiDeviceTipDto?
+  dco_decode_opt_box_autoadd_fetched_multi_device_tip_dto(dynamic raw);
 
   @protected
   LiveBeaconDto? dco_decode_opt_box_autoadd_live_beacon_dto(dynamic raw);
@@ -600,6 +643,14 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   PmtilesHeaderSnapshot dco_decode_pmtiles_header_snapshot(dynamic raw);
+
+  @protected
+  PreparedCircleMediaDto dco_decode_prepared_circle_media_dto(dynamic raw);
+
+  @protected
+  PreparedMultiDevicePublishDto dco_decode_prepared_multi_device_publish_dto(
+    dynamic raw,
+  );
 
   @protected
   ProfileMetadataDto dco_decode_profile_metadata_dto(dynamic raw);
@@ -703,6 +754,10 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  RustStreamSink<CircleWorkspaceDto>
+  sse_decode_StreamSink_circle_workspace_dto_Sse(SseDeserializer deserializer);
+
+  @protected
   RustStreamSink<LiveRelayEventDto>
   sse_decode_StreamSink_live_relay_event_dto_Sse(SseDeserializer deserializer);
 
@@ -800,6 +855,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   double sse_decode_box_autoadd_f_64(SseDeserializer deserializer);
+
+  @protected
+  FetchedMultiDeviceTipDto sse_decode_box_autoadd_fetched_multi_device_tip_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   LiveBeaconDto sse_decode_box_autoadd_live_beacon_dto(
@@ -902,6 +962,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  CircleMediaAttachmentDto sse_decode_circle_media_attachment_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   CircleMessageDto sse_decode_circle_message_dto(SseDeserializer deserializer);
 
   @protected
@@ -921,6 +986,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   DecodedCircleInviteDto sse_decode_decoded_circle_invite_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  DecodedCordnGroupRefDto sse_decode_decoded_cordn_group_ref_dto(
     SseDeserializer deserializer,
   );
 
@@ -964,6 +1034,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   double sse_decode_f_64(SseDeserializer deserializer);
+
+  @protected
+  FetchedMultiDeviceTipDto sse_decode_fetched_multi_device_tip_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   GeoCommentDto sse_decode_geo_comment_dto(SseDeserializer deserializer);
@@ -1039,6 +1114,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  List<CircleMediaAttachmentDto> sse_decode_list_circle_media_attachment_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<CircleMessageDto> sse_decode_list_circle_message_dto(
     SseDeserializer deserializer,
   );
@@ -1072,6 +1152,9 @@ abstract class EarthlyRustLibApiImplPlatform
   List<InboxItemDto> sse_decode_list_inbox_item_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  List<List<String>> sse_decode_list_list_String(SseDeserializer deserializer);
 
   @protected
   List<List<LonLatPoint>> sse_decode_list_list_lon_lat_point(
@@ -1108,6 +1191,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   List<MountedAtlasWorkspaceDto> sse_decode_list_mounted_atlas_workspace_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<MultiDeviceUploadBlobDto> sse_decode_list_multi_device_upload_blob_dto(
     SseDeserializer deserializer,
   );
 
@@ -1265,6 +1353,16 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  MultiDeviceSyncSummaryDto sse_decode_multi_device_sync_summary_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  MultiDeviceUploadBlobDto sse_decode_multi_device_upload_blob_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   NearbyPeersSnapshot sse_decode_nearby_peers_snapshot(
     SseDeserializer deserializer,
   );
@@ -1355,6 +1453,12 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   double? sse_decode_opt_box_autoadd_f_64(SseDeserializer deserializer);
+
+  @protected
+  FetchedMultiDeviceTipDto?
+  sse_decode_opt_box_autoadd_fetched_multi_device_tip_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   LiveBeaconDto? sse_decode_opt_box_autoadd_live_beacon_dto(
@@ -1448,6 +1552,16 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   PmtilesHeaderSnapshot sse_decode_pmtiles_header_snapshot(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PreparedCircleMediaDto sse_decode_prepared_circle_media_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PreparedMultiDevicePublishDto sse_decode_prepared_multi_device_publish_dto(
     SseDeserializer deserializer,
   );
 
@@ -1591,6 +1705,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_StreamSink_circle_workspace_dto_Sse(
+    RustStreamSink<CircleWorkspaceDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_StreamSink_live_relay_event_dto_Sse(
     RustStreamSink<LiveRelayEventDto> self,
     SseSerializer serializer,
@@ -1720,6 +1840,12 @@ abstract class EarthlyRustLibApiImplPlatform
   void sse_encode_box_autoadd_f_64(double self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_fetched_multi_device_tip_dto(
+    FetchedMultiDeviceTipDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_live_beacon_dto(
     LiveBeaconDto self,
     SseSerializer serializer,
@@ -1843,6 +1969,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_circle_media_attachment_dto(
+    CircleMediaAttachmentDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_circle_message_dto(
     CircleMessageDto self,
     SseSerializer serializer,
@@ -1869,6 +2001,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_decoded_circle_invite_dto(
     DecodedCircleInviteDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_decoded_cordn_group_ref_dto(
+    DecodedCordnGroupRefDto self,
     SseSerializer serializer,
   );
 
@@ -1922,6 +2060,12 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   void sse_encode_f_64(double self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_fetched_multi_device_tip_dto(
+    FetchedMultiDeviceTipDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_geo_comment_dto(GeoCommentDto self, SseSerializer serializer);
@@ -2014,6 +2158,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_circle_media_attachment_dto(
+    List<CircleMediaAttachmentDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_circle_message_dto(
     List<CircleMessageDto> self,
     SseSerializer serializer,
@@ -2052,6 +2202,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_list_inbox_item_dto(
     List<InboxItemDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_list_String(
+    List<List<String>> self,
     SseSerializer serializer,
   );
 
@@ -2100,6 +2256,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_list_mounted_atlas_workspace_dto(
     List<MountedAtlasWorkspaceDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_multi_device_upload_blob_dto(
+    List<MultiDeviceUploadBlobDto> self,
     SseSerializer serializer,
   );
 
@@ -2299,6 +2461,18 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_multi_device_sync_summary_dto(
+    MultiDeviceSyncSummaryDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_multi_device_upload_blob_dto(
+    MultiDeviceUploadBlobDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_nearby_peers_snapshot(
     NearbyPeersSnapshot self,
     SseSerializer serializer,
@@ -2405,6 +2579,12 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   void sse_encode_opt_box_autoadd_f_64(double? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_fetched_multi_device_tip_dto(
+    FetchedMultiDeviceTipDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_live_beacon_dto(
@@ -2517,6 +2697,18 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_pmtiles_header_snapshot(
     PmtilesHeaderSnapshot self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_prepared_circle_media_dto(
+    PreparedCircleMediaDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_prepared_multi_device_publish_dto(
+    PreparedMultiDevicePublishDto self,
     SseSerializer serializer,
   );
 

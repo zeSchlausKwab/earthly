@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1878597645;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1771345541;
 
 // Section: executor
 
@@ -129,6 +129,50 @@ fn wire__crate__api__wallet__add_cashu_mint_impl(
                     )?;
                     std::result::Result::Ok(output_ok)
                 })())
+            }
+        },
+    )
+}
+fn wire__crate__api__private_groups__apply_decrypted_multi_device_tip_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "apply_decrypted_multi_device_tip",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_database_path = <String>::sse_decode(&mut deserializer);
+            let api_owner_pubkey_hex = <String>::sse_decode(&mut deserializer);
+            let api_tip_plaintext_json = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, String>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::private_groups::apply_decrypted_multi_device_tip(
+                                api_database_path,
+                                api_owner_pubkey_hex,
+                                api_tip_plaintext_json,
+                            )
+                            .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
             }
         },
     )
@@ -317,6 +361,100 @@ fn wire__crate__api__nip46__await_nostrconnect_session_impl(
                     })()
                     .await,
                 )
+            }
+        },
+    )
+}
+fn wire__crate__api__private_groups__build_circle_imeta_tag_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "build_circle_imeta_tag",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_url = <String>::sse_decode(&mut deserializer);
+            let api_mime_type = <String>::sse_decode(&mut deserializer);
+            let api_filename = <String>::sse_decode(&mut deserializer);
+            let api_sha256_hex = <String>::sse_decode(&mut deserializer);
+            let api_nonce_hex = <String>::sse_decode(&mut deserializer);
+            let api_version = <String>::sse_decode(&mut deserializer);
+            let api_dim = <Option<String>>::sse_decode(&mut deserializer);
+            let api_blurhash = <Option<String>>::sse_decode(&mut deserializer);
+            let api_alt = <Option<String>>::sse_decode(&mut deserializer);
+            let api_persistent_key_hex = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::private_groups::build_circle_imeta_tag(
+                        api_url,
+                        api_mime_type,
+                        api_filename,
+                        api_sha256_hex,
+                        api_nonce_hex,
+                        api_version,
+                        api_dim,
+                        api_blurhash,
+                        api_alt,
+                        api_persistent_key_hex,
+                    )?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__private_groups__build_multi_device_tip_plaintext_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "build_multi_device_tip_plaintext",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_dek_hex = <String>::sse_decode(&mut deserializer);
+            let api_blossom_servers = <Vec<String>>::sse_decode(&mut deserializer);
+            let api_group_pointers_json = <String>::sse_decode(&mut deserializer);
+            let api_meta_pointer_json = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::private_groups::build_multi_device_tip_plaintext(
+                        api_dek_hex,
+                        api_blossom_servers,
+                        api_group_pointers_json,
+                        api_meta_pointer_json,
+                    )?;
+                    std::result::Result::Ok(output_ok)
+                })())
             }
         },
     )
@@ -738,6 +876,40 @@ fn wire__crate__api__private_groups__decode_circle_invite_link_impl(
         },
     )
 }
+fn wire__crate__api__private_groups__decode_cordn_group_ref_link_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "decode_cordn_group_ref_link",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_raw_link = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok =
+                        crate::api::private_groups::decode_cordn_group_ref_link(api_raw_link)?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__spike__decode_field_session_invite_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1098,6 +1270,66 @@ fn wire__crate__api__spike__discover_local_atlas_bundles_impl(
                     ))?;
                     std::result::Result::Ok(output_ok)
                 })())
+            }
+        },
+    )
+}
+fn wire__crate__api__private_groups__download_and_decrypt_circle_media_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "download_and_decrypt_circle_media",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_database_path = <String>::sse_decode(&mut deserializer);
+            let api_owner_pubkey_hex = <String>::sse_decode(&mut deserializer);
+            let api_workspace_id = <String>::sse_decode(&mut deserializer);
+            let api_url = <String>::sse_decode(&mut deserializer);
+            let api_mime_type = <String>::sse_decode(&mut deserializer);
+            let api_filename = <String>::sse_decode(&mut deserializer);
+            let api_sha256_hex = <String>::sse_decode(&mut deserializer);
+            let api_nonce_hex = <String>::sse_decode(&mut deserializer);
+            let api_version = <String>::sse_decode(&mut deserializer);
+            let api_persistent_key_hex = <Option<String>>::sse_decode(&mut deserializer);
+            let api_message_epoch = <Option<u64>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, String>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::private_groups::download_and_decrypt_circle_media(
+                                api_database_path,
+                                api_owner_pubkey_hex,
+                                api_workspace_id,
+                                api_url,
+                                api_mime_type,
+                                api_filename,
+                                api_sha256_hex,
+                                api_nonce_hex,
+                                api_version,
+                                api_persistent_key_hex,
+                                api_message_epoch,
+                            )
+                            .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
             }
         },
     )
@@ -1680,6 +1912,47 @@ fn wire__crate__api__nostr_client__entities__fetch_maps_by_addresses_impl(
                                 api_addresses,
                             )
                             .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__private_groups__fetch_multi_device_tip_event_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "fetch_multi_device_tip_event",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_owner_pubkey_hex = <String>::sse_decode(&mut deserializer);
+            let api_relay_urls = <Vec<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, String>(
+                    (move || async move {
+                        let output_ok = crate::api::private_groups::fetch_multi_device_tip_event(
+                            api_owner_pubkey_hex,
+                            api_relay_urls,
+                        )
+                        .await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -4135,6 +4408,144 @@ fn wire__crate__api__nwc__pay_invoice_via_nwc_impl(
         },
     )
 }
+fn wire__crate__api__private_groups__poll_and_auto_approve_circle_requests_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "poll_and_auto_approve_circle_requests",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_database_path = <String>::sse_decode(&mut deserializer);
+            let api_signer_nsec = <Option<String>>::sse_decode(&mut deserializer);
+            let api_bunker_uri = <Option<String>>::sse_decode(&mut deserializer);
+            let api_bunker_client_nsec = <Option<String>>::sse_decode(&mut deserializer);
+            let api_workspace_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, String>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::private_groups::poll_and_auto_approve_circle_requests(
+                                api_database_path,
+                                api_signer_nsec,
+                                api_bunker_uri,
+                                api_bunker_client_nsec,
+                                api_workspace_id,
+                            )
+                            .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__private_groups__prepare_circle_encrypted_media_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "prepare_circle_encrypted_media",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_database_path = <String>::sse_decode(&mut deserializer);
+            let api_owner_pubkey_hex = <String>::sse_decode(&mut deserializer);
+            let api_workspace_id = <String>::sse_decode(&mut deserializer);
+            let api_bytes = <Vec<u8>>::sse_decode(&mut deserializer);
+            let api_mime_type = <String>::sse_decode(&mut deserializer);
+            let api_filename = <String>::sse_decode(&mut deserializer);
+            let api_persistent_for_map = <bool>::sse_decode(&mut deserializer);
+            let api_strip_metadata = <bool>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::private_groups::prepare_circle_encrypted_media(
+                        api_database_path,
+                        api_owner_pubkey_hex,
+                        api_workspace_id,
+                        api_bytes,
+                        api_mime_type,
+                        api_filename,
+                        api_persistent_for_map,
+                        api_strip_metadata,
+                    )?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__private_groups__prepare_multi_device_publish_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "prepare_multi_device_publish",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_database_path = <String>::sse_decode(&mut deserializer);
+            let api_owner_pubkey_hex = <String>::sse_decode(&mut deserializer);
+            let api_blossom_server_url = <String>::sse_decode(&mut deserializer);
+            let api_existing_dek_hex = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::private_groups::prepare_multi_device_publish(
+                        api_database_path,
+                        api_owner_pubkey_hex,
+                        api_blossom_server_url,
+                        api_existing_dek_hex,
+                    )?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__publish__events__prepare_unsigned_atlas_event_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -4418,6 +4829,44 @@ fn wire__crate__api__publish__events__prepare_unsigned_map_event_impl(
                         api_field_session_id,
                         api_external_blob,
                     )?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__private_groups__prepare_unsigned_multi_device_tip_event_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "prepare_unsigned_multi_device_tip_event",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_owner_pubkey_hex = <String>::sse_decode(&mut deserializer);
+            let api_encrypted_tip_content = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok =
+                        crate::api::private_groups::prepare_unsigned_multi_device_tip_event(
+                            api_owner_pubkey_hex,
+                            api_encrypted_tip_content,
+                        )?;
                     std::result::Result::Ok(output_ok)
                 })())
             }
@@ -4975,6 +5424,52 @@ fn wire__crate__api__nostr_client__profiles_relays__pubkey_to_npub_impl(
         },
     )
 }
+fn wire__crate__api__private_groups__publish_multi_device_snapshot_direct_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "publish_multi_device_snapshot_direct",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_database_path = <String>::sse_decode(&mut deserializer);
+            let api_signer_nsec = <String>::sse_decode(&mut deserializer);
+            let api_blossom_server_url = <String>::sse_decode(&mut deserializer);
+            let api_relay_urls = <Vec<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, String>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::private_groups::publish_multi_device_snapshot_direct(
+                                api_database_path,
+                                api_signer_nsec,
+                                api_blossom_server_url,
+                                api_relay_urls,
+                            )
+                            .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__publish__outbox__publish_nearby_event_via_outbox_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -5098,6 +5593,48 @@ fn wire__crate__api__publish__outbox__publish_signed_event_via_outbox_impl(
                         let output_ok =
                             crate::api::publish::outbox::publish_signed_event_via_outbox(
                                 api_database_path,
+                                api_signed_event_json,
+                                api_relay_urls,
+                            )
+                            .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__private_groups__publish_signed_multi_device_tip_event_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "publish_signed_multi_device_tip_event",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_signed_event_json = <String>::sse_decode(&mut deserializer);
+            let api_relay_urls = <Vec<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, String>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::private_groups::publish_signed_multi_device_tip_event(
                                 api_signed_event_json,
                                 api_relay_urls,
                             )
@@ -5349,6 +5886,49 @@ fn wire__crate__api__private_groups__remove_circle_member_impl(
                             api_bunker_client_nsec,
                             api_workspace_id,
                             api_member_pubkey,
+                        )
+                        .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__private_groups__repair_circle_sync_state_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "repair_circle_sync_state",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_database_path = <String>::sse_decode(&mut deserializer);
+            let api_owner_pubkey_hex = <String>::sse_decode(&mut deserializer);
+            let api_workspace_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, String>(
+                    (move || async move {
+                        let output_ok = crate::api::private_groups::repair_circle_sync_state(
+                            api_database_path,
+                            api_owner_pubkey_hex,
+                            api_workspace_id,
                         )
                         .await?;
                         std::result::Result::Ok(output_ok)
@@ -5986,6 +6566,59 @@ fn wire__crate__api__private_groups__send_circle_comment_impl(
         },
     )
 }
+fn wire__crate__api__private_groups__send_circle_comment_with_media_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "send_circle_comment_with_media",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_database_path = <String>::sse_decode(&mut deserializer);
+            let api_signer_nsec = <Option<String>>::sse_decode(&mut deserializer);
+            let api_bunker_uri = <Option<String>>::sse_decode(&mut deserializer);
+            let api_bunker_client_nsec = <Option<String>>::sse_decode(&mut deserializer);
+            let api_workspace_id = <String>::sse_decode(&mut deserializer);
+            let api_text = <String>::sse_decode(&mut deserializer);
+            let api_geojson_json = <Option<String>>::sse_decode(&mut deserializer);
+            let api_imeta_tags = <Vec<Vec<String>>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, String>(
+                    (move || async move {
+                        let output_ok = crate::api::private_groups::send_circle_comment_with_media(
+                            api_database_path,
+                            api_signer_nsec,
+                            api_bunker_uri,
+                            api_bunker_client_nsec,
+                            api_workspace_id,
+                            api_text,
+                            api_geojson_json,
+                            api_imeta_tags,
+                        )
+                        .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__private_groups__send_circle_dataset_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -6029,6 +6662,61 @@ fn wire__crate__api__private_groups__send_circle_dataset_impl(
                             api_geojson_json,
                             api_dataset_id,
                             api_name,
+                        )
+                        .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__private_groups__send_circle_dataset_with_media_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "send_circle_dataset_with_media",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_database_path = <String>::sse_decode(&mut deserializer);
+            let api_signer_nsec = <Option<String>>::sse_decode(&mut deserializer);
+            let api_bunker_uri = <Option<String>>::sse_decode(&mut deserializer);
+            let api_bunker_client_nsec = <Option<String>>::sse_decode(&mut deserializer);
+            let api_workspace_id = <String>::sse_decode(&mut deserializer);
+            let api_geojson_json = <String>::sse_decode(&mut deserializer);
+            let api_dataset_id = <Option<String>>::sse_decode(&mut deserializer);
+            let api_name = <Option<String>>::sse_decode(&mut deserializer);
+            let api_imeta_tags = <Vec<Vec<String>>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, String>(
+                    (move || async move {
+                        let output_ok = crate::api::private_groups::send_circle_dataset_with_media(
+                            api_database_path,
+                            api_signer_nsec,
+                            api_bunker_uri,
+                            api_bunker_client_nsec,
+                            api_workspace_id,
+                            api_geojson_json,
+                            api_dataset_id,
+                            api_name,
+                            api_imeta_tags,
                         )
                         .await?;
                         std::result::Result::Ok(output_ok)
@@ -6135,6 +6823,51 @@ fn wire__crate__api__private_groups__set_circle_administrator_impl(
                             api_workspace_id,
                             api_member_pubkey,
                             api_administrator,
+                        )
+                        .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__private_groups__set_circle_auto_approve_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "set_circle_auto_approve",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_database_path = <String>::sse_decode(&mut deserializer);
+            let api_owner_pubkey_hex = <String>::sse_decode(&mut deserializer);
+            let api_workspace_id = <String>::sse_decode(&mut deserializer);
+            let api_enabled = <bool>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, String>(
+                    (move || async move {
+                        let output_ok = crate::api::private_groups::set_circle_auto_approve(
+                            api_database_path,
+                            api_owner_pubkey_hex,
+                            api_workspace_id,
+                            api_enabled,
                         )
                         .await?;
                         std::result::Result::Ok(output_ok)
@@ -6482,6 +7215,52 @@ fn wire__crate__api__mcp_bridge__stop_mcp_bridge_impl(
         },
     )
 }
+fn wire__crate__api__private_groups__stream_circle_updates_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "stream_circle_updates",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_database_path = <String>::sse_decode(&mut deserializer);
+            let api_owner_pubkey_hex = <String>::sse_decode(&mut deserializer);
+            let api_sink = <StreamSink<
+                crate::api::private_groups::CircleWorkspaceDto,
+                flutter_rust_bridge::for_generated::SseCodec,
+            >>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, String>(
+                    (move || async move {
+                        let output_ok = crate::api::private_groups::stream_circle_updates(
+                            api_database_path,
+                            api_owner_pubkey_hex,
+                            api_sink,
+                        )
+                        .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__agent__stream_earthly_agent_turn_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -6616,6 +7395,48 @@ fn wire__crate__api__nostr_client__catalog__subscribe_earthly_relay_stream_impl(
         },
     )
 }
+fn wire__crate__api__private_groups__sync_all_circle_workspaces_readonly_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "sync_all_circle_workspaces_readonly",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_database_path = <String>::sse_decode(&mut deserializer);
+            let api_owner_pubkey_hex = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, String>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::private_groups::sync_all_circle_workspaces_readonly(
+                                api_database_path,
+                                api_owner_pubkey_hex,
+                            )
+                            .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__private_groups__sync_circle_workspace_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -6663,6 +7484,49 @@ fn wire__crate__api__private_groups__sync_circle_workspace_impl(
         },
     )
 }
+fn wire__crate__api__private_groups__sync_circle_workspace_readonly_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "sync_circle_workspace_readonly",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_database_path = <String>::sse_decode(&mut deserializer);
+            let api_owner_pubkey_hex = <String>::sse_decode(&mut deserializer);
+            let api_workspace_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, String>(
+                    (move || async move {
+                        let output_ok = crate::api::private_groups::sync_circle_workspace_readonly(
+                            api_database_path,
+                            api_owner_pubkey_hex,
+                            api_workspace_id,
+                        )
+                        .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__mcp_bridge__sync_mcp_workspace_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -6693,6 +7557,49 @@ fn wire__crate__api__mcp_bridge__sync_mcp_workspace_impl(
                     (move || async move {
                         let output_ok =
                             crate::api::mcp_bridge::sync_mcp_workspace(api_workspace).await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__private_groups__sync_multi_device_direct_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "sync_multi_device_direct",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_database_path = <String>::sse_decode(&mut deserializer);
+            let api_signer_nsec = <String>::sse_decode(&mut deserializer);
+            let api_relay_urls = <Vec<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, String>(
+                    (move || async move {
+                        let output_ok = crate::api::private_groups::sync_multi_device_direct(
+                            api_database_path,
+                            api_signer_nsec,
+                            api_relay_urls,
+                        )
+                        .await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -6973,6 +7880,19 @@ impl SseDecode for flutter_rust_bridge::DartOpaque {
 impl SseDecode
     for StreamSink<
         crate::api::agent::AgentStreamEventDto,
+        flutter_rust_bridge::for_generated::SseCodec,
+    >
+{
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <String>::sse_decode(deserializer);
+        return StreamSink::deserialize(inner);
+    }
+}
+
+impl SseDecode
+    for StreamSink<
+        crate::api::private_groups::CircleWorkspaceDto,
         flutter_rust_bridge::for_generated::SseCodec,
     >
 {
@@ -7470,6 +8390,9 @@ impl SseDecode for crate::api::private_groups::CircleDatasetDto {
         let mut var_createdAt = <u64>::sse_decode(deserializer);
         let mut var_geojsonJson = <String>::sse_decode(deserializer);
         let mut var_featureCount = <u32>::sse_decode(deserializer);
+        let mut var_mediaAttachments =
+            <Vec<crate::api::private_groups::CircleMediaAttachmentDto>>::sse_decode(deserializer);
+        let mut var_epoch = <Option<u64>>::sse_decode(deserializer);
         return crate::api::private_groups::CircleDatasetDto {
             workspace_id: var_workspaceId,
             envelope_id: var_envelopeId,
@@ -7479,6 +8402,8 @@ impl SseDecode for crate::api::private_groups::CircleDatasetDto {
             created_at: var_createdAt,
             geojson_json: var_geojsonJson,
             feature_count: var_featureCount,
+            media_attachments: var_mediaAttachments,
+            epoch: var_epoch,
         };
     }
 }
@@ -7499,6 +8424,34 @@ impl SseDecode for crate::api::private_groups::CircleJoinRequestDto {
     }
 }
 
+impl SseDecode for crate::api::private_groups::CircleMediaAttachmentDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_url = <String>::sse_decode(deserializer);
+        let mut var_mimeType = <String>::sse_decode(deserializer);
+        let mut var_filename = <String>::sse_decode(deserializer);
+        let mut var_sha256Hex = <String>::sse_decode(deserializer);
+        let mut var_nonceHex = <String>::sse_decode(deserializer);
+        let mut var_version = <String>::sse_decode(deserializer);
+        let mut var_dim = <Option<String>>::sse_decode(deserializer);
+        let mut var_blurhash = <Option<String>>::sse_decode(deserializer);
+        let mut var_alt = <Option<String>>::sse_decode(deserializer);
+        let mut var_persistentKeyHex = <Option<String>>::sse_decode(deserializer);
+        return crate::api::private_groups::CircleMediaAttachmentDto {
+            url: var_url,
+            mime_type: var_mimeType,
+            filename: var_filename,
+            sha256_hex: var_sha256Hex,
+            nonce_hex: var_nonceHex,
+            version: var_version,
+            dim: var_dim,
+            blurhash: var_blurhash,
+            alt: var_alt,
+            persistent_key_hex: var_persistentKeyHex,
+        };
+    }
+}
+
 impl SseDecode for crate::api::private_groups::CircleMessageDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -7509,6 +8462,9 @@ impl SseDecode for crate::api::private_groups::CircleMessageDto {
         let mut var_text = <String>::sse_decode(deserializer);
         let mut var_geojsonJson = <Option<String>>::sse_decode(deserializer);
         let mut var_geometryFeatureCount = <u32>::sse_decode(deserializer);
+        let mut var_mediaAttachments =
+            <Vec<crate::api::private_groups::CircleMediaAttachmentDto>>::sse_decode(deserializer);
+        let mut var_epoch = <Option<u64>>::sse_decode(deserializer);
         return crate::api::private_groups::CircleMessageDto {
             envelope_id: var_envelopeId,
             pubkey: var_pubkey,
@@ -7517,6 +8473,8 @@ impl SseDecode for crate::api::private_groups::CircleMessageDto {
             text: var_text,
             geojson_json: var_geojsonJson,
             geometry_feature_count: var_geometryFeatureCount,
+            media_attachments: var_mediaAttachments,
+            epoch: var_epoch,
         };
     }
 }
@@ -7580,6 +8538,10 @@ impl SseDecode for crate::api::private_groups::CircleWorkspaceDto {
         let mut var_messages =
             <Vec<crate::api::private_groups::CircleMessageDto>>::sse_decode(deserializer);
         let mut var_createdAtMs = <u64>::sse_decode(deserializer);
+        let mut var_syncHealth = <String>::sse_decode(deserializer);
+        let mut var_consecutiveDecryptErrors = <u32>::sse_decode(deserializer);
+        let mut var_autoApproveJoins = <bool>::sse_decode(deserializer);
+        let mut var_cordnGroupRef = <String>::sse_decode(deserializer);
         return crate::api::private_groups::CircleWorkspaceDto {
             workspace_id: var_workspaceId,
             group_id: var_groupId,
@@ -7597,6 +8559,10 @@ impl SseDecode for crate::api::private_groups::CircleWorkspaceDto {
             datasets: var_datasets,
             messages: var_messages,
             created_at_ms: var_createdAtMs,
+            sync_health: var_syncHealth,
+            consecutive_decrypt_errors: var_consecutiveDecryptErrors,
+            auto_approve_joins: var_autoApproveJoins,
+            cordn_group_ref: var_cordnGroupRef,
         };
     }
 }
@@ -7617,6 +8583,20 @@ impl SseDecode for crate::api::private_groups::DecodedCircleInviteDto {
             coordinator_pubkey: var_coordinatorPubkey,
             relays: var_relays,
             expires_at: var_expiresAt,
+        };
+    }
+}
+
+impl SseDecode for crate::api::private_groups::DecodedCordnGroupRefDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_gid = <String>::sse_decode(deserializer);
+        let mut var_relays = <Vec<String>>::sse_decode(deserializer);
+        let mut var_coordinatorPubkey = <Option<String>>::sse_decode(deserializer);
+        return crate::api::private_groups::DecodedCordnGroupRefDto {
+            gid: var_gid,
+            relays: var_relays,
+            coordinator_pubkey: var_coordinatorPubkey,
         };
     }
 }
@@ -7772,6 +8752,22 @@ impl SseDecode for f64 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         deserializer.cursor.read_f64::<NativeEndian>().unwrap()
+    }
+}
+
+impl SseDecode for crate::api::private_groups::FetchedMultiDeviceTipDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_eventId = <String>::sse_decode(deserializer);
+        let mut var_pubkey = <String>::sse_decode(deserializer);
+        let mut var_createdAt = <u64>::sse_decode(deserializer);
+        let mut var_encryptedContent = <String>::sse_decode(deserializer);
+        return crate::api::private_groups::FetchedMultiDeviceTipDto {
+            event_id: var_eventId,
+            pubkey: var_pubkey,
+            created_at: var_createdAt,
+            encrypted_content: var_encryptedContent,
+        };
     }
 }
 
@@ -8064,6 +9060,20 @@ impl SseDecode for Vec<crate::api::private_groups::CircleJoinRequestDto> {
     }
 }
 
+impl SseDecode for Vec<crate::api::private_groups::CircleMediaAttachmentDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(
+                <crate::api::private_groups::CircleMediaAttachmentDto>::sse_decode(deserializer),
+            );
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::private_groups::CircleMessageDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -8151,6 +9161,18 @@ impl SseDecode for Vec<crate::api::nostr_client::entities::InboxItemDto> {
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
             ans_.push(<crate::api::nostr_client::entities::InboxItemDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<Vec<String>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<Vec<String>>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -8259,6 +9281,20 @@ impl SseDecode for Vec<crate::api::settings::MountedAtlasWorkspaceDto> {
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
             ans_.push(<crate::api::settings::MountedAtlasWorkspaceDto>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::private_groups::MultiDeviceUploadBlobDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(
+                <crate::api::private_groups::MultiDeviceUploadBlobDto>::sse_decode(deserializer),
+            );
         }
         return ans_;
     }
@@ -8832,6 +9868,55 @@ impl SseDecode for crate::api::settings::MountedAtlasWorkspaceDto {
     }
 }
 
+impl SseDecode for crate::api::private_groups::MultiDeviceSyncSummaryDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_dekHex = <Option<String>>::sse_decode(deserializer);
+        let mut var_tipEventId = <Option<String>>::sse_decode(deserializer);
+        let mut var_tipUpdatedAt = <Option<u64>>::sse_decode(deserializer);
+        let mut var_uploadedBlobs = <u32>::sse_decode(deserializer);
+        let mut var_adoptedGroups = <u32>::sse_decode(deserializer);
+        let mut var_updatedGroups = <u32>::sse_decode(deserializer);
+        let mut var_mergedGroups = <u32>::sse_decode(deserializer);
+        let mut var_unchangedGroups = <u32>::sse_decode(deserializer);
+        let mut var_removedGroupsMarked = <u32>::sse_decode(deserializer);
+        let mut var_skippedErrors = <Vec<String>>::sse_decode(deserializer);
+        let mut var_workspaces =
+            <Vec<crate::api::private_groups::CircleWorkspaceDto>>::sse_decode(deserializer);
+        return crate::api::private_groups::MultiDeviceSyncSummaryDto {
+            dek_hex: var_dekHex,
+            tip_event_id: var_tipEventId,
+            tip_updated_at: var_tipUpdatedAt,
+            uploaded_blobs: var_uploadedBlobs,
+            adopted_groups: var_adoptedGroups,
+            updated_groups: var_updatedGroups,
+            merged_groups: var_mergedGroups,
+            unchanged_groups: var_unchangedGroups,
+            removed_groups_marked: var_removedGroupsMarked,
+            skipped_errors: var_skippedErrors,
+            workspaces: var_workspaces,
+        };
+    }
+}
+
+impl SseDecode for crate::api::private_groups::MultiDeviceUploadBlobDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_kind = <String>::sse_decode(deserializer);
+        let mut var_gid = <Option<String>>::sse_decode(deserializer);
+        let mut var_xHex = <String>::sse_decode(deserializer);
+        let mut var_encryptedBytes = <Vec<u8>>::sse_decode(deserializer);
+        let mut var_issuedAt = <u64>::sse_decode(deserializer);
+        return crate::api::private_groups::MultiDeviceUploadBlobDto {
+            kind: var_kind,
+            gid: var_gid,
+            x_hex: var_xHex,
+            encrypted_bytes: var_encryptedBytes,
+            issued_at: var_issuedAt,
+        };
+    }
+}
+
 impl SseDecode for crate::api::spike::NearbyPeersSnapshot {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -9121,6 +10206,19 @@ impl SseDecode for Option<f64> {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
             return Some(<f64>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<crate::api::private_groups::FetchedMultiDeviceTipDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(
+                <crate::api::private_groups::FetchedMultiDeviceTipDto>::sse_decode(deserializer),
+            );
         } else {
             return None;
         }
@@ -9460,6 +10558,47 @@ impl SseDecode for crate::api::spike::PmtilesHeaderSnapshot {
             center_lat: var_centerLat,
             center_zoom: var_centerZoom,
             clustered: var_clustered,
+        };
+    }
+}
+
+impl SseDecode for crate::api::private_groups::PreparedCircleMediaDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_encryptedBytes = <Vec<u8>>::sse_decode(deserializer);
+        let mut var_encryptedSha256Hex = <String>::sse_decode(deserializer);
+        let mut var_plaintextSha256Hex = <String>::sse_decode(deserializer);
+        let mut var_nonceHex = <String>::sse_decode(deserializer);
+        let mut var_mimeType = <String>::sse_decode(deserializer);
+        let mut var_sanitizedFilename = <String>::sse_decode(deserializer);
+        let mut var_version = <String>::sse_decode(deserializer);
+        let mut var_persistentKeyHex = <Option<String>>::sse_decode(deserializer);
+        return crate::api::private_groups::PreparedCircleMediaDto {
+            encrypted_bytes: var_encryptedBytes,
+            encrypted_sha256_hex: var_encryptedSha256Hex,
+            plaintext_sha256_hex: var_plaintextSha256Hex,
+            nonce_hex: var_nonceHex,
+            mime_type: var_mimeType,
+            sanitized_filename: var_sanitizedFilename,
+            version: var_version,
+            persistent_key_hex: var_persistentKeyHex,
+        };
+    }
+}
+
+impl SseDecode for crate::api::private_groups::PreparedMultiDevicePublishDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_dekHex = <String>::sse_decode(deserializer);
+        let mut var_blossomServers = <Vec<String>>::sse_decode(deserializer);
+        let mut var_blobs =
+            <Vec<crate::api::private_groups::MultiDeviceUploadBlobDto>>::sse_decode(deserializer);
+        let mut var_defaultTipPlaintextJson = <String>::sse_decode(deserializer);
+        return crate::api::private_groups::PreparedMultiDevicePublishDto {
+            dek_hex: var_dekHex,
+            blossom_servers: var_blossomServers,
+            blobs: var_blobs,
+            default_tip_plaintext_json: var_defaultTipPlaintextJson,
         };
     }
 }
@@ -10001,696 +11140,818 @@ fn pde_ffi_dispatcher_primary_impl(
             data_len,
         ),
         2 => wire__crate__api__wallet__add_cashu_mint_impl(port, ptr, rust_vec_len, data_len),
-        3 => wire__crate__api__wallet__apply_decrypted_nip60_sync_impl(
+        3 => wire__crate__api__private_groups__apply_decrypted_multi_device_tip_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        4 => wire__crate__api__private_groups__approve_circle_join_request_impl(
+        4 => wire__crate__api__wallet__apply_decrypted_nip60_sync_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        5 => wire__crate__api__spike__approve_nearby_claim_impl(port, ptr, rust_vec_len, data_len),
-        6 => wire__crate__api__nip46__await_nostrconnect_session_impl(
+        5 => wire__crate__api__private_groups__approve_circle_join_request_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        7 => {
+        6 => wire__crate__api__spike__approve_nearby_claim_impl(port, ptr, rust_vec_len, data_len),
+        7 => wire__crate__api__nip46__await_nostrconnect_session_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        8 => wire__crate__api__private_groups__build_circle_imeta_tag_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        9 => wire__crate__api__private_groups__build_multi_device_tip_plaintext_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        10 => {
             wire__crate__api__wallet__claim_cashu_mint_quote_impl(port, ptr, rust_vec_len, data_len)
         }
-        8 => {
+        11 => {
             wire__crate__api__wallet__claim_incoming_nutzaps_impl(port, ptr, rust_vec_len, data_len)
         }
-        9 => wire__crate__api__private_groups__clear_external_circle_signer_impl(
+        12 => wire__crate__api__private_groups__clear_external_circle_signer_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        10 => wire__crate__api__blossom__compute_sha256_hex_impl(port, ptr, rust_vec_len, data_len),
-        11 => wire__crate__api__nip46__connect_nip46_bunker_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__api__private_groups__create_circle_invite_url_impl(
+        13 => wire__crate__api__blossom__compute_sha256_hex_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__api__nip46__connect_nip46_bunker_impl(port, ptr, rust_vec_len, data_len),
+        15 => wire__crate__api__private_groups__create_circle_invite_url_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        13 => wire__crate__api__private_groups__create_circle_workspace_impl(
+        16 => wire__crate__api__private_groups__create_circle_workspace_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        14 => wire__crate__api__spike__create_field_session_invite_impl(
+        17 => wire__crate__api__spike__create_field_session_invite_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        15 => wire__crate__api__nip46__create_nostrconnect_offer_impl(
+        18 => wire__crate__api__nip46__create_nostrconnect_offer_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        16 => wire__crate__api__private_groups__decode_circle_invite_link_impl(
+        19 => wire__crate__api__private_groups__decode_circle_invite_link_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        17 => wire__crate__api__spike__decode_field_session_invite_impl(
+        20 => wire__crate__api__private_groups__decode_cordn_group_ref_link_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        18 => wire__crate__api__nostr_client__entities__decode_naddr_coordinate_impl(
+        21 => wire__crate__api__spike__decode_field_session_invite_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        19 => wire__crate__api__nostr_client__profiles_relays__decode_npub_to_hex_impl(
+        22 => wire__crate__api__nostr_client__entities__decode_naddr_coordinate_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        20 => wire__crate__api__blossom__default_blossom_server_url_impl(
+        23 => wire__crate__api__nostr_client__profiles_relays__decode_npub_to_hex_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        21 => wire__crate__api__private_groups__default_cordn_coordinator_pubkey_impl(
+        24 => wire__crate__api__blossom__default_blossom_server_url_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        22 => wire__crate__api__private_groups__delete_circle_workspace_impl(
+        25 => wire__crate__api__private_groups__default_cordn_coordinator_pubkey_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        23 => wire__crate__api__publish__drafts__delete_local_draft_impl(
+        26 => wire__crate__api__private_groups__delete_circle_workspace_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        24 => wire__crate__api__agent__detect_agent_vision_support_impl(
+        27 => wire__crate__api__publish__drafts__delete_local_draft_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        25 => wire__crate__api__publish__outbox__discard_outbox_item_impl(
+        28 => wire__crate__api__agent__detect_agent_vision_support_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        26 => wire__crate__api__spike__discover_local_atlas_bundles_impl(
+        29 => wire__crate__api__publish__outbox__discard_outbox_item_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        27 => wire__crate__api__mcp_bridge__drain_mcp_mutations_impl(
+        30 => wire__crate__api__spike__discover_local_atlas_bundles_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        28 => wire__crate__api__nostr_client__profiles_relays__encode_hex_to_npub_impl(
+        31 => wire__crate__api__private_groups__download_and_decrypt_circle_media_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        29 => wire__crate__api__nostr_client__entities__encode_naddr_coordinate_impl(
+        32 => wire__crate__api__mcp_bridge__drain_mcp_mutations_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        30 => wire__crate__api__agent__fetch_agent_provider_models_impl(
+        33 => wire__crate__api__nostr_client__profiles_relays__encode_hex_to_npub_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        31 => wire__crate__api__nostr_client__entities__fetch_author_portfolio_impl(
+        34 => wire__crate__api__nostr_client__entities__encode_naddr_coordinate_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        32 => wire__crate__api__private_groups__fetch_circle_join_requests_impl(
+        35 => wire__crate__api__agent__fetch_agent_provider_models_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        33 => wire__crate__api__nostr_client__catalog__fetch_earthly_catalog_impl(
+        36 => wire__crate__api__nostr_client__entities__fetch_author_portfolio_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        34 => wire__crate__api__nostr_client__entities__fetch_entity_by_address_impl(
+        37 => wire__crate__api__private_groups__fetch_circle_join_requests_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        35 => wire__crate__api__nostr_client__entities__fetch_entity_discussion_impl(
+        38 => wire__crate__api__nostr_client__catalog__fetch_earthly_catalog_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        36 => wire__crate__api__nostr_client__entities__fetch_entity_social_counts_impl(
+        39 => wire__crate__api__nostr_client__entities__fetch_entity_by_address_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        37 => wire__crate__api__nostr_client__entities__fetch_inbox_items_impl(
+        40 => wire__crate__api__nostr_client__entities__fetch_entity_discussion_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        38 => wire__crate__api__nostr_client__profiles_relays__fetch_lnurl_zap_invoice_impl(
+        41 => wire__crate__api__nostr_client__entities__fetch_entity_social_counts_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        39 => wire__crate__api__nostr_client__catalog__fetch_local_node_catalog_impl(
+        42 => wire__crate__api__nostr_client__entities__fetch_inbox_items_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        40 => wire__crate__api__nostr_client__entities__fetch_maps_by_addresses_impl(
+        43 => wire__crate__api__nostr_client__profiles_relays__fetch_lnurl_zap_invoice_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        41 => wire__crate__api__wallet__fetch_nip60_data_events_impl(
+        44 => wire__crate__api__nostr_client__catalog__fetch_local_node_catalog_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        42 => wire__crate__api__wallet__fetch_nip60_wallet_discovery_impl(
+        45 => wire__crate__api__nostr_client__entities__fetch_maps_by_addresses_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        43 => {
+        46 => wire__crate__api__private_groups__fetch_multi_device_tip_event_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        47 => wire__crate__api__wallet__fetch_nip60_data_events_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        48 => wire__crate__api__wallet__fetch_nip60_wallet_discovery_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        49 => {
             wire__crate__api__nwc__fetch_nwc_wallet_status_impl(port, ptr, rust_vec_len, data_len)
         }
-        44 => wire__crate__api__nostr_client__profiles_relays__fetch_profiles_impl(
+        50 => wire__crate__api__nostr_client__profiles_relays__fetch_profiles_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        45 => {
+        51 => {
             wire__crate__api__agent__fetch_research_source_impl(port, ptr, rust_vec_len, data_len)
         }
-        46 => wire__crate__api__nostr_client__profiles_relays__fetch_shoutbox_posts_impl(
+        52 => wire__crate__api__nostr_client__profiles_relays__fetch_shoutbox_posts_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        47 => wire__crate__api__nostr_client__profiles_relays__fetch_user_relay_list_impl(
+        53 => wire__crate__api__nostr_client__profiles_relays__fetch_user_relay_list_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        48 => wire__crate__api__publish__outbox__flush_outbox_queue_impl(
+        54 => wire__crate__api__publish__outbox__flush_outbox_queue_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        49 => wire__crate__api__spike__forget_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
-        50 => wire__crate__api__publish__keys__generate_local_nostr_keypair_impl(
+        55 => wire__crate__api__spike__forget_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        56 => wire__crate__api__publish__keys__generate_local_nostr_keypair_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        51 => wire__crate__api__geo__geo_connect_lines_impl(port, ptr, rust_vec_len, data_len),
-        52 => wire__crate__api__geo__geo_create_primitive_shape_impl(
+        57 => wire__crate__api__geo__geo_connect_lines_impl(port, ptr, rust_vec_len, data_len),
+        58 => wire__crate__api__geo__geo_create_primitive_shape_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        53 => {
+        59 => {
             wire__crate__api__geo__geo_difference_polygons_impl(port, ptr, rust_vec_len, data_len)
         }
-        54 => wire__crate__api__geo__geo_dissolve_lines_impl(port, ptr, rust_vec_len, data_len),
-        55 => wire__crate__api__geo__geo_explode_multipart_impl(port, ptr, rust_vec_len, data_len),
-        56 => wire__crate__api__geo__geo_export_gpx_impl(port, ptr, rust_vec_len, data_len),
-        57 => wire__crate__api__geo__geo_export_kml_impl(port, ptr, rust_vec_len, data_len),
-        58 => {
+        60 => wire__crate__api__geo__geo_dissolve_lines_impl(port, ptr, rust_vec_len, data_len),
+        61 => wire__crate__api__geo__geo_explode_multipart_impl(port, ptr, rust_vec_len, data_len),
+        62 => wire__crate__api__geo__geo_export_gpx_impl(port, ptr, rust_vec_len, data_len),
+        63 => wire__crate__api__geo__geo_export_kml_impl(port, ptr, rust_vec_len, data_len),
+        64 => {
             wire__crate__api__geo__geo_export_shapefile_zip_impl(port, ptr, rust_vec_len, data_len)
         }
-        59 => wire__crate__api__geo__geo_extrude_arrow_impl(port, ptr, rust_vec_len, data_len),
-        60 => wire__crate__api__geo__geo_extrude_band_impl(port, ptr, rust_vec_len, data_len),
-        61 => wire__crate__api__geo__geo_import_shapefile_bytes_impl(
+        65 => wire__crate__api__geo__geo_extrude_arrow_impl(port, ptr, rust_vec_len, data_len),
+        66 => wire__crate__api__geo__geo_extrude_band_impl(port, ptr, rust_vec_len, data_len),
+        67 => wire__crate__api__geo__geo_import_shapefile_bytes_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        62 => {
+        68 => {
             wire__crate__api__geo__geo_import_spatial_file_impl(port, ptr, rust_vec_len, data_len)
         }
-        63 => wire__crate__api__geo__geo_line_corridor_impl(port, ptr, rust_vec_len, data_len),
-        64 => {
+        69 => wire__crate__api__geo__geo_line_corridor_impl(port, ptr, rust_vec_len, data_len),
+        70 => {
             wire__crate__api__geo__geo_measure_line_meters_impl(port, ptr, rust_vec_len, data_len)
         }
-        65 => wire__crate__api__geo__geo_measure_polygon_area_m2_impl(
+        71 => wire__crate__api__geo__geo_measure_polygon_area_m2_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        66 => wire__crate__api__geo__geo_merge_to_multipart_impl(port, ptr, rust_vec_len, data_len),
-        67 => wire__crate__api__geo__geo_offset_line_impl(port, ptr, rust_vec_len, data_len),
-        68 => wire__crate__api__geo__geo_offset_polygon_impl(port, ptr, rust_vec_len, data_len),
-        69 => wire__crate__api__geo__geo_parse_xlsx_bytes_impl(port, ptr, rust_vec_len, data_len),
-        70 => {
+        72 => wire__crate__api__geo__geo_merge_to_multipart_impl(port, ptr, rust_vec_len, data_len),
+        73 => wire__crate__api__geo__geo_offset_line_impl(port, ptr, rust_vec_len, data_len),
+        74 => wire__crate__api__geo__geo_offset_polygon_impl(port, ptr, rust_vec_len, data_len),
+        75 => wire__crate__api__geo__geo_parse_xlsx_bytes_impl(port, ptr, rust_vec_len, data_len),
+        76 => {
             wire__crate__api__geo__geo_query_overpass_bbox_impl(port, ptr, rust_vec_len, data_len)
         }
-        71 => wire__crate__api__geo__geo_simplify_line_impl(port, ptr, rust_vec_len, data_len),
-        72 => wire__crate__api__geo__geo_simplify_polygon_impl(port, ptr, rust_vec_len, data_len),
-        73 => {
+        77 => wire__crate__api__geo__geo_simplify_line_impl(port, ptr, rust_vec_len, data_len),
+        78 => wire__crate__api__geo__geo_simplify_polygon_impl(port, ptr, rust_vec_len, data_len),
+        79 => {
             wire__crate__api__geo__geo_split_line_at_point_impl(port, ptr, rust_vec_len, data_len)
         }
-        74 => wire__crate__api__geo__geo_split_line_by_line_impl(port, ptr, rust_vec_len, data_len),
-        75 => {
+        80 => wire__crate__api__geo__geo_split_line_by_line_impl(port, ptr, rust_vec_len, data_len),
+        81 => {
             wire__crate__api__geo__geo_split_polygon_by_line_impl(port, ptr, rust_vec_len, data_len)
         }
-        76 => wire__crate__api__geo__geo_transform_points_impl(port, ptr, rust_vec_len, data_len),
-        77 => wire__crate__api__geo__geo_union_polygons_impl(port, ptr, rust_vec_len, data_len),
-        78 => wire__crate__api__geo__geo_valhalla_isochrone_impl(port, ptr, rust_vec_len, data_len),
-        79 => wire__crate__api__geo__geo_valhalla_route_impl(port, ptr, rust_vec_len, data_len),
-        80 => wire__crate__api__geo__geo_validate_draft_geojson_impl(
+        82 => wire__crate__api__geo__geo_transform_points_impl(port, ptr, rust_vec_len, data_len),
+        83 => wire__crate__api__geo__geo_union_polygons_impl(port, ptr, rust_vec_len, data_len),
+        84 => wire__crate__api__geo__geo_valhalla_isochrone_impl(port, ptr, rust_vec_len, data_len),
+        85 => wire__crate__api__geo__geo_valhalla_route_impl(port, ptr, rust_vec_len, data_len),
+        86 => wire__crate__api__geo__geo_validate_draft_geojson_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        81 => wire__crate__api__mcp_bridge__get_mcp_bridge_status_impl(
+        87 => wire__crate__api__mcp_bridge__get_mcp_bridge_status_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        82 => wire__crate__api__publish__keys__import_local_nostr_nsec_impl(
+        88 => wire__crate__api__publish__keys__import_local_nostr_nsec_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        83 => wire__crate__api__spike__ingest_local_blob_impl(port, ptr, rust_vec_len, data_len),
-        84 => wire__crate__api__spike__ingest_local_pmtiles_impl(port, ptr, rust_vec_len, data_len),
-        85 => wire__crate__api__spike__ingest_local_pmtiles_from_path_impl(
+        89 => wire__crate__api__spike__ingest_local_blob_impl(port, ptr, rust_vec_len, data_len),
+        90 => wire__crate__api__spike__ingest_local_pmtiles_impl(port, ptr, rust_vec_len, data_len),
+        91 => wire__crate__api__spike__ingest_local_pmtiles_from_path_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        86 => wire__crate__api__spike__init_app_impl(port, ptr, rust_vec_len, data_len),
-        87 => wire__crate__api__wallet__init_cashu_wallet_impl(port, ptr, rust_vec_len, data_len),
-        88 => wire__crate__api__relay_pool__init_relay_pool_impl(port, ptr, rust_vec_len, data_len),
-        89 => wire__crate__api__spike__inspect_atlas_workspace_path_impl(
+        92 => wire__crate__api__spike__init_app_impl(port, ptr, rust_vec_len, data_len),
+        93 => wire__crate__api__wallet__init_cashu_wallet_impl(port, ptr, rust_vec_len, data_len),
+        94 => wire__crate__api__relay_pool__init_relay_pool_impl(port, ptr, rust_vec_len, data_len),
+        95 => wire__crate__api__spike__inspect_atlas_workspace_path_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        90 => {
+        96 => {
             wire__crate__api__spike__inspect_pmtiles_header_impl(port, ptr, rust_vec_len, data_len)
         }
-        91 => wire__crate__api__spike__join_nearby_session_impl(port, ptr, rust_vec_len, data_len),
-        92 => wire__crate__api__publish__drafts__list_local_drafts_impl(
+        97 => wire__crate__api__spike__join_nearby_session_impl(port, ptr, rust_vec_len, data_len),
+        98 => wire__crate__api__publish__drafts__list_local_drafts_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        93 => wire__crate__api__publish__outbox__list_outbox_items_impl(
+        99 => wire__crate__api__publish__outbox__list_outbox_items_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        94 => wire__crate__api__settings__load_app_settings_impl(port, ptr, rust_vec_len, data_len),
-        95 => wire__crate__api__wallet__load_cashu_wallet_state_impl(
+        100 => {
+            wire__crate__api__settings__load_app_settings_impl(port, ptr, rust_vec_len, data_len)
+        }
+        101 => wire__crate__api__wallet__load_cashu_wallet_state_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        96 => wire__crate__api__private_groups__load_circles_snapshot_impl(
+        102 => wire__crate__api__private_groups__load_circles_snapshot_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        97 => wire__crate__api__publish__drafts__load_local_draft_impl(
+        103 => wire__crate__api__publish__drafts__load_local_draft_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        98 => wire__crate__api__spike__local_node_status_impl(port, ptr, rust_vec_len, data_len),
-        99 => wire__crate__api__spike__nearby_peers_status_impl(port, ptr, rust_vec_len, data_len),
-        100 => wire__crate__api__nip46__nip46_nip44_decrypt_impl(port, ptr, rust_vec_len, data_len),
-        101 => wire__crate__api__nip46__nip46_nip44_encrypt_impl(port, ptr, rust_vec_len, data_len),
-        102 => wire__crate__api__spike__outbox_summary_impl(port, ptr, rust_vec_len, data_len),
-        103 => wire__crate__api__wallet__parse_nip60_wallet_relays_from_json_impl(
+        104 => wire__crate__api__spike__local_node_status_impl(port, ptr, rust_vec_len, data_len),
+        105 => wire__crate__api__spike__nearby_peers_status_impl(port, ptr, rust_vec_len, data_len),
+        106 => wire__crate__api__nip46__nip46_nip44_decrypt_impl(port, ptr, rust_vec_len, data_len),
+        107 => wire__crate__api__nip46__nip46_nip44_encrypt_impl(port, ptr, rust_vec_len, data_len),
+        108 => wire__crate__api__spike__outbox_summary_impl(port, ptr, rust_vec_len, data_len),
+        109 => wire__crate__api__wallet__parse_nip60_wallet_relays_from_json_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        104 => wire__crate__api__nwc__parse_nwc_uri_impl(port, ptr, rust_vec_len, data_len),
-        105 => {
+        110 => wire__crate__api__nwc__parse_nwc_uri_impl(port, ptr, rust_vec_len, data_len),
+        111 => {
             wire__crate__api__wallet__pay_bolt11_via_cashu_impl(port, ptr, rust_vec_len, data_len)
         }
-        106 => wire__crate__api__nwc__pay_invoice_via_nwc_impl(port, ptr, rust_vec_len, data_len),
-        107 => wire__crate__api__publish__events__prepare_unsigned_atlas_event_impl(
+        112 => wire__crate__api__nwc__pay_invoice_via_nwc_impl(port, ptr, rust_vec_len, data_len),
+        113 => wire__crate__api__private_groups__poll_and_auto_approve_circle_requests_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        108 => wire__crate__api__publish__events__prepare_unsigned_beacon_event_impl(
+        114 => wire__crate__api__private_groups__prepare_circle_encrypted_media_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        109 => wire__crate__api__blossom__prepare_unsigned_blossom_upload_auth_impl(
+        115 => wire__crate__api__private_groups__prepare_multi_device_publish_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        110 => wire__crate__api__publish__events__prepare_unsigned_comment_event_impl(
+        116 => wire__crate__api__publish__events__prepare_unsigned_atlas_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        111 => wire__crate__api__publish__events__prepare_unsigned_deletion_event_impl(
+        117 => wire__crate__api__publish__events__prepare_unsigned_beacon_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        112 => wire__crate__api__publish__events__prepare_unsigned_map_event_impl(
+        118 => wire__crate__api__blossom__prepare_unsigned_blossom_upload_auth_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        113 => wire__crate__api__publish__events__prepare_unsigned_profile_event_impl(
+        119 => wire__crate__api__publish__events__prepare_unsigned_comment_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        114 => wire__crate__api__publish__events__prepare_unsigned_proposal_event_impl(
+        120 => wire__crate__api__publish__events__prepare_unsigned_deletion_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        115 => wire__crate__api__publish__events__prepare_unsigned_proposal_status_event_impl(
+        121 => wire__crate__api__publish__events__prepare_unsigned_map_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        116 => wire__crate__api__publish__events__prepare_unsigned_reaction_event_impl(
+        122 => wire__crate__api__private_groups__prepare_unsigned_multi_device_tip_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        117 => wire__crate__api__publish__events__prepare_unsigned_relay_list_event_impl(
+        123 => wire__crate__api__publish__events__prepare_unsigned_profile_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        118 => wire__crate__api__publish__events__prepare_unsigned_shoutbox_post_impl(
+        124 => wire__crate__api__publish__events__prepare_unsigned_proposal_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        119 => wire__crate__api__publish__events__prepare_unsigned_sighting_event_impl(
+        125 => wire__crate__api__publish__events__prepare_unsigned_proposal_status_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        120 => wire__crate__api__publish__events__prepare_unsigned_story_event_impl(
+        126 => wire__crate__api__publish__events__prepare_unsigned_reaction_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        121 => wire__crate__api__publish__events__prepare_unsigned_story_proposal_event_impl(
+        127 => wire__crate__api__publish__events__prepare_unsigned_relay_list_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        122 => wire__crate__api__publish__events__prepare_unsigned_zap_request_event_impl(
+        128 => wire__crate__api__publish__events__prepare_unsigned_shoutbox_post_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        123 => wire__crate__api__nostr_client__profiles_relays__probe_relays_health_impl(
+        129 => wire__crate__api__publish__events__prepare_unsigned_sighting_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        124 => wire__crate__api__nostr_client__profiles_relays__pubkey_to_npub_impl(
+        130 => wire__crate__api__publish__events__prepare_unsigned_story_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        125 => wire__crate__api__publish__outbox__publish_nearby_event_via_outbox_impl(
+        131 => wire__crate__api__publish__events__prepare_unsigned_story_proposal_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        126 => wire__crate__api__wallet__publish_nip61_nutzap_info_impl(
+        132 => wire__crate__api__publish__events__prepare_unsigned_zap_request_event_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        127 => wire__crate__api__publish__outbox__publish_signed_event_via_outbox_impl(
+        133 => wire__crate__api__nostr_client__profiles_relays__probe_relays_health_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        128 => {
+        134 => wire__crate__api__nostr_client__profiles_relays__pubkey_to_npub_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        135 => wire__crate__api__private_groups__publish_multi_device_snapshot_direct_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        136 => wire__crate__api__publish__outbox__publish_nearby_event_via_outbox_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        137 => wire__crate__api__wallet__publish_nip61_nutzap_info_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        138 => wire__crate__api__publish__outbox__publish_signed_event_via_outbox_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        139 => wire__crate__api__private_groups__publish_signed_multi_device_tip_event_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        140 => {
             wire__crate__api__wallet__receive_cashu_token_impl(port, ptr, rust_vec_len, data_len)
         }
-        129 => wire__crate__api__spike__refresh_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
-        130 => wire__crate__api__private_groups__register_external_circle_signer_impl(
+        141 => wire__crate__api__spike__refresh_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        142 => wire__crate__api__private_groups__register_external_circle_signer_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        131 => wire__crate__api__spike__reject_nearby_claim_impl(port, ptr, rust_vec_len, data_len),
-        132 => wire__crate__api__wallet__remove_cashu_mint_impl(port, ptr, rust_vec_len, data_len),
-        133 => wire__crate__api__private_groups__remove_circle_member_impl(
+        143 => wire__crate__api__spike__reject_nearby_claim_impl(port, ptr, rust_vec_len, data_len),
+        144 => wire__crate__api__wallet__remove_cashu_mint_impl(port, ptr, rust_vec_len, data_len),
+        145 => wire__crate__api__private_groups__remove_circle_member_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        134 => wire__crate__api__wallet__request_cashu_mint_quote_impl(
+        146 => wire__crate__api__private_groups__repair_circle_sync_state_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        135 => wire__crate__api__private_groups__request_join_circle_impl(
+        147 => wire__crate__api__wallet__request_cashu_mint_quote_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        136 => {
+        148 => wire__crate__api__private_groups__request_join_circle_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        149 => {
             wire__crate__api__spike__resolve_local_blob_url_impl(port, ptr, rust_vec_len, data_len)
         }
-        137 => wire__crate__api__nostr_client__blob_media__resolve_map_blob_geojson_impl(
+        150 => wire__crate__api__nostr_client__blob_media__resolve_map_blob_geojson_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        138 => wire__crate__api__publish__outbox__retry_outbox_item_impl(
+        151 => wire__crate__api__publish__outbox__retry_outbox_item_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        139 => wire__crate__api__nostr_client__search_geo__reverse_geocode_location_impl(
+        152 => wire__crate__api__nostr_client__search_geo__reverse_geocode_location_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        140 => wire__crate__api__spike__revoke_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
-        141 => {
+        153 => wire__crate__api__spike__revoke_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        154 => {
             wire__crate__api__agent__run_earthly_agent_turn_impl(port, ptr, rust_vec_len, data_len)
         }
-        142 => {
+        155 => {
             wire__crate__api__settings__save_app_settings_impl(port, ptr, rust_vec_len, data_len)
         }
-        143 => wire__crate__api__publish__drafts__save_local_draft_impl(
+        156 => wire__crate__api__publish__drafts__save_local_draft_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        144 => wire__crate__api__nostr_client__search_geo__search_places_impl(
+        157 => wire__crate__api__nostr_client__search_geo__search_places_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        145 => wire__crate__api__nostr_client__search_geo__search_relay_catalog_nip50_impl(
+        158 => wire__crate__api__nostr_client__search_geo__search_relay_catalog_nip50_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        146 => wire__crate__api__wallet__send_cashu_token_impl(port, ptr, rust_vec_len, data_len),
-        147 => wire__crate__api__private_groups__send_circle_comment_impl(
+        159 => wire__crate__api__wallet__send_cashu_token_impl(port, ptr, rust_vec_len, data_len),
+        160 => wire__crate__api__private_groups__send_circle_comment_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        148 => wire__crate__api__private_groups__send_circle_dataset_impl(
+        161 => wire__crate__api__private_groups__send_circle_comment_with_media_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        149 => wire__crate__api__wallet__send_nip61_nutzap_impl(port, ptr, rust_vec_len, data_len),
-        150 => wire__crate__api__private_groups__set_circle_administrator_impl(
+        162 => wire__crate__api__private_groups__send_circle_dataset_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        151 => wire__crate__api__settings__set_settings_master_key_impl(
+        163 => wire__crate__api__private_groups__send_circle_dataset_with_media_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        152 => wire__crate__api__spike__shutdown_local_node_impl(port, ptr, rust_vec_len, data_len),
-        153 => wire__crate__api__nip46__sign_event_with_nip46_bunker_impl(
+        164 => wire__crate__api__wallet__send_nip61_nutzap_impl(port, ptr, rust_vec_len, data_len),
+        165 => wire__crate__api__private_groups__set_circle_administrator_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        154 => wire__crate__api__publish__keys__sign_event_with_nsec_impl(
+        166 => wire__crate__api__private_groups__set_circle_auto_approve_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        155 => wire__crate__api__spike__start_local_node_impl(port, ptr, rust_vec_len, data_len),
-        156 => {
+        167 => wire__crate__api__settings__set_settings_master_key_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        168 => wire__crate__api__spike__shutdown_local_node_impl(port, ptr, rust_vec_len, data_len),
+        169 => wire__crate__api__nip46__sign_event_with_nip46_bunker_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        170 => wire__crate__api__publish__keys__sign_event_with_nsec_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        171 => wire__crate__api__spike__start_local_node_impl(port, ptr, rust_vec_len, data_len),
+        172 => {
             wire__crate__api__spike__start_local_node_fips_impl(port, ptr, rust_vec_len, data_len)
         }
-        157 => {
+        173 => {
             wire__crate__api__spike__start_local_node_lan_impl(port, ptr, rust_vec_len, data_len)
         }
-        158 => {
+        174 => {
             wire__crate__api__mcp_bridge__start_mcp_bridge_impl(port, ptr, rust_vec_len, data_len)
         }
-        159 => {
+        175 => {
             wire__crate__api__mcp_bridge__stop_mcp_bridge_impl(port, ptr, rust_vec_len, data_len)
         }
-        160 => wire__crate__api__agent__stream_earthly_agent_turn_impl(
+        176 => wire__crate__api__private_groups__stream_circle_updates_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        161 => wire__crate__api__nostr_client__catalog__subscribe_earthly_relay_stream_impl(
+        177 => wire__crate__api__agent__stream_earthly_agent_turn_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        162 => wire__crate__api__private_groups__sync_circle_workspace_impl(
+        178 => wire__crate__api__nostr_client__catalog__subscribe_earthly_relay_stream_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        163 => {
+        179 => wire__crate__api__private_groups__sync_all_circle_workspaces_readonly_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        180 => wire__crate__api__private_groups__sync_circle_workspace_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        181 => wire__crate__api__private_groups__sync_circle_workspace_readonly_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        182 => {
             wire__crate__api__mcp_bridge__sync_mcp_workspace_impl(port, ptr, rust_vec_len, data_len)
         }
-        164 => wire__crate__api__spike__sync_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
-        165 => wire__crate__api__wallet__sync_nip60_wallet_impl(port, ptr, rust_vec_len, data_len),
-        166 => wire__crate__api__wallet__sync_nip60_wallet_with_bunker_impl(
+        183 => wire__crate__api__private_groups__sync_multi_device_direct_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        167 => wire__crate__api__blossom__upload_blob_to_blossom_impl(
+        184 => wire__crate__api__spike__sync_nearby_peer_impl(port, ptr, rust_vec_len, data_len),
+        185 => wire__crate__api__wallet__sync_nip60_wallet_impl(port, ptr, rust_vec_len, data_len),
+        186 => wire__crate__api__wallet__sync_nip60_wallet_with_bunker_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        168 => wire__crate__api__publish__validation__validate_map_against_atlas_schema_impl(
+        187 => wire__crate__api__blossom__upload_blob_to_blossom_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        188 => wire__crate__api__publish__validation__validate_map_against_atlas_schema_impl(
             port,
             ptr,
             rust_vec_len,
@@ -11227,6 +12488,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::private_groups::CircleDataset
             self.created_at.into_into_dart().into_dart(),
             self.geojson_json.into_into_dart().into_dart(),
             self.feature_count.into_into_dart().into_dart(),
+            self.media_attachments.into_into_dart().into_dart(),
+            self.epoch.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -11266,6 +12529,35 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::private_groups::CircleJoinReq
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::private_groups::CircleMediaAttachmentDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.url.into_into_dart().into_dart(),
+            self.mime_type.into_into_dart().into_dart(),
+            self.filename.into_into_dart().into_dart(),
+            self.sha256_hex.into_into_dart().into_dart(),
+            self.nonce_hex.into_into_dart().into_dart(),
+            self.version.into_into_dart().into_dart(),
+            self.dim.into_into_dart().into_dart(),
+            self.blurhash.into_into_dart().into_dart(),
+            self.alt.into_into_dart().into_dart(),
+            self.persistent_key_hex.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::private_groups::CircleMediaAttachmentDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::private_groups::CircleMediaAttachmentDto>
+    for crate::api::private_groups::CircleMediaAttachmentDto
+{
+    fn into_into_dart(self) -> crate::api::private_groups::CircleMediaAttachmentDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::private_groups::CircleMessageDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -11276,6 +12568,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::private_groups::CircleMessage
             self.text.into_into_dart().into_dart(),
             self.geojson_json.into_into_dart().into_dart(),
             self.geometry_feature_count.into_into_dart().into_dart(),
+            self.media_attachments.into_into_dart().into_dart(),
+            self.epoch.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -11359,6 +12653,10 @@ impl flutter_rust_bridge::IntoDart for crate::api::private_groups::CircleWorkspa
             self.datasets.into_into_dart().into_dart(),
             self.messages.into_into_dart().into_dart(),
             self.created_at_ms.into_into_dart().into_dart(),
+            self.sync_health.into_into_dart().into_dart(),
+            self.consecutive_decrypt_errors.into_into_dart().into_dart(),
+            self.auto_approve_joins.into_into_dart().into_dart(),
+            self.cordn_group_ref.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -11396,6 +12694,28 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::private_groups::DecodedCircle
     for crate::api::private_groups::DecodedCircleInviteDto
 {
     fn into_into_dart(self) -> crate::api::private_groups::DecodedCircleInviteDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::private_groups::DecodedCordnGroupRefDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.gid.into_into_dart().into_dart(),
+            self.relays.into_into_dart().into_dart(),
+            self.coordinator_pubkey.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::private_groups::DecodedCordnGroupRefDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::private_groups::DecodedCordnGroupRefDto>
+    for crate::api::private_groups::DecodedCordnGroupRefDto
+{
+    fn into_into_dart(self) -> crate::api::private_groups::DecodedCordnGroupRefDto {
         self
     }
 }
@@ -11588,6 +12908,29 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::publish::events::ExternalGeoB
     for crate::api::publish::events::ExternalGeoBlobDto
 {
     fn into_into_dart(self) -> crate::api::publish::events::ExternalGeoBlobDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::private_groups::FetchedMultiDeviceTipDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.event_id.into_into_dart().into_dart(),
+            self.pubkey.into_into_dart().into_dart(),
+            self.created_at.into_into_dart().into_dart(),
+            self.encrypted_content.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::private_groups::FetchedMultiDeviceTipDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::private_groups::FetchedMultiDeviceTipDto>
+    for crate::api::private_groups::FetchedMultiDeviceTipDto
+{
+    fn into_into_dart(self) -> crate::api::private_groups::FetchedMultiDeviceTipDto {
         self
     }
 }
@@ -12061,6 +13404,60 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::settings::MountedAtlasWorkspa
     for crate::api::settings::MountedAtlasWorkspaceDto
 {
     fn into_into_dart(self) -> crate::api::settings::MountedAtlasWorkspaceDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::private_groups::MultiDeviceSyncSummaryDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.dek_hex.into_into_dart().into_dart(),
+            self.tip_event_id.into_into_dart().into_dart(),
+            self.tip_updated_at.into_into_dart().into_dart(),
+            self.uploaded_blobs.into_into_dart().into_dart(),
+            self.adopted_groups.into_into_dart().into_dart(),
+            self.updated_groups.into_into_dart().into_dart(),
+            self.merged_groups.into_into_dart().into_dart(),
+            self.unchanged_groups.into_into_dart().into_dart(),
+            self.removed_groups_marked.into_into_dart().into_dart(),
+            self.skipped_errors.into_into_dart().into_dart(),
+            self.workspaces.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::private_groups::MultiDeviceSyncSummaryDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::private_groups::MultiDeviceSyncSummaryDto>
+    for crate::api::private_groups::MultiDeviceSyncSummaryDto
+{
+    fn into_into_dart(self) -> crate::api::private_groups::MultiDeviceSyncSummaryDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::private_groups::MultiDeviceUploadBlobDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.kind.into_into_dart().into_dart(),
+            self.gid.into_into_dart().into_dart(),
+            self.x_hex.into_into_dart().into_dart(),
+            self.encrypted_bytes.into_into_dart().into_dart(),
+            self.issued_at.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::private_groups::MultiDeviceUploadBlobDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::private_groups::MultiDeviceUploadBlobDto>
+    for crate::api::private_groups::MultiDeviceUploadBlobDto
+{
+    fn into_into_dart(self) -> crate::api::private_groups::MultiDeviceUploadBlobDto {
         self
     }
 }
@@ -12563,6 +13960,56 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::spike::PmtilesHeaderSnapshot>
     for crate::api::spike::PmtilesHeaderSnapshot
 {
     fn into_into_dart(self) -> crate::api::spike::PmtilesHeaderSnapshot {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::private_groups::PreparedCircleMediaDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.encrypted_bytes.into_into_dart().into_dart(),
+            self.encrypted_sha256_hex.into_into_dart().into_dart(),
+            self.plaintext_sha256_hex.into_into_dart().into_dart(),
+            self.nonce_hex.into_into_dart().into_dart(),
+            self.mime_type.into_into_dart().into_dart(),
+            self.sanitized_filename.into_into_dart().into_dart(),
+            self.version.into_into_dart().into_dart(),
+            self.persistent_key_hex.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::private_groups::PreparedCircleMediaDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::private_groups::PreparedCircleMediaDto>
+    for crate::api::private_groups::PreparedCircleMediaDto
+{
+    fn into_into_dart(self) -> crate::api::private_groups::PreparedCircleMediaDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::private_groups::PreparedMultiDevicePublishDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.dek_hex.into_into_dart().into_dart(),
+            self.blossom_servers.into_into_dart().into_dart(),
+            self.blobs.into_into_dart().into_dart(),
+            self.default_tip_plaintext_json.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::private_groups::PreparedMultiDevicePublishDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::private_groups::PreparedMultiDevicePublishDto>
+    for crate::api::private_groups::PreparedMultiDevicePublishDto
+{
+    fn into_into_dart(self) -> crate::api::private_groups::PreparedMultiDevicePublishDto {
         self
     }
 }
@@ -13175,6 +14622,18 @@ impl SseEncode
 
 impl SseEncode
     for StreamSink<
+        crate::api::private_groups::CircleWorkspaceDto,
+        flutter_rust_bridge::for_generated::SseCodec,
+    >
+{
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        unimplemented!("")
+    }
+}
+
+impl SseEncode
+    for StreamSink<
         crate::api::nostr_client::catalog::LiveRelayEventDto,
         flutter_rust_bridge::for_generated::SseCodec,
     >
@@ -13488,6 +14947,11 @@ impl SseEncode for crate::api::private_groups::CircleDatasetDto {
         <u64>::sse_encode(self.created_at, serializer);
         <String>::sse_encode(self.geojson_json, serializer);
         <u32>::sse_encode(self.feature_count, serializer);
+        <Vec<crate::api::private_groups::CircleMediaAttachmentDto>>::sse_encode(
+            self.media_attachments,
+            serializer,
+        );
+        <Option<u64>>::sse_encode(self.epoch, serializer);
     }
 }
 
@@ -13501,6 +14965,22 @@ impl SseEncode for crate::api::private_groups::CircleJoinRequestDto {
     }
 }
 
+impl SseEncode for crate::api::private_groups::CircleMediaAttachmentDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.url, serializer);
+        <String>::sse_encode(self.mime_type, serializer);
+        <String>::sse_encode(self.filename, serializer);
+        <String>::sse_encode(self.sha256_hex, serializer);
+        <String>::sse_encode(self.nonce_hex, serializer);
+        <String>::sse_encode(self.version, serializer);
+        <Option<String>>::sse_encode(self.dim, serializer);
+        <Option<String>>::sse_encode(self.blurhash, serializer);
+        <Option<String>>::sse_encode(self.alt, serializer);
+        <Option<String>>::sse_encode(self.persistent_key_hex, serializer);
+    }
+}
+
 impl SseEncode for crate::api::private_groups::CircleMessageDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -13511,6 +14991,11 @@ impl SseEncode for crate::api::private_groups::CircleMessageDto {
         <String>::sse_encode(self.text, serializer);
         <Option<String>>::sse_encode(self.geojson_json, serializer);
         <u32>::sse_encode(self.geometry_feature_count, serializer);
+        <Vec<crate::api::private_groups::CircleMediaAttachmentDto>>::sse_encode(
+            self.media_attachments,
+            serializer,
+        );
+        <Option<u64>>::sse_encode(self.epoch, serializer);
     }
 }
 
@@ -13561,6 +15046,10 @@ impl SseEncode for crate::api::private_groups::CircleWorkspaceDto {
         <Vec<crate::api::private_groups::CircleDatasetDto>>::sse_encode(self.datasets, serializer);
         <Vec<crate::api::private_groups::CircleMessageDto>>::sse_encode(self.messages, serializer);
         <u64>::sse_encode(self.created_at_ms, serializer);
+        <String>::sse_encode(self.sync_health, serializer);
+        <u32>::sse_encode(self.consecutive_decrypt_errors, serializer);
+        <bool>::sse_encode(self.auto_approve_joins, serializer);
+        <String>::sse_encode(self.cordn_group_ref, serializer);
     }
 }
 
@@ -13573,6 +15062,15 @@ impl SseEncode for crate::api::private_groups::DecodedCircleInviteDto {
         <String>::sse_encode(self.coordinator_pubkey, serializer);
         <Vec<String>>::sse_encode(self.relays, serializer);
         <Option<u64>>::sse_encode(self.expires_at, serializer);
+    }
+}
+
+impl SseEncode for crate::api::private_groups::DecodedCordnGroupRefDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.gid, serializer);
+        <Vec<String>>::sse_encode(self.relays, serializer);
+        <Option<String>>::sse_encode(self.coordinator_pubkey, serializer);
     }
 }
 
@@ -13684,6 +15182,16 @@ impl SseEncode for f64 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         serializer.cursor.write_f64::<NativeEndian>(self).unwrap();
+    }
+}
+
+impl SseEncode for crate::api::private_groups::FetchedMultiDeviceTipDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.event_id, serializer);
+        <String>::sse_encode(self.pubkey, serializer);
+        <u64>::sse_encode(self.created_at, serializer);
+        <String>::sse_encode(self.encrypted_content, serializer);
     }
 }
 
@@ -13884,6 +15392,16 @@ impl SseEncode for Vec<crate::api::private_groups::CircleJoinRequestDto> {
     }
 }
 
+impl SseEncode for Vec<crate::api::private_groups::CircleMediaAttachmentDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::private_groups::CircleMediaAttachmentDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::private_groups::CircleMessageDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -13950,6 +15468,16 @@ impl SseEncode for Vec<crate::api::nostr_client::entities::InboxItemDto> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::nostr_client::entities::InboxItemDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<Vec<String>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <Vec<String>>::sse_encode(item, serializer);
         }
     }
 }
@@ -14030,6 +15558,16 @@ impl SseEncode for Vec<crate::api::settings::MountedAtlasWorkspaceDto> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::settings::MountedAtlasWorkspaceDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::private_groups::MultiDeviceUploadBlobDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::private_groups::MultiDeviceUploadBlobDto>::sse_encode(item, serializer);
         }
     }
 }
@@ -14427,6 +15965,37 @@ impl SseEncode for crate::api::settings::MountedAtlasWorkspaceDto {
     }
 }
 
+impl SseEncode for crate::api::private_groups::MultiDeviceSyncSummaryDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<String>>::sse_encode(self.dek_hex, serializer);
+        <Option<String>>::sse_encode(self.tip_event_id, serializer);
+        <Option<u64>>::sse_encode(self.tip_updated_at, serializer);
+        <u32>::sse_encode(self.uploaded_blobs, serializer);
+        <u32>::sse_encode(self.adopted_groups, serializer);
+        <u32>::sse_encode(self.updated_groups, serializer);
+        <u32>::sse_encode(self.merged_groups, serializer);
+        <u32>::sse_encode(self.unchanged_groups, serializer);
+        <u32>::sse_encode(self.removed_groups_marked, serializer);
+        <Vec<String>>::sse_encode(self.skipped_errors, serializer);
+        <Vec<crate::api::private_groups::CircleWorkspaceDto>>::sse_encode(
+            self.workspaces,
+            serializer,
+        );
+    }
+}
+
+impl SseEncode for crate::api::private_groups::MultiDeviceUploadBlobDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.kind, serializer);
+        <Option<String>>::sse_encode(self.gid, serializer);
+        <String>::sse_encode(self.x_hex, serializer);
+        <Vec<u8>>::sse_encode(self.encrypted_bytes, serializer);
+        <u64>::sse_encode(self.issued_at, serializer);
+    }
+}
+
 impl SseEncode for crate::api::spike::NearbyPeersSnapshot {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -14622,6 +16191,16 @@ impl SseEncode for Option<f64> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <f64>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<crate::api::private_groups::FetchedMultiDeviceTipDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::private_groups::FetchedMultiDeviceTipDto>::sse_encode(value, serializer);
         }
     }
 }
@@ -14855,6 +16434,32 @@ impl SseEncode for crate::api::spike::PmtilesHeaderSnapshot {
         <f64>::sse_encode(self.center_lat, serializer);
         <u8>::sse_encode(self.center_zoom, serializer);
         <bool>::sse_encode(self.clustered, serializer);
+    }
+}
+
+impl SseEncode for crate::api::private_groups::PreparedCircleMediaDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Vec<u8>>::sse_encode(self.encrypted_bytes, serializer);
+        <String>::sse_encode(self.encrypted_sha256_hex, serializer);
+        <String>::sse_encode(self.plaintext_sha256_hex, serializer);
+        <String>::sse_encode(self.nonce_hex, serializer);
+        <String>::sse_encode(self.mime_type, serializer);
+        <String>::sse_encode(self.sanitized_filename, serializer);
+        <String>::sse_encode(self.version, serializer);
+        <Option<String>>::sse_encode(self.persistent_key_hex, serializer);
+    }
+}
+
+impl SseEncode for crate::api::private_groups::PreparedMultiDevicePublishDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.dek_hex, serializer);
+        <Vec<String>>::sse_encode(self.blossom_servers, serializer);
+        <Vec<crate::api::private_groups::MultiDeviceUploadBlobDto>>::sse_encode(
+            self.blobs, serializer,
+        );
+        <String>::sse_encode(self.default_tip_plaintext_json, serializer);
     }
 }
 

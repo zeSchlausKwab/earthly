@@ -7,9 +7,9 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `external_signer_lock`, `normalize_pubkey_hex`, `parse_external_signed_event`, `resolve_signer`, `workspace_to_dto`
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ExternalDartCircleSigner`, `ExternalSignEnvelope`, `ExternalSignPayload`, `RegisteredExternalSigner`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `pubkey_hex`, `sign_event_template`
+// These functions are ignored because they are not marked as `pub`: `abort_all`, `adaptive_poll_interval_ms`, `decode_hex_32`, `decrypt_circle_media_ciphertext`, `encode_hex_lower`, `external_signer_lock`, `fetch_http_bytes_capped`, `fetch_sealed_multi_device_blob`, `media_imeta_to_dto`, `new`, `normalize_http_base_url`, `normalize_pubkey_hex`, `normalize_relay_urls`, `now_secs`, `parse_external_signed_event`, `publish_event_to_relays`, `resolve_signer`, `sanitize_attachment_filename`, `sha256_hex`, `sign_blossom_upload_auth_local`, `workspace_dto_fingerprint`, `workspace_to_dto`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ActiveEndpointStream`, `ActiveStreamsGuard`, `CircleStreamEvent`, `ExternalDartCircleSigner`, `ExternalSignEnvelope`, `ExternalSignPayload`, `RegisteredExternalSigner`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `drop`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `pubkey_hex`, `sign_event_template`
 
 /// Registers an external Dart-backed Nostr event signer (such as Android Amber
 /// NIP-55) so MLS Circles and Cordn ContextVM operations work seamlessly
@@ -36,12 +36,277 @@ Future<DecodedCircleInviteDto> decodeCircleInviteLink({
   rawLink: rawLink,
 );
 
+Future<DecodedCordnGroupRefDto> decodeCordnGroupRefLink({
+  required String rawLink,
+}) => EarthlyRustLib.instance.api.crateApiPrivateGroupsDecodeCordnGroupRefLink(
+  rawLink: rawLink,
+);
+
 Future<CircleSnapshotDto> loadCirclesSnapshot({
   required String databasePath,
   required String ownerPubkeyHex,
 }) => EarthlyRustLib.instance.api.crateApiPrivateGroupsLoadCirclesSnapshot(
   databasePath: databasePath,
   ownerPubkeyHex: ownerPubkeyHex,
+);
+
+/// Syncs a single Circle workspace using an ephemeral delivery key ONLY (zero user signer calls).
+Future<CircleWorkspaceDto> syncCircleWorkspaceReadonly({
+  required String databasePath,
+  required String ownerPubkeyHex,
+  required String workspaceId,
+}) => EarthlyRustLib.instance.api
+    .crateApiPrivateGroupsSyncCircleWorkspaceReadonly(
+      databasePath: databasePath,
+      ownerPubkeyHex: ownerPubkeyHex,
+      workspaceId: workspaceId,
+    );
+
+/// Batched read-only sync across ALL active Circles for `owner_pubkey_hex` using Cordn v0.5
+/// `msg_fetch_many` (with automatic v0.4 fallback) and ZERO user signer calls.
+Future<List<CircleWorkspaceDto>> syncAllCircleWorkspacesReadonly({
+  required String databasePath,
+  required String ownerPubkeyHex,
+}) => EarthlyRustLib.instance.api
+    .crateApiPrivateGroupsSyncAllCircleWorkspacesReadonly(
+      databasePath: databasePath,
+      ownerPubkeyHex: ownerPubkeyHex,
+    );
+
+/// Unified real-time Circle update stream (`StreamSink<CircleWorkspaceDto>`) with ZERO Amber prompts.
+///
+/// - Groups active SQLite workspaces by `(coordinator_pubkey, relays)` and attempts Cordn v0.5
+///   live push streaming (`msg_sub_many`), ingesting each arrived frame via
+///   `PrivateWorkspaceService::ingest_streamed_message` and emitting updated DTOs immediately.
+/// - Whenever a coordinator returns `UnsupportedStreaming` (e.g. Cordn v0.4) or encounters a
+///   transient streaming error, falls back seamlessly to fast adaptive pooled polling
+///   (`1500ms` active -> `3000ms` -> `5000ms` quiet, resetting to `1500ms` on any change) and
+///   re-checks SQLite every cycle for newly joined/created workspaces.
+/// - Stops cleanly as soon as `sink.add(...)` fails or the Dart stream is cancelled.
+Stream<CircleWorkspaceDto> streamCircleUpdates({
+  required String databasePath,
+  required String ownerPubkeyHex,
+}) => EarthlyRustLib.instance.api.crateApiPrivateGroupsStreamCircleUpdates(
+  databasePath: databasePath,
+  ownerPubkeyHex: ownerPubkeyHex,
+);
+
+Future<PreparedCircleMediaDto> prepareCircleEncryptedMedia({
+  required String databasePath,
+  required String ownerPubkeyHex,
+  required String workspaceId,
+  required List<int> bytes,
+  required String mimeType,
+  required String filename,
+  required bool persistentForMap,
+  required bool stripMetadata,
+}) => EarthlyRustLib.instance.api
+    .crateApiPrivateGroupsPrepareCircleEncryptedMedia(
+      databasePath: databasePath,
+      ownerPubkeyHex: ownerPubkeyHex,
+      workspaceId: workspaceId,
+      bytes: bytes,
+      mimeType: mimeType,
+      filename: filename,
+      persistentForMap: persistentForMap,
+      stripMetadata: stripMetadata,
+    );
+
+Future<List<String>> buildCircleImetaTag({
+  required String url,
+  required String mimeType,
+  required String filename,
+  required String sha256Hex,
+  required String nonceHex,
+  required String version,
+  String? dim,
+  String? blurhash,
+  String? alt,
+  String? persistentKeyHex,
+}) => EarthlyRustLib.instance.api.crateApiPrivateGroupsBuildCircleImetaTag(
+  url: url,
+  mimeType: mimeType,
+  filename: filename,
+  sha256Hex: sha256Hex,
+  nonceHex: nonceHex,
+  version: version,
+  dim: dim,
+  blurhash: blurhash,
+  alt: alt,
+  persistentKeyHex: persistentKeyHex,
+);
+
+Future<Uint8List> downloadAndDecryptCircleMedia({
+  required String databasePath,
+  required String ownerPubkeyHex,
+  required String workspaceId,
+  required String url,
+  required String mimeType,
+  required String filename,
+  required String sha256Hex,
+  required String nonceHex,
+  required String version,
+  String? persistentKeyHex,
+  BigInt? messageEpoch,
+}) => EarthlyRustLib.instance.api
+    .crateApiPrivateGroupsDownloadAndDecryptCircleMedia(
+      databasePath: databasePath,
+      ownerPubkeyHex: ownerPubkeyHex,
+      workspaceId: workspaceId,
+      url: url,
+      mimeType: mimeType,
+      filename: filename,
+      sha256Hex: sha256Hex,
+      nonceHex: nonceHex,
+      version: version,
+      persistentKeyHex: persistentKeyHex,
+      messageEpoch: messageEpoch,
+    );
+
+/// Toggles automatic approval of incoming join requests on an admin's Circle (no signer prompt).
+Future<CircleWorkspaceDto> setCircleAutoApprove({
+  required String databasePath,
+  required String ownerPubkeyHex,
+  required String workspaceId,
+  required bool enabled,
+}) => EarthlyRustLib.instance.api.crateApiPrivateGroupsSetCircleAutoApprove(
+  databasePath: databasePath,
+  ownerPubkeyHex: ownerPubkeyHex,
+  workspaceId: workspaceId,
+  enabled: enabled,
+);
+
+/// Polls pending join requests and auto-approves up to `MAX_AUTO_APPROVE_BATCH` when enabled.
+Future<CircleWorkspaceDto> pollAndAutoApproveCircleRequests({
+  required String databasePath,
+  String? signerNsec,
+  String? bunkerUri,
+  String? bunkerClientNsec,
+  required String workspaceId,
+}) => EarthlyRustLib.instance.api
+    .crateApiPrivateGroupsPollAndAutoApproveCircleRequests(
+      databasePath: databasePath,
+      signerNsec: signerNsec,
+      bunkerUri: bunkerUri,
+      bunkerClientNsec: bunkerClientNsec,
+      workspaceId: workspaceId,
+    );
+
+/// Resets transient decrypt-error/fork counters, clears stuck unfinalized journals, ensures the
+/// current epoch media key is cached, and attempts a fresh read-only catch-up sync.
+Future<CircleWorkspaceDto> repairCircleSyncState({
+  required String databasePath,
+  required String ownerPubkeyHex,
+  required String workspaceId,
+}) => EarthlyRustLib.instance.api.crateApiPrivateGroupsRepairCircleSyncState(
+  databasePath: databasePath,
+  ownerPubkeyHex: ownerPubkeyHex,
+  workspaceId: workspaceId,
+);
+
+/// Seals every active Circle Group document + Meta document with a 32-byte DEK via NIP-44 v2,
+/// returning blobs ready for Blossom upload plus a pre-built tip JSON payload.
+Future<PreparedMultiDevicePublishDto> prepareMultiDevicePublish({
+  required String databasePath,
+  required String ownerPubkeyHex,
+  required String blossomServerUrl,
+  String? existingDekHex,
+}) =>
+    EarthlyRustLib.instance.api.crateApiPrivateGroupsPrepareMultiDevicePublish(
+      databasePath: databasePath,
+      ownerPubkeyHex: ownerPubkeyHex,
+      blossomServerUrl: blossomServerUrl,
+      existingDekHex: existingDekHex,
+    );
+
+/// Builds a validated shared `MultiDeviceTipPayload` JSON string ready for NIP-44 self-encryption
+/// (via local key, NIP-46 bunker, or Android Amber NIP-55 `nip44Encrypt`).
+Future<String> buildMultiDeviceTipPlaintext({
+  required String dekHex,
+  required List<String> blossomServers,
+  required String groupPointersJson,
+  String? metaPointerJson,
+}) => EarthlyRustLib.instance.api
+    .crateApiPrivateGroupsBuildMultiDeviceTipPlaintext(
+      dekHex: dekHex,
+      blossomServers: blossomServers,
+      groupPointersJson: groupPointersJson,
+      metaPointerJson: metaPointerJson,
+    );
+
+/// Builds an unsigned `kind 30078` (`d: "cordn-md-tip-v1"`) event template JSON ready for
+/// signing by Android Amber NIP-55, NIP-46 bunker, or a local key.
+Future<String> prepareUnsignedMultiDeviceTipEvent({
+  required String ownerPubkeyHex,
+  required String encryptedTipContent,
+}) => EarthlyRustLib.instance.api
+    .crateApiPrivateGroupsPrepareUnsignedMultiDeviceTipEvent(
+      ownerPubkeyHex: ownerPubkeyHex,
+      encryptedTipContent: encryptedTipContent,
+    );
+
+/// Verifies and publishes a signed `kind 30078` (`d: "cordn-md-tip-v1"`) tip event to Nostr relays.
+Future<String> publishSignedMultiDeviceTipEvent({
+  required String signedEventJson,
+  required List<String> relayUrls,
+}) => EarthlyRustLib.instance.api
+    .crateApiPrivateGroupsPublishSignedMultiDeviceTipEvent(
+      signedEventJson: signedEventJson,
+      relayUrls: relayUrls,
+    );
+
+/// One-shot end-to-end multi-device snapshot publish for local `nsec` users:
+/// seals all Circles + Meta with a per-identity DEK, uploads blobs to Blossom with BUD-02 auth,
+/// self-encrypts the tip via NIP-44 v2, signs `kind 30078`, and publishes to relays.
+Future<MultiDeviceSyncSummaryDto> publishMultiDeviceSnapshotDirect({
+  required String databasePath,
+  required String signerNsec,
+  required String blossomServerUrl,
+  required List<String> relayUrls,
+}) => EarthlyRustLib.instance.api
+    .crateApiPrivateGroupsPublishMultiDeviceSnapshotDirect(
+      databasePath: databasePath,
+      signerNsec: signerNsec,
+      blossomServerUrl: blossomServerUrl,
+      relayUrls: relayUrls,
+    );
+
+/// Fetches the latest `kind 30078` (`d: "cordn-md-tip-v1"`) multi-device tip event for
+/// `owner_pubkey_hex` from Nostr relays (with local LMDB cache fallback).
+Future<FetchedMultiDeviceTipDto?> fetchMultiDeviceTipEvent({
+  required String ownerPubkeyHex,
+  required List<String> relayUrls,
+}) => EarthlyRustLib.instance.api.crateApiPrivateGroupsFetchMultiDeviceTipEvent(
+  ownerPubkeyHex: ownerPubkeyHex,
+  relayUrls: relayUrls,
+);
+
+/// Applies an already NIP-44-decrypted multi-device tip JSON (e.g. decrypted in Dart via
+/// Android Amber NIP-55 or NIP-46): downloads every referenced sealed blob from Blossom,
+/// unseals with `tip.dek_hex`, applies removed tombstones, and reconciles all Group documents
+/// into SQLite.
+Future<MultiDeviceSyncSummaryDto> applyDecryptedMultiDeviceTip({
+  required String databasePath,
+  required String ownerPubkeyHex,
+  required String tipPlaintextJson,
+}) => EarthlyRustLib.instance.api
+    .crateApiPrivateGroupsApplyDecryptedMultiDeviceTip(
+      databasePath: databasePath,
+      ownerPubkeyHex: ownerPubkeyHex,
+      tipPlaintextJson: tipPlaintextJson,
+    );
+
+/// One-shot multi-device sync for local `nsec` users: fetches the latest `kind 30078` tip event,
+/// decrypts it with NIP-44 v2, downloads sealed Blossom blobs, unseals with the DEK, and
+/// reconciles all Group & Meta documents into SQLite.
+Future<MultiDeviceSyncSummaryDto> syncMultiDeviceDirect({
+  required String databasePath,
+  required String signerNsec,
+  required List<String> relayUrls,
+}) => EarthlyRustLib.instance.api.crateApiPrivateGroupsSyncMultiDeviceDirect(
+  databasePath: databasePath,
+  signerNsec: signerNsec,
+  relayUrls: relayUrls,
 );
 
 Future<CircleWorkspaceDto> createCircleWorkspace({
@@ -172,6 +437,27 @@ Future<CircleWorkspaceDto> sendCircleComment({
   geojsonJson: geojsonJson,
 );
 
+Future<CircleWorkspaceDto> sendCircleCommentWithMedia({
+  required String databasePath,
+  String? signerNsec,
+  String? bunkerUri,
+  String? bunkerClientNsec,
+  required String workspaceId,
+  required String text,
+  String? geojsonJson,
+  required List<List<String>> imetaTags,
+}) =>
+    EarthlyRustLib.instance.api.crateApiPrivateGroupsSendCircleCommentWithMedia(
+      databasePath: databasePath,
+      signerNsec: signerNsec,
+      bunkerUri: bunkerUri,
+      bunkerClientNsec: bunkerClientNsec,
+      workspaceId: workspaceId,
+      text: text,
+      geojsonJson: geojsonJson,
+      imetaTags: imetaTags,
+    );
+
 Future<CircleWorkspaceDto> sendCircleDataset({
   required String databasePath,
   String? signerNsec,
@@ -191,6 +477,29 @@ Future<CircleWorkspaceDto> sendCircleDataset({
   datasetId: datasetId,
   name: name,
 );
+
+Future<CircleWorkspaceDto> sendCircleDatasetWithMedia({
+  required String databasePath,
+  String? signerNsec,
+  String? bunkerUri,
+  String? bunkerClientNsec,
+  required String workspaceId,
+  required String geojsonJson,
+  String? datasetId,
+  String? name,
+  required List<List<String>> imetaTags,
+}) =>
+    EarthlyRustLib.instance.api.crateApiPrivateGroupsSendCircleDatasetWithMedia(
+      databasePath: databasePath,
+      signerNsec: signerNsec,
+      bunkerUri: bunkerUri,
+      bunkerClientNsec: bunkerClientNsec,
+      workspaceId: workspaceId,
+      geojsonJson: geojsonJson,
+      datasetId: datasetId,
+      name: name,
+      imetaTags: imetaTags,
+    );
 
 Future<CircleWorkspaceDto> removeCircleMember({
   required String databasePath,
@@ -245,6 +554,8 @@ class CircleDatasetDto {
   final BigInt createdAt;
   final String geojsonJson;
   final int featureCount;
+  final List<CircleMediaAttachmentDto> mediaAttachments;
+  final BigInt? epoch;
 
   const CircleDatasetDto({
     required this.workspaceId,
@@ -255,6 +566,8 @@ class CircleDatasetDto {
     required this.createdAt,
     required this.geojsonJson,
     required this.featureCount,
+    required this.mediaAttachments,
+    this.epoch,
   });
 
   @override
@@ -266,7 +579,9 @@ class CircleDatasetDto {
       pubkey.hashCode ^
       createdAt.hashCode ^
       geojsonJson.hashCode ^
-      featureCount.hashCode;
+      featureCount.hashCode ^
+      mediaAttachments.hashCode ^
+      epoch.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -280,7 +595,9 @@ class CircleDatasetDto {
           pubkey == other.pubkey &&
           createdAt == other.createdAt &&
           geojsonJson == other.geojsonJson &&
-          featureCount == other.featureCount;
+          featureCount == other.featureCount &&
+          mediaAttachments == other.mediaAttachments &&
+          epoch == other.epoch;
 }
 
 class CircleJoinRequestDto {
@@ -311,6 +628,61 @@ class CircleJoinRequestDto {
           at == other.at;
 }
 
+class CircleMediaAttachmentDto {
+  final String url;
+  final String mimeType;
+  final String filename;
+  final String sha256Hex;
+  final String nonceHex;
+  final String version;
+  final String? dim;
+  final String? blurhash;
+  final String? alt;
+  final String? persistentKeyHex;
+
+  const CircleMediaAttachmentDto({
+    required this.url,
+    required this.mimeType,
+    required this.filename,
+    required this.sha256Hex,
+    required this.nonceHex,
+    required this.version,
+    this.dim,
+    this.blurhash,
+    this.alt,
+    this.persistentKeyHex,
+  });
+
+  @override
+  int get hashCode =>
+      url.hashCode ^
+      mimeType.hashCode ^
+      filename.hashCode ^
+      sha256Hex.hashCode ^
+      nonceHex.hashCode ^
+      version.hashCode ^
+      dim.hashCode ^
+      blurhash.hashCode ^
+      alt.hashCode ^
+      persistentKeyHex.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CircleMediaAttachmentDto &&
+          runtimeType == other.runtimeType &&
+          url == other.url &&
+          mimeType == other.mimeType &&
+          filename == other.filename &&
+          sha256Hex == other.sha256Hex &&
+          nonceHex == other.nonceHex &&
+          version == other.version &&
+          dim == other.dim &&
+          blurhash == other.blurhash &&
+          alt == other.alt &&
+          persistentKeyHex == other.persistentKeyHex;
+}
+
 class CircleMessageDto {
   final String envelopeId;
   final String pubkey;
@@ -319,6 +691,8 @@ class CircleMessageDto {
   final String text;
   final String? geojsonJson;
   final int geometryFeatureCount;
+  final List<CircleMediaAttachmentDto> mediaAttachments;
+  final BigInt? epoch;
 
   const CircleMessageDto({
     required this.envelopeId,
@@ -328,6 +702,8 @@ class CircleMessageDto {
     required this.text,
     this.geojsonJson,
     required this.geometryFeatureCount,
+    required this.mediaAttachments,
+    this.epoch,
   });
 
   @override
@@ -338,7 +714,9 @@ class CircleMessageDto {
       kind.hashCode ^
       text.hashCode ^
       geojsonJson.hashCode ^
-      geometryFeatureCount.hashCode;
+      geometryFeatureCount.hashCode ^
+      mediaAttachments.hashCode ^
+      epoch.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -351,7 +729,9 @@ class CircleMessageDto {
           kind == other.kind &&
           text == other.text &&
           geojsonJson == other.geojsonJson &&
-          geometryFeatureCount == other.geometryFeatureCount;
+          geometryFeatureCount == other.geometryFeatureCount &&
+          mediaAttachments == other.mediaAttachments &&
+          epoch == other.epoch;
 }
 
 class CirclePendingJoinDto {
@@ -439,6 +819,10 @@ class CircleWorkspaceDto {
   final List<CircleDatasetDto> datasets;
   final List<CircleMessageDto> messages;
   final BigInt createdAtMs;
+  final String syncHealth;
+  final int consecutiveDecryptErrors;
+  final bool autoApproveJoins;
+  final String cordnGroupRef;
 
   const CircleWorkspaceDto({
     required this.workspaceId,
@@ -457,6 +841,10 @@ class CircleWorkspaceDto {
     required this.datasets,
     required this.messages,
     required this.createdAtMs,
+    required this.syncHealth,
+    required this.consecutiveDecryptErrors,
+    required this.autoApproveJoins,
+    required this.cordnGroupRef,
   });
 
   @override
@@ -476,7 +864,11 @@ class CircleWorkspaceDto {
       administrators.hashCode ^
       datasets.hashCode ^
       messages.hashCode ^
-      createdAtMs.hashCode;
+      createdAtMs.hashCode ^
+      syncHealth.hashCode ^
+      consecutiveDecryptErrors.hashCode ^
+      autoApproveJoins.hashCode ^
+      cordnGroupRef.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -498,7 +890,11 @@ class CircleWorkspaceDto {
           administrators == other.administrators &&
           datasets == other.datasets &&
           messages == other.messages &&
-          createdAtMs == other.createdAtMs;
+          createdAtMs == other.createdAtMs &&
+          syncHealth == other.syncHealth &&
+          consecutiveDecryptErrors == other.consecutiveDecryptErrors &&
+          autoApproveJoins == other.autoApproveJoins &&
+          cordnGroupRef == other.cordnGroupRef;
 }
 
 class DecodedCircleInviteDto {
@@ -538,4 +934,243 @@ class DecodedCircleInviteDto {
           coordinatorPubkey == other.coordinatorPubkey &&
           relays == other.relays &&
           expiresAt == other.expiresAt;
+}
+
+class DecodedCordnGroupRefDto {
+  final String gid;
+  final List<String> relays;
+  final String? coordinatorPubkey;
+
+  const DecodedCordnGroupRefDto({
+    required this.gid,
+    required this.relays,
+    this.coordinatorPubkey,
+  });
+
+  @override
+  int get hashCode =>
+      gid.hashCode ^ relays.hashCode ^ coordinatorPubkey.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DecodedCordnGroupRefDto &&
+          runtimeType == other.runtimeType &&
+          gid == other.gid &&
+          relays == other.relays &&
+          coordinatorPubkey == other.coordinatorPubkey;
+}
+
+class FetchedMultiDeviceTipDto {
+  final String eventId;
+  final String pubkey;
+  final BigInt createdAt;
+  final String encryptedContent;
+
+  const FetchedMultiDeviceTipDto({
+    required this.eventId,
+    required this.pubkey,
+    required this.createdAt,
+    required this.encryptedContent,
+  });
+
+  @override
+  int get hashCode =>
+      eventId.hashCode ^
+      pubkey.hashCode ^
+      createdAt.hashCode ^
+      encryptedContent.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is FetchedMultiDeviceTipDto &&
+          runtimeType == other.runtimeType &&
+          eventId == other.eventId &&
+          pubkey == other.pubkey &&
+          createdAt == other.createdAt &&
+          encryptedContent == other.encryptedContent;
+}
+
+class MultiDeviceSyncSummaryDto {
+  final String? dekHex;
+  final String? tipEventId;
+  final BigInt? tipUpdatedAt;
+  final int uploadedBlobs;
+  final int adoptedGroups;
+  final int updatedGroups;
+  final int mergedGroups;
+  final int unchangedGroups;
+  final int removedGroupsMarked;
+  final List<String> skippedErrors;
+  final List<CircleWorkspaceDto> workspaces;
+
+  const MultiDeviceSyncSummaryDto({
+    this.dekHex,
+    this.tipEventId,
+    this.tipUpdatedAt,
+    required this.uploadedBlobs,
+    required this.adoptedGroups,
+    required this.updatedGroups,
+    required this.mergedGroups,
+    required this.unchangedGroups,
+    required this.removedGroupsMarked,
+    required this.skippedErrors,
+    required this.workspaces,
+  });
+
+  @override
+  int get hashCode =>
+      dekHex.hashCode ^
+      tipEventId.hashCode ^
+      tipUpdatedAt.hashCode ^
+      uploadedBlobs.hashCode ^
+      adoptedGroups.hashCode ^
+      updatedGroups.hashCode ^
+      mergedGroups.hashCode ^
+      unchangedGroups.hashCode ^
+      removedGroupsMarked.hashCode ^
+      skippedErrors.hashCode ^
+      workspaces.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MultiDeviceSyncSummaryDto &&
+          runtimeType == other.runtimeType &&
+          dekHex == other.dekHex &&
+          tipEventId == other.tipEventId &&
+          tipUpdatedAt == other.tipUpdatedAt &&
+          uploadedBlobs == other.uploadedBlobs &&
+          adoptedGroups == other.adoptedGroups &&
+          updatedGroups == other.updatedGroups &&
+          mergedGroups == other.mergedGroups &&
+          unchangedGroups == other.unchangedGroups &&
+          removedGroupsMarked == other.removedGroupsMarked &&
+          skippedErrors == other.skippedErrors &&
+          workspaces == other.workspaces;
+}
+
+class MultiDeviceUploadBlobDto {
+  /// `"group"` or `"meta"`.
+  final String kind;
+
+  /// Group ID (`gid`) for `"group"` blobs; `None` for `"meta"`.
+  final String? gid;
+
+  /// Lowercase 64-char hex SHA-256 of `encrypted_bytes` (Blossom `x` hash).
+  final String xHex;
+
+  /// UTF-8 bytes of the NIP-44 v2 sealed base64 document ready for Blossom `PUT /upload`.
+  final Uint8List encryptedBytes;
+
+  /// Unix seconds timestamp embedded in the document (`issuedAt`).
+  final BigInt issuedAt;
+
+  const MultiDeviceUploadBlobDto({
+    required this.kind,
+    this.gid,
+    required this.xHex,
+    required this.encryptedBytes,
+    required this.issuedAt,
+  });
+
+  @override
+  int get hashCode =>
+      kind.hashCode ^
+      gid.hashCode ^
+      xHex.hashCode ^
+      encryptedBytes.hashCode ^
+      issuedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MultiDeviceUploadBlobDto &&
+          runtimeType == other.runtimeType &&
+          kind == other.kind &&
+          gid == other.gid &&
+          xHex == other.xHex &&
+          encryptedBytes == other.encryptedBytes &&
+          issuedAt == other.issuedAt;
+}
+
+class PreparedCircleMediaDto {
+  final Uint8List encryptedBytes;
+  final String encryptedSha256Hex;
+  final String plaintextSha256Hex;
+  final String nonceHex;
+  final String mimeType;
+  final String sanitizedFilename;
+  final String version;
+  final String? persistentKeyHex;
+
+  const PreparedCircleMediaDto({
+    required this.encryptedBytes,
+    required this.encryptedSha256Hex,
+    required this.plaintextSha256Hex,
+    required this.nonceHex,
+    required this.mimeType,
+    required this.sanitizedFilename,
+    required this.version,
+    this.persistentKeyHex,
+  });
+
+  @override
+  int get hashCode =>
+      encryptedBytes.hashCode ^
+      encryptedSha256Hex.hashCode ^
+      plaintextSha256Hex.hashCode ^
+      nonceHex.hashCode ^
+      mimeType.hashCode ^
+      sanitizedFilename.hashCode ^
+      version.hashCode ^
+      persistentKeyHex.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PreparedCircleMediaDto &&
+          runtimeType == other.runtimeType &&
+          encryptedBytes == other.encryptedBytes &&
+          encryptedSha256Hex == other.encryptedSha256Hex &&
+          plaintextSha256Hex == other.plaintextSha256Hex &&
+          nonceHex == other.nonceHex &&
+          mimeType == other.mimeType &&
+          sanitizedFilename == other.sanitizedFilename &&
+          version == other.version &&
+          persistentKeyHex == other.persistentKeyHex;
+}
+
+class PreparedMultiDevicePublishDto {
+  final String dekHex;
+  final List<String> blossomServers;
+  final List<MultiDeviceUploadBlobDto> blobs;
+
+  /// Pre-assembled `MultiDeviceTipPayload` JSON using default `<blossom_server>/<x_hex>` URLs.
+  final String defaultTipPlaintextJson;
+
+  const PreparedMultiDevicePublishDto({
+    required this.dekHex,
+    required this.blossomServers,
+    required this.blobs,
+    required this.defaultTipPlaintextJson,
+  });
+
+  @override
+  int get hashCode =>
+      dekHex.hashCode ^
+      blossomServers.hashCode ^
+      blobs.hashCode ^
+      defaultTipPlaintextJson.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PreparedMultiDevicePublishDto &&
+          runtimeType == other.runtimeType &&
+          dekHex == other.dekHex &&
+          blossomServers == other.blossomServers &&
+          blobs == other.blobs &&
+          defaultTipPlaintextJson == other.defaultTipPlaintextJson;
 }
