@@ -339,6 +339,7 @@ void main() {
             CashuMintBalanceDto(
               mintUrl: 'https://mint.example',
               balanceSats: BigInt.from(420),
+              proofCount: BigInt.from(3),
             ),
           ],
           p2PkPubkeyHex: '02abc',
@@ -407,6 +408,45 @@ void main() {
       spaces.markAllInboxRead();
       expect(spaces.inboxUnreadCount, 0);
     });
+
+    test(
+      'AccountWalletController.nip60WalletEnabled defaults false and applyRestoredSessions restores it',
+      () {
+        final account = AccountWalletController();
+        addTearDown(account.dispose);
+
+        expect(account.nip60WalletEnabled, isFalse);
+
+        AppSettingsDto buildSettings({required bool enabled}) => AppSettingsDto(
+              relayUrls: const ['wss://relay.earthly.city'],
+              agentPreset: 'openrouter',
+              agentBaseUrl: 'https://openrouter.ai/api/v1',
+              agentModel: 'anthropic/claude-sonnet-4',
+              agentApiKey: '',
+              offlinePacks: const [],
+              pinnedEntityIds: const [],
+              recentEntityIds: const [],
+              cordnServerPubkey: '',
+              mountedAtlasWorkspaces: const [],
+              blossomServerUrl: 'https://blossom.earthly.city',
+              inboxReadAllBefore: BigInt.zero,
+              inboxReadIds: const [],
+              savedAccounts: const [],
+              mutedPubkeys: const [],
+              themeMode: 'system',
+              basemapStyle: 'auto',
+              satelliteMode: 'osm',
+              satelliteOpacity: 0.75,
+              nip60WalletEnabled: enabled,
+            );
+
+        account.applyRestoredSessions(buildSettings(enabled: true));
+        expect(account.nip60WalletEnabled, isTrue);
+
+        account.applyRestoredSessions(buildSettings(enabled: false));
+        expect(account.nip60WalletEnabled, isFalse);
+      },
+    );
   });
 
   group('Widget rebuild isolation', () {

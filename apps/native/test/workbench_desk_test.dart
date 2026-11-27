@@ -654,7 +654,7 @@ void main() {
       ),
     );
 
-    expect(find.text('HELP & KEYBOARD SHORTCUTS'), findsOneWidget);
+    expect(find.text('Help & Shortcuts'), findsOneWidget);
     expect(find.text('Cmd / Ctrl + Z'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('open-raw-inspector-test-btn')));

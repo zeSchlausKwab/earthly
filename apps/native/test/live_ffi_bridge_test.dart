@@ -132,12 +132,14 @@ void main() {
         storyDraftJson: null,
         agentMessagesJson: null,
         nwcUri: secretNwc,
+        nip60WalletEnabled: false,
       );
 
       final saved = await saveAppSettings(databasePath: dbPath, settings: input);
       expect(saved.localNsec, secretNsec);
       expect(saved.nwcUri, secretNwc);
       expect(saved.agentApiKey, secretApiKey);
+      expect(saved.nip60WalletEnabled, isFalse);
 
       final loaded = await loadAppSettings(databasePath: dbPath);
       expect(loaded.localNsec, secretNsec);
@@ -145,6 +147,7 @@ void main() {
       expect(loaded.agentApiKey, secretApiKey);
       expect(loaded.bunkerClientNsec, 'nsec1clientbunkertest');
       expect(loaded.savedAccounts.single.localNsec, secretNsec);
+      expect(loaded.nip60WalletEnabled, isFalse);
 
       // Raw SQLite bytes must never leak plaintext sensitive credentials.
       final rawText = latin1.decode(await File(dbPath).readAsBytes());

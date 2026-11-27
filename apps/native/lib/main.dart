@@ -291,9 +291,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     if (masterKeyReady && hasSecrets) {
       unawaited(_persistAppSettings());
     }
-    unawaited(
-      _accountWallet.refreshCashuWalletState(isHeadlessTest: _isHeadlessTest),
-    );
+    if (_accountWallet.nip60WalletEnabled) {
+      unawaited(
+        _accountWallet.refreshCashuWalletState(isHeadlessTest: _isHeadlessTest),
+      );
+    }
     unawaited(_agent.refreshVisionSupport(isHeadlessTest: _isHeadlessTest));
     final bookmarksUpdated =
         await _mapLayers.restoreMacOsSecurityScopedBookmarks(
@@ -429,6 +431,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               : null,
           agentMessagesJson: _agent.encodePersistedThreadsJson(),
           nwcUri: _accountWallet.nwcUri,
+          nip60WalletEnabled: _accountWallet.nip60WalletEnabled,
         ),
       );
     } catch (_) {}
@@ -578,9 +581,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       ),
     );
     unawaited(_refreshInbox());
-    unawaited(
-      _accountWallet.refreshCashuWalletState(isHeadlessTest: _isHeadlessTest),
-    );
+    if (_accountWallet.nip60WalletEnabled) {
+      unawaited(
+        _accountWallet.refreshCashuWalletState(isHeadlessTest: _isHeadlessTest),
+      );
+    }
   }
 
   Future<Nip55Account> _ensureAccount() =>
@@ -1402,11 +1407,16 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     final geojson = draftFeaturesToGeoJson(title: title, features: _draft.features);
 
     if (audience == DraftAudienceChoice.privateCircle) {
-      final targetId = _spaces.selectedCircleId ??
+      final validSelected = _spaces.selectedCircleId != null &&
+              _spaces.circles
+                  .any((c) => c.workspaceId == _spaces.selectedCircleId)
+          ? _spaces.selectedCircleId
+          : null;
+      final targetId = validSelected ??
           _spaces.activeCircleLensId ??
           _spaces.circles.firstOrNull?.workspaceId;
       if (targetId == null || targetId.isEmpty) {
-        throw StateError('Create or select a Circle first');
+        throw StateError('Create or select an MLS Group first');
       }
       final mlsPath = await _spaces.ensureMlsDatabasePath();
       final updated = await sendCircleDataset(
@@ -1678,7 +1688,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     final profile = _accountWallet.profilesByPubkey[recipientPubkey];
     final recipientName = _accountWallet.displayNameForPubkey(recipientPubkey);
     final lud16 = profile?.lud16;
-    final cashuSats = _accountWallet.cashuWalletState?.balanceSats.toInt();
+    final cashuSats = _accountWallet.nip60WalletEnabled
+        ? _accountWallet.cashuWalletState?.balanceSats.toInt()
+        : null;
     final canCashuNutzap = _accountWallet.account != null &&
         _accountWallet.localNsec != null &&
         _accountWallet.localNsec!.isNotEmpty &&
@@ -1862,9 +1874,29 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       );
     }
     if (target == _ActiveDrawer.cashuWallet) {
-      unawaited(
-        _accountWallet.refreshCashuWalletState(isHeadlessTest: _isHeadlessTest),
-      );
+      if (_accountWallet.nip60WalletEnabled) {
+        unawaited(() async {
+          await _accountWallet.refreshCashuWalletState(
+            isHeadlessTest: _isHeadlessTest,
+          );
+          if (_isHeadlessTest || !_accountWallet.nip60WalletEnabled) return;
+          final hasSilentSigner =
+              (_accountWallet.localNsec?.trim().isNotEmpty ?? false) ||
+                  ((_accountWallet.bunkerUri?.trim().isNotEmpty ?? false) &&
+                      (_accountWallet.bunkerClientNsec?.trim().isNotEmpty ??
+                          false));
+          final needsInitialSync =
+              !_accountWallet.cashuWalletViewState.initialized;
+          if (hasSilentSigner || needsInitialSync) {
+            try {
+              await _accountWallet.syncNip60WalletForActiveAccount(
+                _catalog.relayUrls,
+                isHeadlessTest: _isHeadlessTest,
+              );
+            } catch (_) {}
+          }
+        }());
+      }
     } else if (target == _ActiveDrawer.mcpBridge) {
       unawaited(
         _agent.refreshMcpBridgeStatus(
@@ -2604,6 +2636,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           selectedCircleId:
               _spaces.selectedCircleId ?? _spaces.activeCircleLensId,
           onSelectedCircleChanged: _spaces.setSelectedCircleId,
+          onOpenCircles: () => _openDrawer(_ActiveDrawer.circles),
           canUndo: _draft.undoStack.isNotEmpty,
           canRedo: _draft.redoStack.isNotEmpty,
           onUndo: () => _draft.undoDraftEdit(
@@ -2710,7 +2743,6 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               _closeDrawer(_ActiveDrawer.inspector);
             }
           },
-          onAddPrimitiveShape: _addPrimitiveShapeUi,
           onClearDraftFeatures: () =>
               _draft.clearDraftFeatures(onPersist: _schedulePersistWorkingDraft),
           pendingOutboxCount: _spaces.pendingOutboxCount,
@@ -2766,8 +2798,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           onOpenShoutbox: () => _openDrawer(_ActiveDrawer.shoutbox),
           onOpenHelp: () => _openDrawer(_ActiveDrawer.help),
           onOpenCashuWallet: () => _openDrawer(_ActiveDrawer.cashuWallet),
-          cashuBalanceSats:
-              _accountWallet.cashuWalletState?.balanceSats.toInt(),
+          cashuWalletEnabled: _accountWallet.nip60WalletEnabled,
+          cashuBalanceSats: _accountWallet.nip60WalletEnabled
+              ? _accountWallet.cashuWalletState?.balanceSats.toInt()
+              : null,
           onOpenMcpBridge: () => _openDrawer(_ActiveDrawer.mcpBridge),
           mcpBridgeRunning: _agent.mcpBridgeStatus?.running ?? false,
           onAccountChanged: _onAmberAccountChanged,
@@ -3027,8 +3061,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             onPersistSettings: () => unawaited(_persistAppSettings()),
           ),
           onOpenCashuWallet: () => _openDrawer(_ActiveDrawer.cashuWallet),
-          cashuBalanceSats:
-              _accountWallet.cashuWalletState?.balanceSats.toInt(),
+          cashuWalletEnabled: _accountWallet.nip60WalletEnabled,
+          cashuBalanceSats: _accountWallet.nip60WalletEnabled
+              ? _accountWallet.cashuWalletState?.balanceSats.toInt()
+              : null,
           onSaveProfile: (req) => _accountWallet.publishProfile(
             req,
             relayUrls: _catalog.relayUrls,
@@ -3040,6 +3076,24 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       case _ActiveDrawer.cashuWallet:
         return CashuWalletSheet(
           state: _accountWallet.cashuWalletViewState,
+          walletEnabled: _accountWallet.nip60WalletEnabled,
+          onSetWalletEnabled: (enabled) async {
+            _accountWallet.setNip60WalletEnabled(
+              enabled,
+              onPersistSettings: () => unawaited(_persistAppSettings()),
+            );
+            if (enabled) {
+              await _accountWallet.refreshCashuWalletState(
+                isHeadlessTest: _isHeadlessTest,
+              );
+              if (!_isHeadlessTest) {
+                await _accountWallet.syncNip60WalletForActiveAccount(
+                  _catalog.relayUrls,
+                  isHeadlessTest: _isHeadlessTest,
+                );
+              }
+            }
+          },
           busy: _accountWallet.cashuBusy,
           onInitializeWallet: (mints, enableNutzaps) async {
             var next = await _accountWallet.runCashuOp(
@@ -3075,18 +3129,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             }
             _accountWallet.updateCashuWalletState(next);
           },
-          onSyncWallet: () async {
-            final next = await _accountWallet.runCashuOp(
-              (dbPath, _, masterKey) => syncNip60Wallet(
-                databasePath: dbPath,
-                nsecOrHex: _accountWallet.requireCashuNsec(),
-                relays: _catalog.relayUrls,
-                masterKeyB64: masterKey,
-              ),
-              onSessionActivated: _onSessionActivated,
-            );
-            _accountWallet.updateCashuWalletState(next);
-          },
+          onSyncWallet: () => _accountWallet.syncNip60WalletForActiveAccount(
+            _catalog.relayUrls,
+            isHeadlessTest: _isHeadlessTest,
+          ),
           onAddMint: (url) async {
             final next = await _accountWallet.runCashuOp(
               (dbPath, pubkeyHex, masterKey) => addCashuMint(

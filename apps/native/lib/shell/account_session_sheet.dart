@@ -74,6 +74,7 @@ class AccountSessionSheet extends StatefulWidget {
     this.onCheckNwcStatus,
     this.onOpenCashuWallet,
     this.cashuBalanceSats,
+    this.cashuWalletEnabled = false,
     this.relayUrls = const <String>['wss://relay.earthly.city'],
     super.key,
   });
@@ -84,6 +85,7 @@ class AccountSessionSheet extends StatefulWidget {
   final Future<NwcWalletStatusDto> Function(String uri)? onCheckNwcStatus;
   final VoidCallback? onOpenCashuWallet;
   final int? cashuBalanceSats;
+  final bool cashuWalletEnabled;
 
   final Nip55Account? account;
   final String? localNsec;
@@ -1571,9 +1573,11 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                           ),
                         ),
                         Text(
-                          widget.cashuBalanceSats != null
-                              ? '${widget.cashuBalanceSats} sats · SecretBox encrypted'
-                              : 'NIP-60 ecash & NIP-61 Nutzaps',
+                          !widget.cashuWalletEnabled
+                              ? 'Disabled (opt-in) · NIP-60 / NIP-61'
+                              : widget.cashuBalanceSats != null
+                                  ? '${widget.cashuBalanceSats} sats · SecretBox encrypted'
+                                  : 'Enabled · NIP-60 ecash & NIP-61 Nutzaps',
                           style: TextStyle(
                             fontFamily: 'monospace',
                             fontSize: 10.5,

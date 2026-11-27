@@ -146,16 +146,16 @@ class AccountWalletController extends ChangeNotifier {
       defaultMint: s.defaultMint,
       mints: [
         for (final m in s.mints)
-          CashuMintBalanceView(
-            mintUrl: m,
-            balanceSats: s.mintBalances
-                    .where((b) => b.mintUrl == m)
-                    .firstOrNull
-                    ?.balanceSats
-                    .toInt() ??
-                0,
-            proofCount: m == s.defaultMint ? s.proofCount.toInt() : 0,
-          ),
+          () {
+            final bal =
+                s.mintBalances.where((b) => b.mintUrl == m).firstOrNull;
+            return CashuMintBalanceView(
+              mintUrl: m,
+              balanceSats: bal?.balanceSats.toInt() ?? 0,
+              proofCount: bal?.proofCount.toInt() ??
+                  (m == s.defaultMint ? s.proofCount.toInt() : 0),
+            );
+          }(),
       ],
       nutzapEnabled: s.nutzapEnabled,
       p2pkPubkeyHex: s.p2PkPubkeyHex.isNotEmpty ? s.p2PkPubkeyHex : null,
@@ -231,7 +231,12 @@ class AccountWalletController extends ChangeNotifier {
       ..clear()
       ..addAll(loaded.mutedPubkeys);
     nwcUri = loaded.nwcUri?.trim().isEmpty ?? true ? null : loaded.nwcUri!.trim();
+    nip60WalletEnabled = loaded.nip60WalletEnabled;
+    if (!nip60WalletEnabled) {
+      cashuWalletState = null;
+    }
     accountListenable.notifyListeners();
+    walletListenable.notifyListeners();
     notifyListeners();
   }
 
@@ -317,6 +322,7 @@ class AccountWalletController extends ChangeNotifier {
   }
 
   void applyActiveSessionState(SavedAccountSessionDto? session) {
+    final prevPubkey = account?.pubkey;
     if (session == null) {
       activeAccountId = null;
       account = null;
@@ -332,6 +338,10 @@ class AccountWalletController extends ChangeNotifier {
       localNsec = session.localNsec;
       bunkerUri = session.bunkerUri;
       bunkerClientNsec = session.bunkerClientNsec;
+    }
+    if (session == null || session.pubkeyHex != prevPubkey) {
+      cashuWalletState = null;
+      walletListenable.notifyListeners();
     }
     accountListenable.notifyListeners();
     notifyListeners();
@@ -601,6 +611,142 @@ class AccountWalletController extends ChangeNotifier {
     cashuWalletState = next;
     walletListenable.notifyListeners();
     notifyListeners();
+  }
+
+  /// Syncs NIP-60 wallet state for the active account across local nsec,
+  /// NIP-46 Bunker, or Android Amber NIP-55 signers.
+  Future<void> syncNip60WalletForActiveAccount(
+    List<String> relayUrls, {
+    bool isHeadlessTest = false,
+  }) async {
+    if (isHeadlessTest || !nip60WalletEnabled) return;
+    final acct = account;
+    if (acct == null) return;
+    if (activeSavedSession?.kind == 'readonly') {
+      throw StateError(
+        'Active account is a read-only watch session. Switch to a signing session in Account.',
+      );
+    }
+
+    final synced = await runCashuOp<CashuWalletStateDto>(
+      (dbPath, pubkeyHex, masterKey) async {
+        final nsec = localNsec?.trim();
+        if (nsec != null && nsec.isNotEmpty) {
+          return syncNip60Wallet(
+            databasePath: dbPath,
+            nsecOrHex: nsec,
+            relays: relayUrls,
+            masterKeyB64: masterKey,
+          );
+        }
+
+        final bunker = bunkerUri?.trim();
+        final clientNsec = bunkerClientNsec?.trim();
+        if (bunker != null &&
+            bunker.isNotEmpty &&
+            clientNsec != null &&
+            clientNsec.isNotEmpty) {
+          return syncNip60WalletWithBunker(
+            databasePath: dbPath,
+            bunkerUri: bunker,
+            clientNsec: clientNsec,
+            pubkeyHex: pubkeyHex,
+            relays: relayUrls,
+            masterKeyB64: masterKey,
+          );
+        }
+
+        if (!Platform.isAndroid) {
+          throw StateError(
+            'Active session cannot decrypt NIP-44 payloads. Sign in with nsec, NIP-46 bunker, or Android Amber.',
+          );
+        }
+
+        final discovery = await fetchNip60WalletDiscovery(
+          pubkeyHex: pubkeyHex,
+          relays: relayUrls,
+        );
+        String? decryptedWalletJson;
+        List<String> walletRelays = const <String>[];
+        final walletContent = discovery.walletEvent?.content;
+        if (walletContent != null && walletContent.isNotEmpty) {
+          decryptedWalletJson = await Nip55Signer.nip44Decrypt(
+            ciphertext: walletContent,
+            pubkey: pubkeyHex,
+            currentUser: acct.pubkey,
+            signerPackage: acct.signerPackage,
+          );
+          walletRelays = await parseNip60WalletRelaysFromJson(
+            decryptedWalletJson: decryptedWalletJson,
+          );
+        }
+
+        final mergedRelays = <String>{
+          ...relayUrls,
+          ...discovery.discoveredRelays,
+          ...discovery.nutzapRelays,
+          ...walletRelays,
+        }.where((r) => r.trim().isNotEmpty).toList(growable: false);
+
+        final data = await fetchNip60DataEvents(
+          pubkeyHex: pubkeyHex,
+          relays: mergedRelays,
+        );
+        final deletedIds = data.deletedEventIds.toSet();
+
+        final decryptedTokenEvents = <DecryptedNip60EventDto>[];
+        for (final ev in data.tokenEvents) {
+          if (deletedIds.contains(ev.eventId) || ev.content.isEmpty) continue;
+          try {
+            final plain = await Nip55Signer.nip44Decrypt(
+              ciphertext: ev.content,
+              pubkey: pubkeyHex,
+              currentUser: acct.pubkey,
+              signerPackage: acct.signerPackage,
+            );
+            decryptedTokenEvents.add(
+              DecryptedNip60EventDto(
+                eventId: ev.eventId,
+                createdAt: ev.createdAt,
+                decryptedJson: plain,
+              ),
+            );
+          } catch (_) {}
+        }
+
+        final decryptedHistoryEvents = <DecryptedNip60EventDto>[];
+        for (final ev in data.historyEvents) {
+          if (deletedIds.contains(ev.eventId) || ev.content.isEmpty) continue;
+          try {
+            final plain = await Nip55Signer.nip44Decrypt(
+              ciphertext: ev.content,
+              pubkey: pubkeyHex,
+              currentUser: acct.pubkey,
+              signerPackage: acct.signerPackage,
+            );
+            decryptedHistoryEvents.add(
+              DecryptedNip60EventDto(
+                eventId: ev.eventId,
+                createdAt: ev.createdAt,
+                decryptedJson: plain,
+              ),
+            );
+          } catch (_) {}
+        }
+
+        return applyDecryptedNip60Sync(
+          databasePath: dbPath,
+          pubkeyHex: pubkeyHex,
+          relays: mergedRelays,
+          decryptedWalletJson: decryptedWalletJson,
+          decryptedTokenEvents: decryptedTokenEvents,
+          decryptedHistoryEvents: decryptedHistoryEvents,
+          deletedEventIds: data.deletedEventIds,
+          masterKeyB64: masterKey,
+        );
+      },
+    );
+    updateCashuWalletState(synced);
   }
 
   String requireCashuNsec() {

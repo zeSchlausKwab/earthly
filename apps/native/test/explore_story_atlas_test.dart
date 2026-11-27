@@ -361,7 +361,7 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
       ),
     );
 
-    expect(find.text('EDIT STORY (37520)'), findsOneWidget);
+    expect(find.text('Edit Story'), findsOneWidget);
     expect(find.text('Danube Journal'), findsOneWidget);
     await scrollAndTap(
       tester,
@@ -400,7 +400,7 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
       ),
     );
 
-    expect(find.text('EDIT ATLAS (KIND 37518)'), findsOneWidget);
+    expect(find.text('Edit Atlas'), findsOneWidget);
     expect(find.text('Vienna Cycling'), findsOneWidget);
     await scrollAndTap(
       tester,

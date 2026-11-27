@@ -240,6 +240,7 @@ void main() {
                     localNsec: null,
                     profile: null,
                     activeSessionSummary: null,
+                    cashuWalletEnabled: false,
                     cashuBalanceSats: 777,
                     onOpenCashuWallet: () => accountWalletOpened = true,
                     onAccountChanged: (_) {},
@@ -260,6 +261,42 @@ void main() {
 
         final accountWalletBtn =
             find.byKey(const Key('account-cashu-wallet-btn'));
+        await tester.scrollUntilVisible(
+          accountWalletBtn,
+          160,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(find.text('Disabled (opt-in) · NIP-60 / NIP-61'), findsOneWidget);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Stack(
+                children: [
+                  AccountSessionSheet(
+                    account: null,
+                    localNsec: null,
+                    profile: null,
+                    activeSessionSummary: null,
+                    cashuWalletEnabled: true,
+                    cashuBalanceSats: 777,
+                    onOpenCashuWallet: () => accountWalletOpened = true,
+                    onAccountChanged: (_) {},
+                    onLocalKeyChanged: (_) {},
+                    onSaveProfile: (_) async => const PublishOutcomeDto(
+                      eventId: 'ev0',
+                      outboxState: 'sent',
+                      relays: [],
+                    ),
+                    onOpenSpaces: () {},
+                    onClose: () {},
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+
         await tester.scrollUntilVisible(
           accountWalletBtn,
           160,
