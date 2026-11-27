@@ -26,12 +26,12 @@ website: https://earthly.city
 icon: ./assets/icons/icon.png
 release_notes: ./CHANGELOG.md
 images:
-  - ./release-assets/zapstore/0.0.1/01-map.png
-  - ./release-assets/zapstore/0.0.1/02-map.png
-  - ./release-assets/zapstore/0.0.1/03-map.png
-  - ./release-assets/zapstore/0.0.1/04-map.png
-  - ./release-assets/zapstore/0.0.1/05-map.png
-  - ./release-assets/zapstore/0.0.1/06-map.png
+  - ./release-assets/zapstore/0.2.0/01-map.png
+  - ./release-assets/zapstore/0.2.0/02-story.png
+  - ./release-assets/zapstore/0.2.0/03-explore.png
+  - ./release-assets/zapstore/0.2.0/04-draw.png
+  - ./release-assets/zapstore/0.2.0/05-desk.png
+  - ./release-assets/zapstore/0.2.0/06-spaces.png
 supported_nips:
   - "01"
   - "07"
