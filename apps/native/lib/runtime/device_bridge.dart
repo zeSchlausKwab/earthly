@@ -59,7 +59,7 @@ class GpsTrackStatusSnapshot {
   final List<GpsTrackSample> points;
 }
 
-/// Binary file payload returned by Android's camera, gallery, or document picker.
+/// Binary file payload returned by Android/macOS camera, gallery, or document picker.
 class PickedBinaryFile {
   const PickedBinaryFile({
     required this.bytes,
@@ -73,9 +73,14 @@ class PickedBinaryFile {
 }
 
 /// Native device capabilities channel (`city.earthly/device`) implemented in
-/// Android `MainActivity.kt` with zero third-party Gradle plugin bloat.
+/// Android `MainActivity.kt` and macOS `MainFlutterWindow.swift` with zero
+/// third-party Gradle/CocoaPods plugin bloat.
 class DeviceBridge {
   static const MethodChannel _channel = MethodChannel('city.earthly/device');
+
+  /// Maximum attachment size (25 MiB) enforced for general file/media picking
+  /// to prevent OOM when reading into memory for encrypted upload.
+  static const int maxPickedFileBytes = 25 * 1024 * 1024;
 
   static void Function(String uri)? _deepLinkHandler;
   static void Function(PickedBinaryFile file)? _droppedFileHandler;
@@ -220,11 +225,58 @@ class DeviceBridge {
 
   static Future<PickedBinaryFile> pickImage() => _invokeFile('pickImage');
 
+  /// Picks any image, PDF, audio, video, or document file up to
+  /// [maxPickedFileBytes] (25 MiB).
+  static Future<PickedBinaryFile> pickAnyFile() async {
+    final file = await _invokeFile('pickAnyFile');
+    if (file.bytes.length > maxPickedFileBytes) {
+      throw StateError(
+        'Selected file exceeds 25 MB limit (${file.bytes.length} bytes)',
+      );
+    }
+    return file;
+  }
+
   static Future<PickedBinaryFile> pickPmtilesFile() =>
       _invokeFile('pickPmtilesFile');
 
   static Future<PickedBinaryFile> pickGeoJsonFile() =>
       _invokeFile('pickGeoJsonFile');
+
+  /// Posts a local OS notification (e.g. for MLS Circle updates) and degrades
+  /// gracefully to `false` when permissions are missing or unsupported.
+  static Future<bool> showLocalNotification({
+    required String title,
+    required String body,
+    String? channelId,
+    String? payload,
+  }) async {
+    final cleanTitle = title.trim();
+    final cleanBody = body.trim();
+    if (cleanTitle.isEmpty && cleanBody.isEmpty) {
+      return false;
+    }
+    final cleanChannel = channelId?.trim();
+    final cleanPayload = payload?.trim();
+    try {
+      final ok = await _channel.invokeMethod<bool>(
+        'showLocalNotification',
+        <String, Object>{
+          'title': cleanTitle,
+          'body': cleanBody,
+          if (cleanChannel != null && cleanChannel.isNotEmpty)
+            'channelId': cleanChannel,
+          if (cleanPayload != null && cleanPayload.isNotEmpty)
+            'payload': cleanPayload,
+        },
+      );
+      return ok ?? true;
+    } on MissingPluginException {
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
 
   static Future<String> saveGeoJsonFile({
     required String filename,

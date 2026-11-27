@@ -2,6 +2,7 @@ import Cocoa
 import FlutterMacOS
 import Security
 import UniformTypeIdentifiers
+import UserNotifications
 
 class MainFlutterWindow: NSWindow {
   private static var deviceChannel: FlutterMethodChannel?
@@ -9,6 +10,9 @@ class MainFlutterWindow: NSWindow {
   private static var pendingDroppedFile: [String: Any]?
   private static let keychainService = "city.earthly.native"
   private static let keychainAccount = "settings_master_v1"
+  private static let maxPickedAttachmentBytes = 25 * 1024 * 1024
+  private static let circlesNotificationChannelId = "earthly_circles"
+  private static let circlePayloadUserInfoKey = "circle_payload"
   private var accessedSecurityScopedUrls: [URL] = []
 
   deinit {
@@ -138,10 +142,24 @@ class MainFlutterWindow: NSWindow {
       case "pickImage":
         self.openFilePanel(
           title: "Choose Photo",
-          extensions: ["jpg", "jpeg", "png", "webp", "heic"],
+          extensions: ["jpg", "jpeg", "png", "webp", "heic", "heif", "gif"],
           fallbackMime: "image/jpeg",
+          allowAllImages: true,
+          maxBytes: MainFlutterWindow.maxPickedAttachmentBytes,
+          inferMime: true,
           result: result
         )
+      case "pickAnyFile":
+        self.openFilePanel(
+          title: "Choose File",
+          extensions: [],
+          fallbackMime: "application/octet-stream",
+          maxBytes: MainFlutterWindow.maxPickedAttachmentBytes,
+          inferMime: true,
+          result: result
+        )
+      case "showLocalNotification":
+        self.handleShowLocalNotification(call: call, result: result)
       case "saveGeoJsonFile":
         let args = call.arguments as? [String: Any]
         let filename = (args?["filename"] as? String) ?? "earthly-map.geojson"
@@ -319,10 +337,140 @@ class MainFlutterWindow: NSWindow {
     }
   }
 
+  private func inferMimeType(for url: URL, fallback: String) -> String {
+    let ext = url.pathExtension.lowercased()
+    switch ext {
+    case "geojson": return "application/geo+json"
+    case "gpx": return "application/gpx+xml"
+    case "kml": return "application/vnd.google-earth.kml+xml"
+    case "pmtiles": return "application/vnd.pmtiles"
+    case "webp": return "image/webp"
+    case "heic": return "image/heic"
+    case "heif": return "image/heif"
+    default: break
+    }
+    if #available(macOS 11.0, *), !ext.isEmpty,
+       let mime = UTType(filenameExtension: ext)?.preferredMIMEType,
+       !mime.isEmpty {
+      return mime
+    }
+    return fallback
+  }
+
+  private func normalizeCirclePayloadLink(_ rawPayload: String?) -> String? {
+    guard let trimmed = rawPayload?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !trimmed.isEmpty else {
+      return nil
+    }
+    let lower = trimmed.lowercased()
+    if lower.hasPrefix("earthly:") || lower.hasPrefix("nostr:") || lower.hasPrefix("geo:") {
+      return trimmed
+    }
+    let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? trimmed
+    return "earthly://circle/\(encoded)"
+  }
+
+  private func notificationCenterIfAvailable() -> UNUserNotificationCenter? {
+    guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
+          let bundleId = Bundle.main.bundleIdentifier,
+          !bundleId.isEmpty,
+          Bundle.main.bundleURL.pathExtension == "app" else {
+      return nil
+    }
+    return UNUserNotificationCenter.current()
+  }
+
+  private func handleShowLocalNotification(call: FlutterMethodCall, result: @escaping FlutterResult) {
+    let args = call.arguments as? [String: Any]
+    let title = (args?["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let body = (args?["body"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !title.isEmpty || !body.isEmpty else {
+      result(false)
+      return
+    }
+    let rawChannel = (args?["channelId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let channelId = rawChannel.isEmpty ? MainFlutterWindow.circlesNotificationChannelId : rawChannel
+    let deepLink = normalizeCirclePayloadLink(args?["payload"] as? String)
+
+    guard let center = notificationCenterIfAvailable() else {
+      result(false)
+      return
+    }
+    if center.delegate == nil {
+      center.delegate = self
+    }
+
+    center.getNotificationSettings { [weak self] settings in
+      guard let self = self else {
+        DispatchQueue.main.async { result(false) }
+        return
+      }
+      switch settings.authorizationStatus {
+      case .authorized, .provisional:
+        self.enqueueUserNotification(
+          center: center,
+          title: title,
+          body: body,
+          channelId: channelId,
+          deepLink: deepLink,
+          result: result
+        )
+      case .notDetermined:
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, error in
+          guard let self = self, granted, error == nil else {
+            DispatchQueue.main.async { result(false) }
+            return
+          }
+          self.enqueueUserNotification(
+            center: center,
+            title: title,
+            body: body,
+            channelId: channelId,
+            deepLink: deepLink,
+            result: result
+          )
+        }
+      default:
+        DispatchQueue.main.async { result(false) }
+      }
+    }
+  }
+
+  private func enqueueUserNotification(
+    center: UNUserNotificationCenter,
+    title: String,
+    body: String,
+    channelId: String,
+    deepLink: String?,
+    result: @escaping FlutterResult
+  ) {
+    let content = UNMutableNotificationContent()
+    content.title = title
+    content.body = body
+    content.sound = .default
+    content.threadIdentifier = channelId
+    if let deepLink = deepLink {
+      content.userInfo[MainFlutterWindow.circlePayloadUserInfoKey] = deepLink
+    }
+    let request = UNNotificationRequest(
+      identifier: "earthly-circle-\(UUID().uuidString)",
+      content: content,
+      trigger: nil
+    )
+    center.add(request) { error in
+      DispatchQueue.main.async {
+        result(error == nil)
+      }
+    }
+  }
+
   private func openFilePanel(
     title: String,
     extensions: [String],
     fallbackMime: String,
+    allowAllImages: Bool = false,
+    maxBytes: Int? = nil,
+    inferMime: Bool = false,
     result: @escaping FlutterResult
   ) {
     DispatchQueue.main.async {
@@ -332,9 +480,13 @@ class MainFlutterWindow: NSWindow {
       panel.canChooseDirectories = false
       panel.allowsMultipleSelection = false
       if #available(macOS 11.0, *) {
-        let types = extensions.compactMap { UTType(filenameExtension: $0) }
-        if !types.isEmpty {
-          panel.allowedContentTypes = types
+        if allowAllImages {
+          panel.allowedContentTypes = [.image]
+        } else {
+          let types = extensions.compactMap { UTType(filenameExtension: $0) }
+          if !types.isEmpty {
+            panel.allowedContentTypes = types
+          }
         }
       }
       panel.beginSheetModal(for: self) { response in
@@ -343,10 +495,34 @@ class MainFlutterWindow: NSWindow {
           return
         }
         do {
+          if let limit = maxBytes {
+            let resourceValues = try? url.resourceValues(forKeys: [.fileSizeKey])
+            if let fileSize = resourceValues?.fileSize, fileSize > limit {
+              result(FlutterError(
+                code: "file_too_large",
+                message: "Selected file exceeds the \(limit / (1024 * 1024)) MB limit",
+                details: nil
+              ))
+              return
+            }
+          }
           let data = try Data(contentsOf: url)
+          if data.isEmpty {
+            result(FlutterError(code: "empty_file", message: "Selected file was empty", details: nil))
+            return
+          }
+          if let limit = maxBytes, data.count > limit {
+            result(FlutterError(
+              code: "file_too_large",
+              message: "Selected file exceeds the \(limit / (1024 * 1024)) MB limit",
+              details: nil
+            ))
+            return
+          }
+          let mimeType = inferMime ? self.inferMimeType(for: url, fallback: fallbackMime) : fallbackMime
           result([
             "bytes": FlutterStandardTypedData(bytes: data),
-            "mimeType": fallbackMime,
+            "mimeType": mimeType,
             "name": url.lastPathComponent,
           ])
         } catch {
@@ -387,5 +563,41 @@ class MainFlutterWindow: NSWindow {
         }
       }
     }
+  }
+}
+
+extension MainFlutterWindow: UNUserNotificationCenterDelegate {
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    if #available(macOS 11.0, *) {
+      completionHandler([.banner, .list, .sound])
+    } else {
+      completionHandler([.alert, .sound])
+    }
+  }
+
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    let rawPayload = response.notification.request.content.userInfo[
+      MainFlutterWindow.circlePayloadUserInfoKey
+    ] as? String
+    if let deepLink = normalizeCirclePayloadLink(rawPayload) {
+      DispatchQueue.main.async {
+        if #available(macOS 14.0, *) {
+          NSApp.activate()
+        } else {
+          NSApp.activate(ignoringOtherApps: true)
+        }
+        self.makeKeyAndOrderFront(nil)
+        MainFlutterWindow.deliverDeepLink(deepLink)
+      }
+    }
+    completionHandler()
   }
 }

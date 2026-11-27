@@ -3,6 +3,11 @@ package city.earthly.earthly_native
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -16,6 +21,7 @@ import android.provider.OpenableColumns
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import android.webkit.MimeTypeMap
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.zxing.integration.android.IntentIntegrator
@@ -26,6 +32,7 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
 import java.security.KeyStore
 import java.security.SecureRandom
+import java.util.concurrent.atomic.AtomicInteger
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -52,9 +59,25 @@ class MainActivity : FlutterActivity() {
         private const val REQUEST_PICK_GEOJSON = 5604
         private const val REQUEST_SAVE_GEOJSON = 5605
         private const val REQUEST_SAVE_BINARY = 5606
+        private const val REQUEST_PICK_ANY_FILE = 5607
         private const val REQUEST_LOCATION_PERMISSION = 5701
         private const val REQUEST_TRACK_PERMISSION = 5702
+        private const val MAX_PICKED_ATTACHMENT_BYTES = 25 * 1024 * 1024
+        private const val CIRCLES_NOTIFICATION_CHANNEL_ID = "earthly_circles"
+        private const val CIRCLES_NOTIFICATION_CHANNEL_NAME = "MLS Groups"
+        private const val EXTRA_CIRCLE_PAYLOAD = "circle_payload"
+        private val ANY_FILE_MIME_TYPES = arrayOf(
+            "image/*",
+            "audio/*",
+            "video/*",
+            "application/pdf",
+            "text/*",
+            "application/*",
+        )
+        private val nextNotificationId = AtomicInteger(8100)
     }
+
+    private class FileTooLargeException(message: String) : Exception(message)
 
     private var pendingResult: MethodChannel.Result? = null
     private var pendingRequestCode: Int = 0
@@ -66,7 +89,22 @@ class MainActivity : FlutterActivity() {
     private var initialDeepLink: String? = null
     private var initialDroppedFile: Map<String, Any>? = null
 
+    private fun normalizeCirclePayloadLink(rawPayload: String?): String? {
+        val trimmed = rawPayload?.trim() ?: return null
+        if (trimmed.isEmpty()) return null
+        val lower = trimmed.lowercase()
+        return if (lower.startsWith("earthly:") || lower.startsWith("nostr:") || lower.startsWith("geo:")) {
+            trimmed
+        } else {
+            "earthly://circle/${Uri.encode(trimmed)}"
+        }
+    }
+
     private fun extractDeepLink(intent: Intent?): String? {
+        val circlePayload = normalizeCirclePayloadLink(intent?.getStringExtra(EXTRA_CIRCLE_PAYLOAD))
+        if (circlePayload != null) {
+            return circlePayload
+        }
         val uri = intent?.dataString ?: return null
         val lower = uri.lowercase()
         return if (lower.startsWith("earthly:") || lower.startsWith("nostr:") || lower.startsWith("geo:")) {
@@ -106,6 +144,7 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         val link = extractDeepLink(intent)
+        intent.removeExtra(EXTRA_CIRCLE_PAYLOAD)
         if (link != null) {
             if (deviceChannel != null) {
                 deviceChannel?.invokeMethod("onDeepLink", link)
@@ -166,7 +205,9 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        ensureNotificationChannel(CIRCLES_NOTIFICATION_CHANNEL_ID)
         initialDeepLink = initialDeepLink ?: extractDeepLink(intent)
+        intent?.removeExtra(EXTRA_CIRCLE_PAYLOAD)
         initialDroppedFile = initialDroppedFile ?: extractSharedFile(intent)
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DEVICE_CHANNEL)
         deviceChannel = channel
@@ -250,15 +291,46 @@ class MainActivity : FlutterActivity() {
                             result.error("busy", "Another picker/capture request is pending", null)
                             return@setMethodCallHandler
                         }
-                        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                            type = "image/*"
+                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                             addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "*/*"
+                            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*"))
                         }
                         pendingResult = result
                         pendingRequestCode = REQUEST_PICK_IMAGE
-                        @Suppress("DEPRECATION")
-                        startActivityForResult(intent, REQUEST_PICK_IMAGE)
+                        try {
+                            @Suppress("DEPRECATION")
+                            startActivityForResult(intent, REQUEST_PICK_IMAGE)
+                        } catch (err: ActivityNotFoundException) {
+                            pendingResult = null
+                            pendingRequestCode = 0
+                            result.error("unavailable", err.message ?: "No document picker available", null)
+                        }
                     }
+
+                    "pickAnyFile" -> {
+                        if (pendingResult != null) {
+                            result.error("busy", "Another picker/capture request is pending", null)
+                            return@setMethodCallHandler
+                        }
+                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "*/*"
+                            putExtra(Intent.EXTRA_MIME_TYPES, ANY_FILE_MIME_TYPES)
+                        }
+                        pendingResult = result
+                        pendingRequestCode = REQUEST_PICK_ANY_FILE
+                        try {
+                            @Suppress("DEPRECATION")
+                            startActivityForResult(intent, REQUEST_PICK_ANY_FILE)
+                        } catch (err: ActivityNotFoundException) {
+                            pendingResult = null
+                            pendingRequestCode = 0
+                            result.error("unavailable", err.message ?: "No document picker available", null)
+                        }
+                    }
+
+                    "showLocalNotification" -> handleShowLocalNotification(call, result)
 
                     "pickPmtilesFile" -> {
                         if (pendingResult != null) {
@@ -801,6 +873,107 @@ class MainActivity : FlutterActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 
+    private fun ensureNotificationChannel(channelId: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        val name = if (channelId == CIRCLES_NOTIFICATION_CHANNEL_ID) {
+            CIRCLES_NOTIFICATION_CHANNEL_NAME
+        } else {
+            channelId
+        }
+        val channel = NotificationChannel(
+            channelId,
+            name,
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            if (channelId == CIRCLES_NOTIFICATION_CHANNEL_ID) {
+                description = "Encrypted MLS group messages and invites"
+            }
+        }
+        mgr.createNotificationChannel(channel)
+    }
+
+    private fun hasNotificationPermission(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+        return true
+    }
+
+    private fun handleShowLocalNotification(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        val title = (call.argument<String>("title") ?: "").trim()
+        val body = (call.argument<String>("body") ?: "").trim()
+        if (title.isEmpty() && body.isEmpty()) {
+            result.success(false)
+            return
+        }
+        val resolvedChannelId = (call.argument<String>("channelId") ?: "")
+            .trim()
+            .ifEmpty { CIRCLES_NOTIFICATION_CHANNEL_ID }
+        val normalizedLink = normalizeCirclePayloadLink(call.argument<String>("payload"))
+
+        try {
+            ensureNotificationChannel(resolvedChannelId)
+            if (!hasNotificationPermission()) {
+                result.success(false)
+                return
+            }
+            val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            if (mgr == null) {
+                result.success(false)
+                return
+            }
+            val notificationId = nextNotificationId.getAndIncrement()
+            val launchIntent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                if (!normalizedLink.isNullOrEmpty()) {
+                    putExtra(EXTRA_CIRCLE_PAYLOAD, normalizedLink)
+                }
+            }
+            val piFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                this,
+                notificationId,
+                launchIntent,
+                piFlags,
+            )
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(this, resolvedChannelId)
+            } else {
+                @Suppress("DEPRECATION")
+                Notification.Builder(this)
+            }
+            val smallIcon = applicationInfo.icon.takeIf { it != 0 }
+                ?: android.R.drawable.ic_dialog_info
+            builder
+                .setContentTitle(title)
+                .setContentText(body)
+                .setSmallIcon(smallIcon)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+            if (body.isNotEmpty()) {
+                builder.setStyle(Notification.BigTextStyle().bigText(body))
+            }
+            val notification = builder.build()
+            mgr.notify(notificationId, notification)
+            result.success(true)
+        } catch (_: SecurityException) {
+            result.success(false)
+        } catch (_: Exception) {
+            result.success(false)
+        }
+    }
+
     private fun queryDisplayName(uri: Uri): String {
         contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
             if (c.moveToFirst()) {
@@ -809,6 +982,69 @@ class MainActivity : FlutterActivity() {
             }
         }
         return uri.lastPathSegment ?: "file"
+    }
+
+    private fun queryFileSize(uri: Uri): Long? {
+        return try {
+            contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { c ->
+                if (c.moveToFirst()) {
+                    val idx = c.getColumnIndex(OpenableColumns.SIZE)
+                    if (idx >= 0 && !c.isNull(idx)) c.getLong(idx) else null
+                } else {
+                    null
+                }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun readUriBytesCapped(uri: Uri, maxBytes: Int): ByteArray? {
+        val reportedSize = queryFileSize(uri)
+        if (reportedSize != null && reportedSize > maxBytes.toLong()) {
+            throw FileTooLargeException(
+                "Selected file exceeds the ${maxBytes / (1024 * 1024)} MB limit",
+            )
+        }
+        val input = contentResolver.openInputStream(uri) ?: return null
+        return input.use { stream ->
+            val initialCapacity = if (reportedSize != null && reportedSize in 1L..maxBytes.toLong()) {
+                reportedSize.toInt().coerceAtMost(256 * 1024)
+            } else {
+                16 * 1024
+            }
+            val out = ByteArrayOutputStream(initialCapacity)
+            val buffer = ByteArray(64 * 1024)
+            var total = 0
+            while (true) {
+                val read = stream.read(buffer)
+                if (read <= 0) break
+                total += read
+                if (total > maxBytes) {
+                    throw FileTooLargeException(
+                        "Selected file exceeds the ${maxBytes / (1024 * 1024)} MB limit",
+                    )
+                }
+                out.write(buffer, 0, read)
+            }
+            out.toByteArray()
+        }
+    }
+
+    private fun inferMimeTypeFromFilename(filename: String): String? {
+        val dot = filename.lastIndexOf('.')
+        if (dot < 0 || dot == filename.length - 1) return null
+        val ext = filename.substring(dot + 1).lowercase()
+        return when (ext) {
+            "geojson" -> "application/geo+json"
+            "gpx" -> "application/gpx+xml"
+            "kml" -> "application/vnd.google-earth.kml+xml"
+            "pmtiles" -> "application/vnd.pmtiles"
+            "webp" -> "image/webp"
+            "heic" -> "image/heic"
+            "heif" -> "image/heif"
+            else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+        }
     }
 
     @Deprecated("Deprecated in Java")
@@ -888,31 +1124,54 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
-                REQUEST_PICK_IMAGE, REQUEST_PICK_PMTILES, REQUEST_PICK_GEOJSON -> {
+                REQUEST_PICK_IMAGE, REQUEST_PICK_ANY_FILE, REQUEST_PICK_PMTILES, REQUEST_PICK_GEOJSON -> {
                     val uri = data.data
                     if (uri == null) {
                         callback.error("empty_file", "No file URI returned", null)
                         return
                     }
                     try {
-                        val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        val bytes = if (requestCode == REQUEST_PICK_ANY_FILE || requestCode == REQUEST_PICK_IMAGE) {
+                            readUriBytesCapped(uri, MAX_PICKED_ATTACHMENT_BYTES)
+                        } else {
+                            contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        }
                         if (bytes == null || bytes.isEmpty()) {
                             callback.error("empty_file", "Selected file was empty", null)
                         } else {
+                            val displayName = queryDisplayName(uri)
                             val mime = contentResolver.getType(uri)
+                                ?: if (requestCode == REQUEST_PICK_ANY_FILE || requestCode == REQUEST_PICK_IMAGE) {
+                                    inferMimeTypeFromFilename(displayName)
+                                } else {
+                                    null
+                                }
                                 ?: when (requestCode) {
                                     REQUEST_PICK_PMTILES -> "application/vnd.pmtiles"
                                     REQUEST_PICK_GEOJSON -> "application/geo+json"
-                                    else -> "image/jpeg"
+                                    REQUEST_PICK_IMAGE -> "image/jpeg"
+                                    else -> "application/octet-stream"
                                 }
                             callback.success(
                                 mapOf(
                                     "bytes" to bytes,
                                     "mimeType" to mime,
-                                    "name" to queryDisplayName(uri),
+                                    "name" to displayName,
                                 ),
                             )
                         }
+                    } catch (err: FileTooLargeException) {
+                        callback.error(
+                            "file_too_large",
+                            err.message ?: "Selected file exceeds the 25 MB limit",
+                            null,
+                        )
+                    } catch (_: OutOfMemoryError) {
+                        callback.error(
+                            "file_too_large",
+                            "Selected file is too large to load into memory",
+                            null,
+                        )
                     } catch (err: Exception) {
                         callback.error("read_failed", err.message ?: "Failed to read file", null)
                     }
