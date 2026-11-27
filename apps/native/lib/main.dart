@@ -1202,19 +1202,44 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     }
   }
 
-  void _cloneGeoJsonToDraft(String sourceTitle, String geojson) {
+  String _authorLabelForPubkey(String pubkey) {
+    final profile = _accountWallet.profilesByPubkey[pubkey];
+    final name = profile?.displayName?.trim().isNotEmpty == true
+        ? profile!.displayName!.trim()
+        : (profile?.name?.trim().isNotEmpty == true
+            ? profile!.name!.trim()
+            : null);
+    if (name != null) return name;
+    if (pubkey.length > 12) {
+      return '${pubkey.substring(0, 8)}…${pubkey.substring(pubkey.length - 4)}';
+    }
+    return pubkey;
+  }
+
+  void _cloneGeoJsonToDraft(
+    String sourceTitle,
+    String geojson, {
+    String? sourceAuthorPubkey,
+    String? targetAddress,
+  }) {
     final count = _draft.cloneGeoJsonToDraft(
       sourceTitle,
       geojson,
+      sourceAuthorPubkey: sourceAuthorPubkey,
+      sourceAuthorLabel: sourceAuthorPubkey != null
+          ? _authorLabelForPubkey(sourceAuthorPubkey)
+          : null,
+      targetAddress: targetAddress,
+      suffix: '(Copy)',
       onPersist: _schedulePersistWorkingDraft,
     );
     if (count == 0) {
-      _showSnack('No editable features found to clone');
+      _showSnack('No editable features found to copy');
       return;
     }
     _openDrawer(_ActiveDrawer.desk);
     _showSnack(
-      'Cloned $count feature${count == 1 ? '' : 's'} into Working Draft',
+      'Created editable copy ($count feature${count == 1 ? '' : 's'}) in Desk',
     );
   }
 
@@ -1227,7 +1252,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         : map;
     if (!mounted) return;
     final isOwned = _accountWallet.account != null &&
-        _accountWallet.account!.pubkey == resolvedMap.pubkey;
+        _accountWallet.account!.pubkey.toLowerCase() ==
+            resolvedMap.pubkey.toLowerCase();
     final cloned = parseDraftFeaturesFromGeoJson(resolvedMap.geojson);
     if (cloned.isEmpty) {
       _showSnack('No editable features found in map');
@@ -1238,13 +1264,46 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       isOwned: isOwned,
       dTag: resolvedMap.dTag,
       title: resolvedMap.title,
+      sourceAuthorPubkey: resolvedMap.pubkey,
+      sourceAuthorLabel: _authorLabelForPubkey(resolvedMap.pubkey),
+      targetAddress: resolvedMap.address,
+      targetEventId: resolvedMap.eventId,
       onPersist: _schedulePersistWorkingDraft,
     );
     _openDrawer(_ActiveDrawer.desk);
     _showSnack(
       isOwned
-          ? 'Loaded "${resolvedMap.title}" for in-place edit (preserving d-tag)'
-          : 'Forked ${cloned.length} features into Working Draft',
+          ? 'Loaded "${resolvedMap.title}" to update in place'
+          : 'Created editable copy of "${resolvedMap.title}" in Desk',
+    );
+  }
+
+  Future<void> _proposeEditForPublicMap(MapSummaryDto map) async {
+    final resolvedMap = map.blobRefs.isNotEmpty
+        ? await _catalog.ensureMapBlobsResolved(
+            map,
+            onError: _showSnack,
+          )
+        : map;
+    if (!mounted) return;
+    final parsed = parseDraftFeaturesFromGeoJson(resolvedMap.geojson);
+    if (parsed.isEmpty) {
+      _showSnack('No editable features found in map');
+      return;
+    }
+    _draft.loadPublicMapForProposal(
+      parsed: parsed,
+      dTag: resolvedMap.dTag,
+      title: resolvedMap.title,
+      targetAddress: resolvedMap.address,
+      targetEventId: resolvedMap.eventId,
+      targetAuthorPubkey: resolvedMap.pubkey,
+      targetAuthorLabel: _authorLabelForPubkey(resolvedMap.pubkey),
+      onPersist: _schedulePersistWorkingDraft,
+    );
+    _openDrawer(_ActiveDrawer.desk);
+    _showSnack(
+      'Loaded "${resolvedMap.title}" in Desk to propose an edit',
     );
   }
 
@@ -1571,13 +1630,120 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     }
   }
 
+  void _showPublishedSnack({
+    required String message,
+    VoidCallback? onReopen,
+  }) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 7),
+          content: Text(message),
+          action: onReopen != null
+              ? SnackBarAction(
+                  label: 'Reopen',
+                  onPressed: onReopen,
+                )
+              : null,
+        ),
+      );
+  }
+
+  void _releaseDeskAfterPublish() {
+    _draft.releaseAfterPublish(onPersist: _schedulePersistWorkingDraft);
+    if (mounted && MediaQuery.sizeOf(context).width < 880) {
+      _closeDrawer(_ActiveDrawer.desk);
+    }
+  }
+
   Future<PublishOutcomeDto> _publishDraft(
     String title,
     DraftAudienceChoice audience,
   ) async {
     await RustBridge.ensureInitialized();
-    final geojson = draftFeaturesToGeoJson(title: title, features: _draft.features);
+    final publishedFeatures = List<DrawnFeature>.from(_draft.features);
+    final publishedDTag = _draft.draftDTag;
+    final publishedProvenance = _draft.provenance;
+    final publishedSummary = _draft.proposalSummary.trim();
+    final publishedBounds = _draft.computeDraftBounds();
+    final geojson =
+        draftFeaturesToGeoJson(title: title, features: publishedFeatures);
 
+    // --- Mode A: Edit Proposal (MLS encrypted 37519 or Public 37519) ---
+    if (publishedProvenance.isProposingEdit) {
+      if (publishedProvenance.targetCircleWorkspaceId != null &&
+          publishedProvenance.targetDatasetId != null &&
+          publishedProvenance.sourceAuthorPubkey != null) {
+        final mlsPath = await _spaces.ensureMlsDatabasePath();
+        await _accountWallet.syncExternalCircleSigner(
+          isHeadlessTest: _isHeadlessTest,
+        );
+        final updated = await sendCircleDatasetProposal(
+          databasePath: mlsPath,
+          signerNsec: _accountWallet.localNsec,
+          bunkerUri: _accountWallet.bunkerUri,
+          bunkerClientNsec: _accountWallet.bunkerClientNsec,
+          workspaceId: publishedProvenance.targetCircleWorkspaceId!,
+          targetDatasetId: publishedProvenance.targetDatasetId!,
+          targetAuthorPubkey: publishedProvenance.sourceAuthorPubkey!,
+          geojsonJson: geojson,
+          name: title,
+          summary: publishedSummary.isNotEmpty
+              ? publishedSummary
+              : 'Proposed map update',
+          proposalId: publishedDTag,
+        );
+        _handleCircleWorkspaceUpdated(updated);
+        _releaseDeskAfterPublish();
+        _showPublishedSnack(
+          message:
+              'Sent edit proposal for "${publishedProvenance.sourceTitle ?? title}" to "${updated.name}"',
+        );
+        return PublishOutcomeDto(
+          eventId: updated.proposals.firstOrNull?.envelopeId ?? publishedDTag,
+          outboxState: 'mls-proposal (epoch ${updated.epoch})',
+          relays: [
+            RelayDeliveryStatusDto(
+              relayUrl: 'cordn://${updated.name}',
+              ok: true,
+              message: 'cursor ${updated.cursor}',
+            ),
+          ],
+        );
+      }
+
+      if (publishedProvenance.targetAddress != null &&
+          publishedProvenance.sourceAuthorPubkey != null) {
+        final account = await _ensureAccount();
+        final prepared = await prepareUnsignedProposalEvent(
+          pubkeyOrNpub: account.pubkey,
+          dTag: publishedDTag,
+          targetAddress: publishedProvenance.targetAddress!,
+          targetOwnerPubkey: publishedProvenance.sourceAuthorPubkey!,
+          baseEventId: publishedProvenance.targetEventId ?? '',
+          description: publishedSummary.isNotEmpty
+              ? publishedSummary
+              : 'Proposed update to ${publishedProvenance.sourceTitle ?? title}',
+          proposedGeojson: geojson,
+        );
+        final signed = await _accountWallet.signUnsignedEvent(
+          account,
+          prepared.unsignedEventJson,
+        );
+        final outcome =
+            await _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
+        _releaseDeskAfterPublish();
+        _showPublishedSnack(
+          message:
+              'Published edit proposal (37519) for "${publishedProvenance.sourceTitle ?? title}"',
+        );
+        return outcome;
+      }
+    }
+
+    // --- Mode B: MLS Encrypted Group Publish / Update / Copy ---
     if (audience == DraftAudienceChoice.privateCircle) {
       final validSelected = _spaces.selectedCircleId != null &&
               _spaces.circles
@@ -1585,6 +1751,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           ? _spaces.selectedCircleId
           : null;
       final targetId = validSelected ??
+          publishedProvenance.targetCircleWorkspaceId ??
           _spaces.activeCircleLensId ??
           _spaces.circles.firstOrNull?.workspaceId;
       if (targetId == null || targetId.isEmpty) {
@@ -1601,13 +1768,48 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         bunkerClientNsec: _accountWallet.bunkerClientNsec,
         workspaceId: targetId,
         geojsonJson: geojson,
-        datasetId: _draft.draftDTag,
+        datasetId: publishedDTag,
         name: title,
       );
       _handleCircleWorkspaceUpdated(updated);
-      _schedulePersistWorkingDraft();
+      // Always mount the newly published MLS dataset on the shelf so geometry
+      // stays visible on the map right after Desk releases.
+      final publishedDs = updated.datasets
+          .where((d) => d.datasetId == publishedDTag)
+          .firstOrNull;
+      if (publishedDs != null) {
+        final summary =
+            SpacesSyncController.circleDatasetToSummary(updated, publishedDs);
+        _catalog.applyResolvedMapToState(summary);
+        _catalog.ensureMapOnShelf(summary);
+      }
+      _releaseDeskAfterPublish();
+      final verb = publishedProvenance.isUpdatingOwned
+          ? 'Updated'
+          : publishedProvenance.isCopyingOther
+              ? 'Published copy'
+              : 'Published';
+      _showPublishedSnack(
+        message: '$verb "$title" in "${updated.name}"',
+        onReopen: () {
+          _spaces.setSelectedCircleId(updated.workspaceId);
+          _draft.loadCircleDataset(
+            dTag: publishedDTag,
+            title: title,
+            parsed: publishedFeatures,
+            isOwned: true,
+            sourceAuthorPubkey: _accountWallet.account?.pubkey,
+            circleWorkspaceId: updated.workspaceId,
+            circleName: updated.name,
+            onPersist: _schedulePersistWorkingDraft,
+          );
+          _openDrawer(_ActiveDrawer.desk);
+        },
+      );
       return PublishOutcomeDto(
-        eventId: updated.datasets.firstOrNull?.envelopeId ?? _draft.draftDTag,
+        eventId: publishedDs?.envelopeId ??
+            updated.datasets.firstOrNull?.envelopeId ??
+            publishedDTag,
         outboxState: 'mls-encrypted (epoch ${updated.epoch})',
         relays: [
           RelayDeliveryStatusDto(
@@ -1619,6 +1821,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       );
     }
 
+    // --- Mode C: Public Relay or Nearby Local Node Publish / Update / Copy ---
     final account = await _ensureAccount();
     ExternalGeoBlobDto? externalBlob;
     final rawBytes = Uint8List.fromList(utf8.encode(geojson));
@@ -1642,7 +1845,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     }
     final prepared = await prepareUnsignedMapEvent(
       pubkeyOrNpub: account.pubkey,
-      dTag: _draft.draftDTag,
+      dTag: publishedDTag,
       title: title,
       geojson: geojson,
       hashtags: const ['earthly-native'],
@@ -1657,7 +1860,58 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     final signedEventJson =
         await _accountWallet.signUnsignedEvent(account, prepared.unsignedEventJson);
     final outcome = await _deliverForAudience(audience, signedEventJson);
-    _schedulePersistWorkingDraft();
+
+    // Mount the just-published map onto the Shelf so it remains visible on the
+    // canvas when the Desk form releases cleanly.
+    final publishedAddress = '37515:${account.pubkey}:$publishedDTag';
+    final publishedSummaryDto = MapSummaryDto(
+      address: publishedAddress,
+      eventId: outcome.eventId,
+      pubkey: account.pubkey,
+      dTag: publishedDTag,
+      title: title,
+      description: null,
+      featureCount: publishedFeatures.length,
+      sizeBytes: rawBytes.length,
+      geojson: geojson,
+      blobRefs: const <BlobRefDto>[],
+      west: publishedBounds?.west,
+      south: publishedBounds?.south,
+      east: publishedBounds?.east,
+      north: publishedBounds?.north,
+      hashtags: const ['earthly-native'],
+      labels: const <String>[],
+      contextRefs: _catalog.activeAtlasLens != null
+          ? <String>[_catalog.activeAtlasLens!.address]
+          : const <String>[],
+      createdAt: BigInt.from(DateTime.now().millisecondsSinceEpoch ~/ 1000),
+    );
+    _catalog.applyResolvedMapToState(publishedSummaryDto);
+    _catalog.ensureMapOnShelf(publishedSummaryDto);
+    _releaseDeskAfterPublish();
+
+    final verb = publishedProvenance.isUpdatingOwned
+        ? 'Updated'
+        : publishedProvenance.isCopyingOther
+            ? 'Published copy'
+            : 'Published';
+    _showPublishedSnack(
+      message: '$verb "$title" (${outcome.outboxState})',
+      onReopen: () {
+        _draft.loadForkOrOwnedMap(
+          cloned: publishedFeatures,
+          isOwned: true,
+          dTag: publishedDTag,
+          title: title,
+          sourceAuthorPubkey: account.pubkey,
+          targetAddress: publishedAddress,
+          targetEventId: outcome.eventId,
+          audience: audience,
+          onPersist: _schedulePersistWorkingDraft,
+        );
+        _openDrawer(_ActiveDrawer.desk);
+      },
+    );
     return outcome;
   }
 
@@ -2417,55 +2671,78 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                         height: 1,
                         color: theme.dividerColor.withValues(alpha: 0.6),
                       ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-                        child: Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
+                      IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            ActionChip(
-                              key: const Key('earthly-pill-jump-map'),
-                              visualDensity: VisualDensity.compact,
-                              avatar: const Icon(Icons.map_outlined, size: 14),
-                              label: const Text('Map'),
-                              onPressed: () {
-                                Navigator.of(ctx).pop();
-                                _openSettings(tab: EarthlySettingsTab.map);
-                              },
-                            ),
-                            ActionChip(
-                              key: const Key('earthly-pill-jump-relays'),
-                              visualDensity: VisualDensity.compact,
-                              avatar: const Icon(Icons.hub_outlined, size: 14),
-                              label: Text('Relays (${_catalog.relayUrls.length})'),
-                              onPressed: () {
-                                Navigator.of(ctx).pop();
-                                _openSettings(tab: EarthlySettingsTab.relays);
-                              },
-                            ),
-                            ActionChip(
-                              key: const Key('earthly-pill-jump-chat'),
-                              visualDensity: VisualDensity.compact,
-                              avatar: const Icon(Icons.auto_awesome, size: 14),
-                              label: const Text('Chat AI'),
-                              onPressed: () {
-                                Navigator.of(ctx).pop();
-                                _openSettings(tab: EarthlySettingsTab.chat);
-                              },
-                            ),
-                            ActionChip(
-                              key: const Key('earthly-pill-jump-account'),
-                              visualDensity: VisualDensity.compact,
-                              avatar: const Icon(
-                                Icons.account_circle_outlined,
-                                size: 14,
+                            for (final item in [
+                              (
+                                const Key('earthly-pill-jump-map'),
+                                Icons.map_outlined,
+                                'Map',
+                                EarthlySettingsTab.map,
                               ),
-                              label: const Text('Account'),
-                              onPressed: () {
-                                Navigator.of(ctx).pop();
-                                _openSettings(tab: EarthlySettingsTab.account);
-                              },
-                            ),
+                              (
+                                const Key('earthly-pill-jump-relays'),
+                                Icons.hub_outlined,
+                                'Relays',
+                                EarthlySettingsTab.relays,
+                              ),
+                              (
+                                const Key('earthly-pill-jump-chat'),
+                                Icons.auto_awesome,
+                                'Chat AI',
+                                EarthlySettingsTab.chat,
+                              ),
+                              (
+                                const Key('earthly-pill-jump-account'),
+                                Icons.account_circle_outlined,
+                                'Account',
+                                EarthlySettingsTab.account,
+                              ),
+                            ].indexed) ...[
+                              if (item.$1 > 0)
+                                VerticalDivider(
+                                  width: 1,
+                                  color:
+                                      theme.dividerColor.withValues(alpha: 0.6),
+                                ),
+                              Expanded(
+                                child: InkWell(
+                                  key: item.$2.$1,
+                                  onTap: () {
+                                    Navigator.of(ctx).pop();
+                                    _openSettings(tab: item.$2.$4);
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                      vertical: 9,
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          item.$2.$2,
+                                          size: 16,
+                                          color: theme.colorScheme.onSurface,
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          item.$2.$3,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -2523,92 +2800,155 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                   ),
                 ),
                 const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    if (_catalog.shelfMaps.isNotEmpty ||
-                        _draft.features.isNotEmpty)
-                      OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.of(ctx).pop();
-                          _fitAllMountedLayers();
-                        },
-                        icon: const Icon(Icons.fit_screen, size: 16),
-                        label: const Text('Fit All Layers'),
-                      ),
-                    if (_catalog.shelfMaps.isNotEmpty)
-                      OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.of(ctx).pop();
-                          _catalog.clearShelf();
-                        },
-                        icon: const Icon(Icons.layers_clear_outlined, size: 16),
-                        label: Text('Clear Shelf (${_catalog.shelfMaps.length})'),
-                      ),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        if (_draft.gpsTrackRecording) {
-                          unawaited(_finishGpsTrackToDraft());
-                        } else {
-                          unawaited(_startGpsTrack());
-                        }
-                      },
-                      icon: Icon(
-                        _draft.gpsTrackRecording
-                            ? Icons.stop_circle_outlined
-                            : Icons.route,
-                        size: 16,
-                      ),
-                      label: Text(
-                        _draft.gpsTrackRecording
-                            ? 'Save GPS Track (${_draft.gpsTrackPoints.length})'
-                            : 'Record GPS Track',
-                      ),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        unawaited(_exportMapPosterPng());
-                      },
-                      icon: const Icon(Icons.image_outlined, size: 16),
-                      label: const Text('Export Poster'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        _openDrawer(_ActiveDrawer.inbox);
-                        unawaited(_refreshInbox());
-                      },
-                      icon: const Icon(Icons.inbox_outlined, size: 16),
-                      label: Text(
-                        _spaces.inboxUnreadCount > 0
-                            ? 'Inbox (${_spaces.inboxUnreadCount})'
-                            : 'Inbox',
-                      ),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        _openDrawer(_ActiveDrawer.circles);
-                      },
-                      icon: const Icon(Icons.lock_outline, size: 16),
-                      label: Text(
-                        _spaces.circles.isEmpty
-                            ? 'Circles (MLS)'
-                            : 'Circles (${_spaces.circles.length})',
-                      ),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        _openDrawer(_ActiveDrawer.help);
-                      },
-                      icon: const Icon(Icons.help_outline, size: 16),
-                      label: const Text('Help'),
-                    ),
-                  ],
+                // Clean grouped action list (replaces multi-row pill wrap)
+                Material(
+                  key: const Key('earthly-pill-actions-group'),
+                  color: theme.colorScheme.surfaceContainerHighest
+                      .withValues(alpha: 0.55),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    side: BorderSide(color: theme.dividerColor),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final entry in [
+                        if (_catalog.shelfMaps.isNotEmpty ||
+                            _draft.features.isNotEmpty)
+                          (
+                            Icons.fit_screen,
+                            'Fit All Layers',
+                            null as String?,
+                            () {
+                              Navigator.of(ctx).pop();
+                              _fitAllMountedLayers();
+                            },
+                          ),
+                        if (_catalog.shelfMaps.isNotEmpty)
+                          (
+                            Icons.layers_clear_outlined,
+                            'Clear Shelf',
+                            '${_catalog.shelfMaps.length}',
+                            () {
+                              Navigator.of(ctx).pop();
+                              _catalog.clearShelf();
+                            },
+                          ),
+                        (
+                          _draft.gpsTrackRecording
+                              ? Icons.stop_circle_outlined
+                              : Icons.route,
+                          _draft.gpsTrackRecording
+                              ? 'Save GPS Track'
+                              : 'Record GPS Track',
+                          _draft.gpsTrackRecording
+                              ? '${_draft.gpsTrackPoints.length} pts'
+                              : null,
+                          () {
+                            Navigator.of(ctx).pop();
+                            if (_draft.gpsTrackRecording) {
+                              unawaited(_finishGpsTrackToDraft());
+                            } else {
+                              unawaited(_startGpsTrack());
+                            }
+                          },
+                        ),
+                        (
+                          Icons.image_outlined,
+                          'Export Map Poster (PNG)',
+                          null as String?,
+                          () {
+                            Navigator.of(ctx).pop();
+                            unawaited(_exportMapPosterPng());
+                          },
+                        ),
+                        (
+                          Icons.inbox_outlined,
+                          'Inbox',
+                          _spaces.inboxUnreadCount > 0
+                              ? '${_spaces.inboxUnreadCount} unread'
+                              : null,
+                          () {
+                            Navigator.of(ctx).pop();
+                            _openDrawer(_ActiveDrawer.inbox);
+                            unawaited(_refreshInbox());
+                          },
+                        ),
+                        (
+                          Icons.lock_outline,
+                          'Circles (MLS Groups)',
+                          _spaces.circles.isNotEmpty
+                              ? '${_spaces.circles.length}'
+                              : null,
+                          () {
+                            Navigator.of(ctx).pop();
+                            _openDrawer(_ActiveDrawer.circles);
+                          },
+                        ),
+                        (
+                          Icons.help_outline,
+                          'Help & Shortcuts',
+                          null as String?,
+                          () {
+                            Navigator.of(ctx).pop();
+                            _openDrawer(_ActiveDrawer.help);
+                          },
+                        ),
+                      ].indexed) ...[
+                        if (entry.$1 > 0)
+                          Divider(
+                            height: 1,
+                            color: theme.dividerColor.withValues(alpha: 0.6),
+                          ),
+                        InkWell(
+                          onTap: entry.$2.$4,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 11,
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  entry.$2.$1,
+                                  size: 18,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    entry.$2.$2,
+                                    style: const TextStyle(
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                if (entry.$2.$3 != null) ...[
+                                  Text(
+                                    entry.$2.$3!,
+                                    style: TextStyle(
+                                      fontFamily: 'monospace',
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                ],
+                                Icon(
+                                  Icons.chevron_right,
+                                  size: 17,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -2935,6 +3275,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             onPersist: _schedulePersistWorkingDraft,
           ),
           onSelectDraft: _draft.selectSavedDraft,
+          provenance: _draft.provenance,
+          proposalSummary: _draft.proposalSummary,
+          onProposalSummaryChanged: _draft.setProposalSummary,
+          onDetachAsNewCopy: () =>
+              _draft.detachAsNewCopy(onPersist: _schedulePersistWorkingDraft),
           onCreateNewDraft: () =>
               _draft.createNewDraft(onPersist: _schedulePersistWorkingDraft),
           onDeleteDraft: (id) => unawaited(
@@ -2955,8 +3300,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           onRemoveShelfMap: _catalog.removeShelfMap,
           onInspectShelfMap: _inspectMap,
           onFlyToShelfMap: _flyToMap,
-          onCloneShelfMapToDraft: (map) =>
-              _cloneGeoJsonToDraft(map.title, map.geojson),
+          onCloneShelfMapToDraft: (map) => unawaited(_editOrForkMap(map)),
           onOpenShelfDiscussion: (map) => _openDiscussion(
             DiscussionTarget(
               address: map.address,
@@ -3186,14 +3530,105 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           onZoomToDataset: _zoomToCircleDataset,
           onEditDatasetInDraft: (ws, ds) {
             final parsed = parseDraftFeaturesFromGeoJson(ds.geojsonJson);
+            final isOwned = _accountWallet.account != null &&
+                _accountWallet.account!.pubkey.toLowerCase() ==
+                    ds.pubkey.toLowerCase();
             _spaces.enterCircleLensState(ws);
+            _spaces.setSelectedCircleId(ws.workspaceId);
             _draft.loadCircleDataset(
               dTag: ds.datasetId,
+              title: ds.title,
+              parsed: parsed,
+              isOwned: isOwned,
+              sourceAuthorPubkey: ds.pubkey,
+              sourceAuthorLabel: _authorLabelForPubkey(ds.pubkey),
+              circleWorkspaceId: ws.workspaceId,
+              circleName: ws.name,
+              onPersist: _schedulePersistWorkingDraft,
+            );
+            _openDrawer(_ActiveDrawer.desk);
+          },
+          onCopyDatasetToDraft: (ws, ds) {
+            final parsed = parseDraftFeaturesFromGeoJson(ds.geojsonJson);
+            _spaces.enterCircleLensState(ws);
+            _spaces.setSelectedCircleId(ws.workspaceId);
+            _draft.loadCircleDataset(
+              dTag: ds.datasetId,
+              title: ds.title,
+              parsed: parsed,
+              isOwned: false,
+              sourceAuthorPubkey: ds.pubkey,
+              sourceAuthorLabel: _authorLabelForPubkey(ds.pubkey),
+              circleWorkspaceId: ws.workspaceId,
+              circleName: ws.name,
+              onPersist: _schedulePersistWorkingDraft,
+            );
+            _openDrawer(_ActiveDrawer.desk);
+            _showSnack(
+              'Created editable copy of "${ds.title}" in Desk',
+            );
+          },
+          onProposeDatasetEdit: (ws, ds) {
+            final parsed = parseDraftFeaturesFromGeoJson(ds.geojsonJson);
+            _spaces.enterCircleLensState(ws);
+            _spaces.setSelectedCircleId(ws.workspaceId);
+            _draft.loadCircleDatasetForProposal(
+              targetDatasetId: ds.datasetId,
+              targetAuthorPubkey: ds.pubkey,
+              targetAuthorLabel: _authorLabelForPubkey(ds.pubkey),
+              circleWorkspaceId: ws.workspaceId,
+              circleName: ws.name,
               title: ds.title,
               parsed: parsed,
               onPersist: _schedulePersistWorkingDraft,
             );
             _openDrawer(_ActiveDrawer.desk);
+            _showSnack(
+              'Loaded "${ds.title}" to propose an edit to "${ws.name}"',
+            );
+          },
+          activeProposalOverlayId: _catalog.activeProposalOverlayId,
+          onToggleProposalOverlay: (ws, prop) {
+            final shapes = _catalog.toggleCircleProposalOverlay(prop);
+            if (shapes.isNotEmpty) {
+              final bounds = computeFeatureBounds(shapes.first);
+              if (bounds != null) _flyToBounds(bounds);
+            }
+          },
+          onRespondProposal: (ws, prop, statusKind, note) async {
+            await RustBridge.ensureInitialized();
+            await _accountWallet.syncExternalCircleSigner(
+              isHeadlessTest: _isHeadlessTest,
+            );
+            final mlsPath = await _spaces.ensureMlsDatabasePath();
+            final updated = await respondCircleDatasetProposal(
+              databasePath: mlsPath,
+              signerNsec: _accountWallet.localNsec,
+              bunkerUri: _accountWallet.bunkerUri,
+              bunkerClientNsec: _accountWallet.bunkerClientNsec,
+              workspaceId: ws.workspaceId,
+              proposalId: prop.proposalId,
+              statusKind: statusKind,
+              note: note,
+            );
+            _handleCircleWorkspaceUpdated(updated);
+            if (statusKind == 1631) {
+              final refreshed = updated.datasets
+                  .where((d) => d.datasetId == prop.targetDatasetId)
+                  .firstOrNull;
+              if (refreshed != null) {
+                final summary = SpacesSyncController.circleDatasetToSummary(
+                  updated,
+                  refreshed,
+                );
+                _catalog.applyResolvedMapToState(summary);
+                _catalog.ensureMapOnShelf(summary);
+              }
+              if (_catalog.activeProposalOverlayId == prop.proposalId) {
+                _catalog.clearAllMapOverlays();
+              }
+            }
+            return updated;
           },
           onStartNewPrivateMap: (ws) {
             _spaces.enterCircleLensState(ws);
@@ -4067,6 +4502,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           },
           onJumpToFeature: (shape) => _jumpToMapFeature(map, shape),
           onEditOrForkMap: () => unawaited(_editOrForkMap(map)),
+          onProposeEdit: () => unawaited(_proposeEditForPublicMap(map)),
           onOpenDiscussion: () => _openDiscussion(
             DiscussionTarget(
               address: map.address,

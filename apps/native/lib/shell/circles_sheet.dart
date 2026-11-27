@@ -74,6 +74,11 @@ class CirclesSheet extends StatefulWidget {
     required this.onToggleDatasetOnMap,
     required this.onZoomToDataset,
     required this.onEditDatasetInDraft,
+    this.onCopyDatasetToDraft,
+    this.onProposeDatasetEdit,
+    this.activeProposalOverlayId,
+    this.onToggleProposalOverlay,
+    this.onRespondProposal,
     required this.onStartNewPrivateMap,
     required this.onToggleCommentGeometry,
     required this.onSendCircleComment,
@@ -125,6 +130,19 @@ class CirclesSheet extends StatefulWidget {
       onZoomToDataset;
   final void Function(CircleWorkspaceDto ws, CircleDatasetDto dataset)
       onEditDatasetInDraft;
+  final void Function(CircleWorkspaceDto ws, CircleDatasetDto dataset)?
+      onCopyDatasetToDraft;
+  final void Function(CircleWorkspaceDto ws, CircleDatasetDto dataset)?
+      onProposeDatasetEdit;
+  final String? activeProposalOverlayId;
+  final void Function(CircleWorkspaceDto ws, CircleProposalDto proposal)?
+      onToggleProposalOverlay;
+  final Future<CircleWorkspaceDto> Function(
+    CircleWorkspaceDto ws,
+    CircleProposalDto proposal,
+    int statusKind,
+    String? note,
+  )? onRespondProposal;
   final ValueChanged<CircleWorkspaceDto> onStartNewPrivateMap;
   final ValueChanged<CircleMessageDto> onToggleCommentGeometry;
   final Future<CircleWorkspaceDto> Function(
@@ -291,6 +309,271 @@ class _CirclesSheetState extends State<CirclesSheet>
     _cordnInputController.dispose();
     _chatInputController.dispose();
     super.dispose();
+  }
+
+  Widget _buildProposalCard(
+    ThemeData theme,
+    CircleWorkspaceDto ws,
+    CircleProposalDto prop, {
+    required bool isDatasetOwner,
+  }) {
+    final isOpen = prop.status == 'open';
+    final isApplied = prop.status == 'applied';
+    final isPreviewing = widget.activeProposalOverlayId == prop.proposalId;
+    final isProposer = widget.account != null &&
+        widget.account!.pubkey.toLowerCase() == prop.pubkey.toLowerCase();
+    final badgeColor = isApplied
+        ? EarthlyColors.commentGreen
+        : isOpen
+            ? EarthlyColors.proposedAmber
+            : theme.colorScheme.onSurfaceVariant;
+
+    return Container(
+      key: Key('circle-proposal-${prop.proposalId}'),
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: badgeColor.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: badgeColor.withValues(alpha: 0.42)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.compare_arrows, size: 15, color: badgeColor),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  '${_authorLabel(prop.pubkey)} proposed an edit (${prop.featureCount} feat)',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              EarthlyBadge(
+                label: prop.status.toUpperCase(),
+                color: badgeColor,
+              ),
+            ],
+          ),
+          if (prop.summary.trim().isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              prop.summary,
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+          if (prop.statusNote != null && prop.statusNote!.trim().isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(
+              'Note: ${prop.statusNote!}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Material(
+            color: theme.colorScheme.surface.withValues(alpha: 0.72),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(9),
+              side: BorderSide(color: theme.dividerColor),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (widget.onToggleProposalOverlay != null)
+                    Expanded(
+                      child: InkWell(
+                        key: Key('circle-proposal-preview-${prop.proposalId}'),
+                        onTap: () => widget.onToggleProposalOverlay!(ws, prop),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 8,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                isPreviewing
+                                    ? Icons.visibility_off
+                                    : Icons.visibility,
+                                size: 14,
+                              ),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  isPreviewing ? 'Hide' : 'Diff',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (isOpen &&
+                      isDatasetOwner &&
+                      widget.onRespondProposal != null) ...[
+                    if (widget.onToggleProposalOverlay != null)
+                      VerticalDivider(width: 1, color: theme.dividerColor),
+                    Expanded(
+                      child: InkWell(
+                        key: Key('circle-proposal-close-${prop.proposalId}'),
+                        onTap: _busy
+                            ? null
+                            : () => unawaited(
+                                  _handleRespondProposal(ws, prop, 1632),
+                                ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 8,
+                          ),
+                          child: Center(
+                            child: Text(
+                              'Decline',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    VerticalDivider(width: 1, color: theme.dividerColor),
+                    Expanded(
+                      child: InkWell(
+                        key: Key('circle-proposal-apply-${prop.proposalId}'),
+                        onTap: _busy
+                            ? null
+                            : () => unawaited(
+                                  _handleRespondProposal(ws, prop, 1631),
+                                ),
+                        child: ColoredBox(
+                          color: EarthlyColors.commentGreen
+                              .withValues(alpha: 0.14),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 8,
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.check,
+                                  size: 14,
+                                  color: EarthlyColors.commentGreen,
+                                ),
+                                SizedBox(width: 4),
+                                Flexible(
+                                  child: Text(
+                                    'Apply',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: EarthlyColors.commentGreen,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ] else if (isOpen &&
+                      isProposer &&
+                      widget.onRespondProposal != null) ...[
+                    if (widget.onToggleProposalOverlay != null)
+                      VerticalDivider(width: 1, color: theme.dividerColor),
+                    Expanded(
+                      child: InkWell(
+                        key: Key('circle-proposal-withdraw-${prop.proposalId}'),
+                        onTap: _busy
+                            ? null
+                            : () => unawaited(
+                                  _handleRespondProposal(ws, prop, 1632),
+                                ),
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 8,
+                          ),
+                          child: Center(
+                            child: Text(
+                              'Withdraw',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleRespondProposal(
+    CircleWorkspaceDto ws,
+    CircleProposalDto prop,
+    int statusKind,
+  ) async {
+    if (widget.onRespondProposal == null) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+      _info = null;
+    });
+    try {
+      final updated = await widget.onRespondProposal!(
+        ws,
+        prop,
+        statusKind,
+        null,
+      );
+      widget.onWorkspaceUpdated(updated);
+      if (!mounted) return;
+      setState(() {
+        _info = statusKind == 1631
+            ? 'Applied edit proposal to "${prop.title}" in place.'
+            : 'Closed edit proposal.';
+      });
+    } catch (err) {
+      if (mounted) setState(() => _error = err.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   String _authorLabel(String pubkey) {
@@ -2770,11 +3053,28 @@ class _CirclesSheetState extends State<CirclesSheet>
                 icon: Icons.center_focus_strong,
                 onSelected: () => widget.onZoomToDataset(ws, ds),
               ),
-              EntityRowMenuAction(
-                label: 'Edit private Map in Desk',
-                icon: Icons.edit_outlined,
-                onSelected: () => widget.onEditDatasetInDraft(ws, ds),
-              ),
+              if (widget.account != null &&
+                  widget.account!.pubkey.toLowerCase() ==
+                      ds.pubkey.toLowerCase())
+                EntityRowMenuAction(
+                  label: 'Edit Map in Desk',
+                  icon: Icons.edit_outlined,
+                  onSelected: () => widget.onEditDatasetInDraft(ws, ds),
+                )
+              else ...[
+                EntityRowMenuAction(
+                  label: 'Propose Edit',
+                  icon: Icons.compare_arrows,
+                  onSelected: () => (widget.onProposeDatasetEdit ??
+                      widget.onEditDatasetInDraft)(ws, ds),
+                ),
+                EntityRowMenuAction(
+                  label: 'Create Copy in Desk',
+                  icon: Icons.copy_all_outlined,
+                  onSelected: () => (widget.onCopyDatasetToDraft ??
+                      widget.onEditDatasetInDraft)(ws, ds),
+                ),
+              ],
               if (ws.status == 'active')
                 EntityRowMenuAction(
                   label: 'Attach Encrypted Map Media',
@@ -2792,6 +3092,19 @@ class _CirclesSheetState extends State<CirclesSheet>
                 ds.mediaAttachments,
                 ds.epoch,
               ),
+            ),
+          for (final prop in ws.proposals.where(
+            (p) =>
+                p.targetDatasetId == ds.datasetId &&
+                p.targetAuthorPubkey.toLowerCase() == ds.pubkey.toLowerCase(),
+          ))
+            _buildProposalCard(
+              theme,
+              ws,
+              prop,
+              isDatasetOwner: widget.account != null &&
+                  widget.account!.pubkey.toLowerCase() ==
+                      ds.pubkey.toLowerCase(),
             ),
         ],
         if (geoComments.isNotEmpty) ...[

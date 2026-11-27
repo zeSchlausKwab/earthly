@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../controllers/draft_workbench_controller.dart';
 import '../drawing/drawing_model.dart';
 import '../nostr/nip55_signer.dart';
 import '../nostr/shelf_renderer.dart';
@@ -58,6 +59,10 @@ class DeskSheet extends StatefulWidget {
     required this.deskAtlases,
     required this.drawnFeatures,
     this.activeAtlasLensName,
+    this.provenance = DraftProvenance.fresh,
+    this.proposalSummary = '',
+    this.onProposalSummaryChanged,
+    this.onDetachAsNewCopy,
     this.circles = const <CircleWorkspaceDto>[],
     this.selectedCircleId,
     this.onSelectedCircleChanged,
@@ -123,6 +128,10 @@ class DeskSheet extends StatefulWidget {
   final List<AtlasSummaryDto> deskAtlases;
   final List<DrawnFeature> drawnFeatures;
   final String? activeAtlasLensName;
+  final DraftProvenance provenance;
+  final String proposalSummary;
+  final ValueChanged<String>? onProposalSummaryChanged;
+  final VoidCallback? onDetachAsNewCopy;
   final List<CircleWorkspaceDto> circles;
   final String? selectedCircleId;
   final ValueChanged<String?>? onSelectedCircleChanged;
@@ -194,6 +203,7 @@ class _DeskSheetState extends State<DeskSheet>
 
   late final TabController _tabs;
   late final TextEditingController _titleController;
+  late final TextEditingController _proposalSummaryController;
   late DraftAudienceChoice _audience;
   String? _localSelectedCircleId;
   double _workbenchMeters = 100;
@@ -208,6 +218,8 @@ class _DeskSheetState extends State<DeskSheet>
     super.initState();
     _tabs = TabController(length: 2, vsync: this);
     _titleController = TextEditingController(text: widget.draftTitle);
+    _proposalSummaryController =
+        TextEditingController(text: widget.proposalSummary);
     _audience = widget.audience;
     _localSelectedCircleId = widget.selectedCircleId;
   }
@@ -222,6 +234,19 @@ class _DeskSheetState extends State<DeskSheet>
         text: widget.draftTitle,
         selection: TextSelection.collapsed(offset: widget.draftTitle.length),
       );
+    }
+    if (oldWidget.activeDraftId != widget.activeDraftId ||
+        (oldWidget.proposalSummary != widget.proposalSummary &&
+            _proposalSummaryController.text != widget.proposalSummary)) {
+      _proposalSummaryController.value = TextEditingValue(
+        text: widget.proposalSummary,
+        selection:
+            TextSelection.collapsed(offset: widget.proposalSummary.length),
+      );
+    }
+    if (oldWidget.activeDraftId != widget.activeDraftId) {
+      _publishError = null;
+      _publishOutcome = null;
     }
     if (oldWidget.audience != widget.audience) {
       _audience = widget.audience;
@@ -238,6 +263,7 @@ class _DeskSheetState extends State<DeskSheet>
   void dispose() {
     _tabs.dispose();
     _titleController.dispose();
+    _proposalSummaryController.dispose();
     super.dispose();
   }
 
@@ -346,14 +372,194 @@ class _DeskSheetState extends State<DeskSheet>
     ThemeData theme, {
     required Widget child,
   }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.72),
+    return Material(
+      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.72),
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.dividerColor),
+        side: BorderSide(color: theme.dividerColor),
       ),
+      clipBehavior: Clip.antiAlias,
       child: child,
     );
+  }
+
+  Widget _buildToolbarCell({
+    Key? key,
+    required ThemeData theme,
+    required IconData icon,
+    required String label,
+    required VoidCallback? onTap,
+  }) {
+    final enabled = onTap != null;
+    final fg = enabled
+        ? theme.colorScheme.onSurface
+        : theme.colorScheme.onSurface.withValues(alpha: 0.36);
+    return Expanded(
+      child: InkWell(
+        key: key,
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 17, color: fg),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: fg,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProvenanceBanner(ThemeData theme) {
+    final prov = widget.provenance;
+    if (prov.isNew) return const SizedBox.shrink();
+
+    final (
+      Color accent,
+      IconData icon,
+      String heading,
+      String detail,
+      bool showDetach,
+    ) = switch (prov.mode) {
+      DraftPublishMode.updatingOwned => (
+          EarthlyColors.commentGreen,
+          Icons.edit_note,
+          'Editing your map',
+          prov.targetCircleName != null
+              ? 'Updates "${prov.sourceTitle ?? 'map'}" in "${prov.targetCircleName}" in place'
+              : 'Updates "${prov.sourceTitle ?? 'map'}" in place',
+          true,
+        ),
+      DraftPublishMode.copyingOther => (
+          theme.colorScheme.primary,
+          Icons.copy_all_outlined,
+          'Creating your own copy',
+          'Based on "${prov.sourceTitle ?? 'map'}"'
+              '${prov.sourceAuthorLabel != null ? ' by ${prov.sourceAuthorLabel}' : ''}'
+              ' · original stays untouched',
+          false,
+        ),
+      DraftPublishMode.proposingEdit => (
+          EarthlyColors.proposedAmber,
+          Icons.compare_arrows,
+          'Proposing edit',
+          'To "${prov.sourceTitle ?? 'map'}"'
+              '${prov.sourceAuthorLabel != null ? ' by ${prov.sourceAuthorLabel}' : ''}'
+              ' · owner can accept & apply',
+          true,
+        ),
+      DraftPublishMode.newMap => (
+          theme.colorScheme.primary,
+          Icons.add,
+          '',
+          '',
+          false,
+        ),
+    };
+
+    return Container(
+      key: const Key('desk-provenance-banner'),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.11),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: accent.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 17, color: accent),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  heading,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: accent,
+                  ),
+                ),
+                Text(
+                  detail,
+                  style: theme.textTheme.bodySmall?.copyWith(fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          if (showDetach && widget.onDetachAsNewCopy != null)
+            TextButton(
+              key: const Key('desk-detach-copy-btn'),
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+              ),
+              onPressed: widget.onDetachAsNewCopy,
+              child: const Text('Save as Copy'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _resolvePublishButtonLabel(CircleWorkspaceDto? selectedCircle) {
+    final prov = widget.provenance;
+    if (prov.isProposingEdit) {
+      if (prov.targetCircleName != null && prov.targetCircleName!.isNotEmpty) {
+        return 'Send Edit Proposal to "${prov.targetCircleName}"';
+      }
+      if (selectedCircle != null &&
+          _audience == DraftAudienceChoice.privateCircle) {
+        return 'Send Edit Proposal to "${selectedCircle.name}"';
+      }
+      return 'Send Edit Proposal (37519)';
+    }
+    if (prov.isUpdatingOwned) {
+      if (_audience == DraftAudienceChoice.privateCircle) {
+        return selectedCircle != null
+            ? 'Update in "${selectedCircle.name}"'
+            : 'Select an MLS Group';
+      }
+      if (widget.account == null) return 'Sign & Update Map';
+      return _audience == DraftAudienceChoice.publicRelay
+          ? 'Update on relay.earthly.city'
+          : 'Update on Nearby Local Node';
+    }
+    if (prov.isCopyingOther) {
+      if (_audience == DraftAudienceChoice.privateCircle) {
+        return selectedCircle != null
+            ? 'Publish Copy to "${selectedCircle.name}"'
+            : 'Select an MLS Group';
+      }
+      if (widget.account == null) return 'Sign & Publish Copy';
+      return _audience == DraftAudienceChoice.publicRelay
+          ? 'Publish Copy to relay.earthly.city'
+          : 'Publish Copy to Nearby Local Node';
+    }
+    if (_audience == DraftAudienceChoice.privateCircle) {
+      return selectedCircle != null
+          ? 'Publish to "${selectedCircle.name}"'
+          : 'Select an MLS Group';
+    }
+    if (widget.account == null) return 'Sign & Publish Map';
+    return _audience == DraftAudienceChoice.publicRelay
+        ? 'Publish to relay.earthly.city'
+        : 'Publish to Nearby Local Node';
   }
 
   @override
@@ -430,7 +636,7 @@ class _DeskSheetState extends State<DeskSheet>
       child: ListView(
         padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
         children: [
-          // Compact draft header bar: feature count + Undo/Redo/+ New/Clear
+          // Compact draft header bar: feature count + Validate + Undo/Redo/+ New/Clear
           Row(
             children: [
               Expanded(
@@ -443,6 +649,18 @@ class _DeskSheetState extends State<DeskSheet>
                   ),
                 ),
               ),
+              if (widget.onValidateDraft != null &&
+                  widget.drawnFeatures.isNotEmpty)
+                TextButton.icon(
+                  key: const Key('desk-validate-draft-btn'),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                  ),
+                  onPressed: _validating ? null : _handleValidate,
+                  icon: const Icon(Icons.verified_outlined, size: 15),
+                  label: Text(_validating ? 'Checking…' : 'Check'),
+                ),
               if (widget.onUndo != null)
                 IconButton(
                   tooltip: 'Undo draft change (Cmd+Z)',
@@ -512,6 +730,7 @@ class _DeskSheetState extends State<DeskSheet>
           ],
 
           const SizedBox(height: 6),
+          _buildProvenanceBanner(theme),
           TextField(
             key: const Key('desk-draft-title-field'),
             controller: _titleController,
@@ -538,138 +757,150 @@ class _DeskSheetState extends State<DeskSheet>
           ),
           const SizedBox(height: 8),
 
-          // Compact Import / Export / Validate row
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              OutlinedButton.icon(
-                key: const Key('desk-import-file-btn'),
-                style: OutlinedButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                ),
-                onPressed: widget.onImportGeoJson,
-                icon: const Icon(Icons.file_upload_outlined, size: 15),
-                label: const Text('Import'),
-              ),
-              if (widget.onImportOsm != null)
-                OutlinedButton.icon(
-                  key: const Key('desk-import-osm-btn'),
-                  style: OutlinedButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          // Single-row unified segmented toolbar (zero wrapping pills!)
+          Material(
+            key: const Key('desk-action-toolbar'),
+            color: theme.colorScheme.surfaceContainerHighest
+                .withValues(alpha: 0.7),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(11),
+              side: BorderSide(color: theme.dividerColor),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildToolbarCell(
+                    key: const Key('desk-import-file-btn'),
+                    theme: theme,
+                    icon: Icons.file_upload_outlined,
+                    label: 'Import',
+                    onTap: widget.onImportGeoJson,
                   ),
-                  onPressed: widget.onImportOsm,
-                  icon: const Icon(Icons.public_outlined, size: 15),
-                  label: const Text('OSM'),
-                ),
-              if (widget.onOpenRouting != null)
-                OutlinedButton.icon(
-                  key: const Key('desk-routing-btn'),
-                  style: OutlinedButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  ),
-                  onPressed: widget.onOpenRouting,
-                  icon: const Icon(Icons.alt_route, size: 15),
-                  label: const Text('Route'),
-                ),
-              if (widget.onPasteGeoJsonFromClipboard != null)
-                OutlinedButton.icon(
-                  key: const Key('desk-paste-geojson-btn'),
-                  style: OutlinedButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  ),
-                  onPressed: widget.onPasteGeoJsonFromClipboard,
-                  icon: const Icon(Icons.content_paste, size: 15),
-                  label: const Text('Paste'),
-                ),
-              PopupMenuButton<String>(
-                enabled: canExport,
-                tooltip: 'Export working draft',
-                onSelected: (choice) {
-                  switch (choice) {
-                    case 'geojson':
-                      widget.onExportGeoJsonFile();
-                    case 'gpx':
-                      widget.onExportGpxFile?.call();
-                    case 'kml':
-                      widget.onExportKmlFile?.call();
-                    case 'shp':
-                      widget.onExportShapefileZip?.call();
-                    case 'poster':
-                      widget.onExportPosterPng?.call();
-                    case 'copy':
-                      widget.onCopyGeoJson();
-                  }
-                },
-                itemBuilder: (_) => [
-                  const PopupMenuItem(
-                    value: 'geojson',
-                    child: Text('Export GeoJSON (.geojson)'),
-                  ),
-                  if (widget.onExportGpxFile != null)
-                    const PopupMenuItem(
-                      value: 'gpx',
-                      child: Text('Export GPX Track/Waypoints (.gpx)'),
+                  if (widget.onImportOsm != null) ...[
+                    VerticalDivider(width: 1, color: theme.dividerColor),
+                    _buildToolbarCell(
+                      key: const Key('desk-import-osm-btn'),
+                      theme: theme,
+                      icon: Icons.public_outlined,
+                      label: 'OSM',
+                      onTap: widget.onImportOsm,
                     ),
-                  if (widget.onExportKmlFile != null)
-                    const PopupMenuItem(
-                      value: 'kml',
-                      child: Text('Export Google Earth KML (.kml)'),
+                  ],
+                  if (widget.onOpenRouting != null) ...[
+                    VerticalDivider(width: 1, color: theme.dividerColor),
+                    _buildToolbarCell(
+                      key: const Key('desk-routing-btn'),
+                      theme: theme,
+                      icon: Icons.alt_route,
+                      label: 'Route',
+                      onTap: widget.onOpenRouting,
                     ),
-                  if (widget.onExportShapefileZip != null)
-                    const PopupMenuItem(
-                      key: Key('desk-export-shapefile-zip'),
-                      value: 'shp',
-                      child: Text('Export Shapefile Bundle (.zip)'),
+                  ],
+                  if (widget.onPasteGeoJsonFromClipboard != null) ...[
+                    VerticalDivider(width: 1, color: theme.dividerColor),
+                    _buildToolbarCell(
+                      key: const Key('desk-paste-geojson-btn'),
+                      theme: theme,
+                      icon: Icons.content_paste,
+                      label: 'Paste',
+                      onTap: widget.onPasteGeoJsonFromClipboard,
                     ),
-                  if (widget.onExportPosterPng != null)
-                    const PopupMenuItem(
-                      key: Key('desk-export-poster-png'),
-                      value: 'poster',
-                      child: Text('Export Map Poster (.png)'),
-                    ),
-                  const PopupMenuItem(
-                    value: 'copy',
-                    child: Text('Copy GeoJSON to Clipboard'),
-                  ),
-                ],
-                child: IgnorePointer(
-                  child: OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
+                  ],
+                  VerticalDivider(width: 1, color: theme.dividerColor),
+                  Expanded(
+                    child: PopupMenuButton<String>(
+                      key: const Key('desk-export-menu-btn'),
+                      enabled: canExport,
+                      tooltip: 'Export working draft',
+                      onSelected: (choice) {
+                        switch (choice) {
+                          case 'geojson':
+                            widget.onExportGeoJsonFile();
+                          case 'gpx':
+                            widget.onExportGpxFile?.call();
+                          case 'kml':
+                            widget.onExportKmlFile?.call();
+                          case 'shp':
+                            widget.onExportShapefileZip?.call();
+                          case 'poster':
+                            widget.onExportPosterPng?.call();
+                          case 'copy':
+                            widget.onCopyGeoJson();
+                        }
+                      },
+                      itemBuilder: (_) => [
+                        const PopupMenuItem(
+                          value: 'geojson',
+                          child: Text('Export GeoJSON (.geojson)'),
+                        ),
+                        if (widget.onExportGpxFile != null)
+                          const PopupMenuItem(
+                            value: 'gpx',
+                            child: Text('Export GPX Track/Waypoints (.gpx)'),
+                          ),
+                        if (widget.onExportKmlFile != null)
+                          const PopupMenuItem(
+                            value: 'kml',
+                            child: Text('Export Google Earth KML (.kml)'),
+                          ),
+                        if (widget.onExportShapefileZip != null)
+                          const PopupMenuItem(
+                            key: Key('desk-export-shapefile-zip'),
+                            value: 'shp',
+                            child: Text('Export Shapefile Bundle (.zip)'),
+                          ),
+                        if (widget.onExportPosterPng != null)
+                          const PopupMenuItem(
+                            key: Key('desk-export-poster-png'),
+                            value: 'poster',
+                            child: Text('Export Map Poster (.png)'),
+                          ),
+                        const PopupMenuItem(
+                          value: 'copy',
+                          child: Text('Copy GeoJSON to Clipboard'),
+                        ),
+                      ],
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 7,
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.file_download_outlined,
+                              size: 17,
+                              color: canExport
+                                  ? theme.colorScheme.onSurface
+                                  : theme.colorScheme.onSurface
+                                      .withValues(alpha: 0.36),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Export ▾',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: canExport
+                                    ? theme.colorScheme.onSurface
+                                    : theme.colorScheme.onSurface
+                                        .withValues(alpha: 0.36),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    onPressed: canExport ? () {} : null,
-                    icon: const Icon(Icons.file_download_outlined, size: 15),
-                    label: const Text('Export ▾'),
                   ),
-                ),
+                ],
               ),
-              if (widget.onValidateDraft != null &&
-                  widget.drawnFeatures.isNotEmpty)
-                OutlinedButton.icon(
-                  key: const Key('desk-validate-draft-btn'),
-                  style: OutlinedButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  ),
-                  onPressed: _validating ? null : _handleValidate,
-                  icon: const Icon(Icons.verified_outlined, size: 15),
-                  label: Text(_validating ? 'Checking…' : 'Validate'),
-                ),
-            ],
+            ),
           ),
 
           if (_validationResult != null) ...[
@@ -998,186 +1229,242 @@ class _DeskSheetState extends State<DeskSheet>
 
           const SizedBox(height: 12),
 
-          // Always-visible 3-way Publish section (Public | Nearby | MLS Group)
-          Text(
-            'PUBLISH TARGET',
-            style: theme.textTheme.labelSmall?.copyWith(
-              fontFamily: 'monospace',
-              fontWeight: FontWeight.w700,
+          if (widget.provenance.isProposingEdit) ...[
+            Text(
+              'EDIT PROPOSAL NOTE',
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
-          const SizedBox(height: 6),
-          SegmentedButton<DraftAudienceChoice>(
-            segments: const [
-              ButtonSegment(
-                value: DraftAudienceChoice.publicRelay,
-                label: Text('Public'),
-                icon: Icon(Icons.public, size: 15),
+            const SizedBox(height: 6),
+            TextField(
+              key: const Key('desk-proposal-summary-field'),
+              controller: _proposalSummaryController,
+              maxLines: 2,
+              minLines: 1,
+              onChanged: (v) => widget.onProposalSummaryChanged?.call(v),
+              decoration: const InputDecoration(
+                hintText: 'Summarize your proposed edit (optional)…',
               ),
-              ButtonSegment(
-                value: DraftAudienceChoice.nearbyLocalNode,
-                label: Text('Nearby'),
-                icon: Icon(Icons.wifi_tethering, size: 15),
+            ),
+          ] else ...[
+            // Always-visible 3-way Publish section (Public | Nearby | MLS Group)
+            Text(
+              'PUBLISH TARGET',
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontFamily: 'monospace',
+                fontWeight: FontWeight.w700,
               ),
-              ButtonSegment(
-                value: DraftAudienceChoice.privateCircle,
-                label: Text('MLS Group'),
-                icon: Icon(Icons.lock_outline, size: 15),
-              ),
-            ],
-            selected: {_audience},
-            onSelectionChanged: (selection) {
-              final next = selection.first;
-              setState(() => _audience = next);
-              widget.onAudienceChanged(next);
-              if (next == DraftAudienceChoice.privateCircle &&
-                  widget.selectedCircleId == null &&
-                  widget.circles.isNotEmpty) {
-                final fallbackId = widget.circles.first.workspaceId;
-                _localSelectedCircleId = fallbackId;
-                widget.onSelectedCircleChanged?.call(fallbackId);
-              }
-            },
-          ),
+            ),
+            const SizedBox(height: 6),
+            SegmentedButton<DraftAudienceChoice>(
+              segments: const [
+                ButtonSegment(
+                  value: DraftAudienceChoice.publicRelay,
+                  label: Text('Public'),
+                  icon: Icon(Icons.public, size: 15),
+                ),
+                ButtonSegment(
+                  value: DraftAudienceChoice.nearbyLocalNode,
+                  label: Text('Nearby'),
+                  icon: Icon(Icons.wifi_tethering, size: 15),
+                ),
+                ButtonSegment(
+                  value: DraftAudienceChoice.privateCircle,
+                  label: Text('MLS Group'),
+                  icon: Icon(Icons.lock_outline, size: 15),
+                ),
+              ],
+              selected: {_audience},
+              onSelectionChanged: (selection) {
+                final next = selection.first;
+                setState(() => _audience = next);
+                widget.onAudienceChanged(next);
+                if (next == DraftAudienceChoice.privateCircle &&
+                    widget.selectedCircleId == null &&
+                    widget.circles.isNotEmpty) {
+                  final fallbackId = widget.circles.first.workspaceId;
+                  _localSelectedCircleId = fallbackId;
+                  widget.onSelectedCircleChanged?.call(fallbackId);
+                }
+              },
+            ),
 
-          if (_audience == DraftAudienceChoice.privateCircle) ...[
-            const SizedBox(height: 8),
-            if (widget.circles.isEmpty)
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: EarthlyColors.measureViolet.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: EarthlyColors.measureViolet.withValues(alpha: 0.45),
+            if (_audience == DraftAudienceChoice.privateCircle) ...[
+              const SizedBox(height: 8),
+              if (widget.circles.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: EarthlyColors.measureViolet.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color:
+                          EarthlyColors.measureViolet.withValues(alpha: 0.45),
+                    ),
                   ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.lock_outline,
-                          size: 16,
-                          color: EarthlyColors.measureViolet,
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            'No MLS groups yet',
-                            style: theme.textTheme.titleSmall,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.lock_outline,
+                            size: 16,
+                            color: EarthlyColors.measureViolet,
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Create or join an encrypted MLS group to publish private maps.',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      key: const Key('desk-create-join-mls-btn'),
-                      onPressed: widget.onOpenCircles,
-                      icon: const Icon(Icons.groups_outlined, size: 17),
-                      label: const Text('Create or Join MLS Group'),
-                    ),
-                  ],
-                ),
-              )
-            else ...[
-              for (final circle in widget.circles)
-                Builder(
-                  builder: (_) {
-                    final isSelected =
-                        selectedCircle?.workspaceId == circle.workspaceId;
-                    return InkWell(
-                      key: Key('desk-mls-group-${circle.workspaceId}'),
-                      onTap: () {
-                        setState(
-                          () => _localSelectedCircleId = circle.workspaceId,
-                        );
-                        widget.onSelectedCircleChanged
-                            ?.call(circle.workspaceId);
-                      },
-                      borderRadius: BorderRadius.circular(10),
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 6),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? EarthlyColors.measureViolet
-                                  .withValues(alpha: 0.14)
-                              : theme.colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'No MLS groups yet',
+                              style: theme.textTheme.titleSmall,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Create or join an encrypted MLS group to publish private maps.',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        key: const Key('desk-create-join-mls-btn'),
+                        onPressed: widget.onOpenCircles,
+                        icon: const Icon(Icons.groups_outlined, size: 17),
+                        label: const Text('Create or Join MLS Group'),
+                      ),
+                    ],
+                  ),
+                )
+              else ...[
+                for (final circle in widget.circles)
+                  Builder(
+                    builder: (_) {
+                      final isSelected =
+                          selectedCircle?.workspaceId == circle.workspaceId;
+                      return InkWell(
+                        key: Key('desk-mls-group-${circle.workspaceId}'),
+                        onTap: () {
+                          setState(
+                            () => _localSelectedCircleId = circle.workspaceId,
+                          );
+                          widget.onSelectedCircleChanged
+                              ?.call(circle.workspaceId);
+                        },
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
                             color: isSelected
                                 ? EarthlyColors.measureViolet
-                                : theme.dividerColor,
-                            width: isSelected ? 1.5 : 1.0,
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              isSelected
-                                  ? Icons.radio_button_checked
-                                  : Icons.radio_button_off,
-                              size: 16,
+                                    .withValues(alpha: 0.14)
+                                : theme.colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
                               color: isSelected
                                   ? EarthlyColors.measureViolet
-                                  : theme.colorScheme.onSurfaceVariant,
+                                  : theme.dividerColor,
+                              width: isSelected ? 1.5 : 1.0,
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                circle.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 13,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                isSelected
+                                    ? Icons.radio_button_checked
+                                    : Icons.radio_button_off,
+                                size: 16,
+                                color: isSelected
+                                    ? EarthlyColors.measureViolet
+                                    : theme.colorScheme.onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  circle.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                  ),
                                 ),
                               ),
-                            ),
-                            Text(
-                              '${circle.members.length}p · ${circle.datasets.length}m',
-                              style: const TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 10.5,
+                              Text(
+                                '${circle.members.length}p · ${circle.datasets.length}m',
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 10.5,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: EarthlyColors.measureViolet.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color:
+                          EarthlyColors.measureViolet.withValues(alpha: 0.45),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.lock,
+                        size: 14,
+                        color: EarthlyColors.measureViolet,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'MLS-encrypted · publishes only to "${selectedCircle!.name}" (never public Nostr)',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
-                    );
-                  },
+                    ],
+                  ),
                 ),
+              ],
+            ] else if (widget.activeAtlasLensName != null) ...[
+              const SizedBox(height: 8),
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                 decoration: BoxDecoration(
-                  color: EarthlyColors.measureViolet.withValues(alpha: 0.10),
+                  color: EarthlyColors.amber.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                    color: EarthlyColors.measureViolet.withValues(alpha: 0.45),
+                    color: EarthlyColors.amber.withValues(alpha: 0.55),
                   ),
                 ),
                 child: Row(
                   children: [
                     const Icon(
-                      Icons.lock,
+                      Icons.filter_tilt_shift,
                       size: 14,
-                      color: EarthlyColors.measureViolet,
+                      color: EarthlyColors.lightAccent,
                     ),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'MLS-encrypted · publishes only to "${selectedCircle!.name}" (never public Nostr)',
+                        'Atlas Lens active · new map will attach to "${widget.activeAtlasLensName}"',
                         style: const TextStyle(
                           fontFamily: 'monospace',
                           fontSize: 10.5,
@@ -1189,38 +1476,6 @@ class _DeskSheetState extends State<DeskSheet>
                 ),
               ),
             ],
-          ] else if (widget.activeAtlasLensName != null) ...[
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-              decoration: BoxDecoration(
-                color: EarthlyColors.amber.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: EarthlyColors.amber.withValues(alpha: 0.55),
-                ),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.filter_tilt_shift,
-                    size: 14,
-                    color: EarthlyColors.lightAccent,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      'Atlas Lens active · new map will attach to "${widget.activeAtlasLensName}"',
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ],
 
           const SizedBox(height: 10),
@@ -1234,22 +1489,16 @@ class _DeskSheetState extends State<DeskSheet>
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : Icon(
-                    _audience == DraftAudienceChoice.privateCircle
-                        ? Icons.lock_outline
-                        : Icons.publish,
+                    widget.provenance.isProposingEdit
+                        ? Icons.compare_arrows
+                        : widget.provenance.isUpdatingOwned
+                            ? Icons.update
+                            : _audience == DraftAudienceChoice.privateCircle
+                                ? Icons.lock_outline
+                                : Icons.publish,
                     size: 18,
                   ),
-            label: Text(
-              _audience == DraftAudienceChoice.privateCircle
-                  ? (selectedCircle != null
-                      ? 'Publish to "${selectedCircle.name}"'
-                      : 'Select an MLS Group')
-                  : widget.account == null
-                      ? 'Sign & Publish Map'
-                      : _audience == DraftAudienceChoice.publicRelay
-                          ? 'Publish to relay.earthly.city'
-                          : 'Publish to Nearby Local Node',
-            ),
+            label: Text(_resolvePublishButtonLabel(selectedCircle)),
           ),
 
           if (_publishError != null) ...[

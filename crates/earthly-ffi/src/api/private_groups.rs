@@ -354,6 +354,26 @@ pub struct CircleMessageDto {
 }
 
 #[derive(Clone, Debug)]
+pub struct CircleProposalDto {
+    pub workspace_id: String,
+    pub envelope_id: String,
+    pub proposal_id: String,
+    pub target_dataset_id: String,
+    pub target_author_pubkey: String,
+    pub pubkey: String,
+    pub created_at: u64,
+    pub title: String,
+    pub summary: String,
+    pub geojson_json: String,
+    pub feature_count: u32,
+    pub status: String,
+    pub status_note: Option<String>,
+    pub status_updated_by: Option<String>,
+    pub status_updated_at: Option<u64>,
+    pub epoch: Option<u64>,
+}
+
+#[derive(Clone, Debug)]
 pub struct CircleWorkspaceDto {
     pub workspace_id: String,
     pub group_id: String,
@@ -370,6 +390,7 @@ pub struct CircleWorkspaceDto {
     pub administrators: Vec<String>,
     pub datasets: Vec<CircleDatasetDto>,
     pub messages: Vec<CircleMessageDto>,
+    pub proposals: Vec<CircleProposalDto>,
     pub created_at_ms: u64,
     pub sync_health: String,
     pub consecutive_decrypt_errors: u32,
@@ -527,6 +548,12 @@ fn workspace_dto_fingerprint(dto: &CircleWorkspaceDto) -> String {
         hasher.update(msg.envelope_id.as_bytes());
         hasher.update((msg.media_attachments.len() as u64).to_le_bytes());
     }
+    for prop in &dto.proposals {
+        hasher.update(b"|prop:");
+        hasher.update(prop.envelope_id.as_bytes());
+        hasher.update(prop.status.as_bytes());
+        hasher.update(prop.status_updated_at.unwrap_or(0).to_le_bytes());
+    }
     format!("{:x}", hasher.finalize())
 }
 
@@ -573,6 +600,28 @@ fn workspace_to_dto(ws: &StoredWorkspace) -> CircleWorkspaceDto {
         })
         .collect();
 
+    let proposals = PrivateWorkspaceService::project_proposals(ws)
+        .into_iter()
+        .map(|p| CircleProposalDto {
+            workspace_id: p.workspace_id,
+            envelope_id: p.envelope_id,
+            proposal_id: p.proposal_id,
+            target_dataset_id: p.target_dataset_id,
+            target_author_pubkey: p.target_author_pubkey,
+            pubkey: p.pubkey,
+            created_at: p.created_at,
+            title: p.title,
+            summary: p.summary,
+            geojson_json: p.geojson_json,
+            feature_count: p.feature_count as u32,
+            status: p.status,
+            status_note: p.status_note,
+            status_updated_by: p.status_updated_by,
+            status_updated_at: p.status_updated_at,
+            epoch: p.epoch,
+        })
+        .collect();
+
     let cordn_group_ref = encode_cordn_group_ref(&CordnGroupRef {
         gid: ws.group_id.clone(),
         relays: ws.relays.clone(),
@@ -603,6 +652,7 @@ fn workspace_to_dto(ws: &StoredWorkspace) -> CircleWorkspaceDto {
         administrators: PrivateWorkspaceService::administrators(ws),
         datasets,
         messages,
+        proposals,
         created_at_ms: ws.created_at_ms,
         sync_health: ws.sync_health.clone(),
         consecutive_decrypt_errors: ws.consecutive_decrypt_errors,
@@ -2326,6 +2376,78 @@ pub async fn send_circle_dataset_with_media(
     let updated = store
         .get_workspace(&signer.pubkey_hex(), &workspace_id)?
         .ok_or_else(|| "Circle missing after dataset send".to_owned())?;
+    Ok(workspace_to_dto(&updated))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn send_circle_dataset_proposal(
+    database_path: String,
+    signer_nsec: Option<String>,
+    bunker_uri: Option<String>,
+    bunker_client_nsec: Option<String>,
+    workspace_id: String,
+    target_dataset_id: String,
+    target_author_pubkey: String,
+    geojson_json: String,
+    name: Option<String>,
+    summary: Option<String>,
+    proposal_id: Option<String>,
+) -> Result<CircleWorkspaceDto, String> {
+    let signer = resolve_signer(signer_nsec, bunker_uri, bunker_client_nsec).await?;
+    let store = Arc::new(SqlitePrivateWorkspaceStore::open(database_path)?);
+    let svc = PrivateWorkspaceService::new(
+        signer.clone(),
+        Arc::clone(&store),
+        DEFAULT_CORDN_SERVER_PUBKEY.to_owned(),
+        vec![DEFAULT_CIRCLE_RELAY.to_owned()],
+    );
+    svc.send_dataset_proposal(
+        &workspace_id,
+        &target_dataset_id,
+        &target_author_pubkey,
+        &geojson_json,
+        name.as_deref(),
+        summary.as_deref(),
+        proposal_id.as_deref(),
+    )
+    .await?;
+    let updated = store
+        .get_workspace(&signer.pubkey_hex(), &workspace_id)?
+        .ok_or_else(|| "Circle missing after proposal send".to_owned())?;
+    Ok(workspace_to_dto(&updated))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn respond_circle_dataset_proposal(
+    database_path: String,
+    signer_nsec: Option<String>,
+    bunker_uri: Option<String>,
+    bunker_client_nsec: Option<String>,
+    workspace_id: String,
+    proposal_id: String,
+    status_kind: u16,
+    note: Option<String>,
+    apply_updated_geojson: Option<String>,
+) -> Result<CircleWorkspaceDto, String> {
+    let signer = resolve_signer(signer_nsec, bunker_uri, bunker_client_nsec).await?;
+    let store = Arc::new(SqlitePrivateWorkspaceStore::open(database_path)?);
+    let svc = PrivateWorkspaceService::new(
+        signer.clone(),
+        Arc::clone(&store),
+        DEFAULT_CORDN_SERVER_PUBKEY.to_owned(),
+        vec![DEFAULT_CIRCLE_RELAY.to_owned()],
+    );
+    svc.respond_dataset_proposal(
+        &workspace_id,
+        &proposal_id,
+        status_kind,
+        note.as_deref(),
+        apply_updated_geojson.as_deref(),
+    )
+    .await?;
+    let updated = store
+        .get_workspace(&signer.pubkey_hex(), &workspace_id)?
+        .ok_or_else(|| "Circle missing after proposal response".to_owned())?;
     Ok(workspace_to_dto(&updated))
 }
 

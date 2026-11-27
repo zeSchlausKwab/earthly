@@ -17,6 +17,7 @@ import '../shell/sighting_composer_sheet.dart';
 import '../shell/story_composer_sheet.dart';
 import '../src/rust/api/blossom.dart';
 import '../src/rust/api/nostr_client.dart';
+import '../src/rust/api/private_groups.dart';
 import '../src/rust/api/publish.dart';
 import '../src/rust/api/spike.dart';
 
@@ -1346,6 +1347,28 @@ class CatalogShelfController extends ChangeNotifier {
         'Proposal (${proposal.status}) +${proposal.addedCount} ~${proposal.modifiedCount} -${proposal.removedCount}';
     proposalOverlayShapes = shapes;
     _notifyProposalOverlayChanged();
+  }
+
+  List<ShelfShape> toggleCircleProposalOverlay(CircleProposalDto proposal) {
+    if (activeProposalOverlayId == proposal.proposalId) {
+      activeProposalOverlayId = null;
+      activeProposalLabel = null;
+      proposalOverlayShapes = const <ShelfShape>[];
+      _notifyProposalOverlayChanged();
+      return const <ShelfShape>[];
+    }
+    final shapes = parseGeoJsonShapes(
+      proposal.geojsonJson,
+      datasetTitle: proposal.summary.isNotEmpty
+          ? proposal.summary
+          : proposal.title,
+    );
+    activeProposalOverlayId = proposal.proposalId;
+    activeProposalLabel =
+        'MLS Proposal (${proposal.status}) · ${proposal.featureCount} feat';
+    proposalOverlayShapes = shapes;
+    _notifyProposalOverlayChanged();
+    return shapes;
   }
 
   void setCircleCommentOverlay(String? envelopeId, List<ShelfShape> shapes) {

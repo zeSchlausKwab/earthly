@@ -8,10 +8,12 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.location.Location
 import android.location.LocationManager
 import android.net.Uri
@@ -24,12 +26,14 @@ import android.util.Base64
 import android.webkit.MimeTypeMap
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import com.google.zxing.integration.android.IntentIntegrator
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.security.KeyStore
 import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicInteger
@@ -83,6 +87,7 @@ class MainActivity : FlutterActivity() {
     private var pendingRequestCode: Int = 0
     private var pendingSaveContent: String? = null
     private var pendingSaveBytes: ByteArray? = null
+    private var pendingPhotoFile: File? = null
     private var pendingLocationResult: MethodChannel.Result? = null
     private var pendingTrackStartResult: MethodChannel.Result? = null
     private var deviceChannel: MethodChannel? = null
@@ -275,15 +280,54 @@ class MainActivity : FlutterActivity() {
                             result.error("busy", "Another picker/capture request is pending", null)
                             return@setMethodCallHandler
                         }
-                        val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-                        if (intent.resolveActivity(packageManager) == null) {
-                            result.error("no_camera", "No camera app available on this device", null)
-                            return@setMethodCallHandler
+                        val cameraDir = File(cacheDir, "camera").apply { mkdirs() }
+                        val photoFile = File(cameraDir, "earthly-photo-${System.currentTimeMillis()}.jpg")
+                        val photoUri = try {
+                            FileProvider.getUriForFile(
+                                this,
+                                "${applicationContext.packageName}.fileprovider",
+                                photoFile,
+                            )
+                        } catch (_: Exception) {
+                            null
+                        }
+                        val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                            if (photoUri != null) {
+                                putExtra(MediaStore.EXTRA_OUTPUT, photoUri)
+                                addFlags(
+                                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                                )
+                                clipData = ClipData.newRawUri("output", photoUri)
+                            }
                         }
                         pendingResult = result
                         pendingRequestCode = REQUEST_CAPTURE_PHOTO
-                        @Suppress("DEPRECATION")
-                        startActivityForResult(intent, REQUEST_CAPTURE_PHOTO)
+                        pendingPhotoFile = if (photoUri != null) photoFile else null
+                        try {
+                            @Suppress("DEPRECATION")
+                            startActivityForResult(intent, REQUEST_CAPTURE_PHOTO)
+                        } catch (err: ActivityNotFoundException) {
+                            pendingResult = null
+                            pendingRequestCode = 0
+                            pendingPhotoFile?.delete()
+                            pendingPhotoFile = null
+                            result.error(
+                                "no_camera",
+                                err.message ?: "No camera app available on this device",
+                                null,
+                            )
+                        } catch (err: SecurityException) {
+                            pendingResult = null
+                            pendingRequestCode = 0
+                            pendingPhotoFile?.delete()
+                            pendingPhotoFile = null
+                            result.error(
+                                "camera_denied",
+                                err.message ?: "Camera access was denied by the system",
+                                null,
+                            )
+                        }
                     }
 
                     "pickImage" -> {
@@ -1065,6 +1109,70 @@ class MainActivity : FlutterActivity() {
                 return
             }
 
+            if (requestCode == REQUEST_CAPTURE_PHOTO) {
+                val photoFile = pendingPhotoFile
+                pendingPhotoFile = null
+                if (resultCode != Activity.RESULT_OK) {
+                    photoFile?.delete()
+                    callback.error("cancelled", "Request was cancelled", null)
+                    return
+                }
+                try {
+                    val fileBytes = if (photoFile != null && photoFile.exists() && photoFile.length() > 0L) {
+                        val raw = photoFile.readBytes()
+                        photoFile.delete()
+                        if (raw.size > 4 * 1024 * 1024) {
+                            // Downsample huge multi-megapixel captures cleanly for Blossom/MLS upload
+                            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                            BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)
+                            var sample = 1
+                            val maxDim = maxOf(bounds.outWidth, bounds.outHeight)
+                            while (maxDim / sample > 2048) {
+                                sample *= 2
+                            }
+                            val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sample }
+                            val decoded = BitmapFactory.decodeByteArray(raw, 0, raw.size, decodeOpts)
+                            if (decoded != null) {
+                                val out = ByteArrayOutputStream()
+                                decoded.compress(Bitmap.CompressFormat.JPEG, 86, out)
+                                decoded.recycle()
+                                out.toByteArray()
+                            } else {
+                                raw
+                            }
+                        } else {
+                            raw
+                        }
+                    } else {
+                        photoFile?.delete()
+                        @Suppress("DEPRECATION")
+                        val bitmap = data?.extras?.get("data") as? Bitmap
+                        if (bitmap != null) {
+                            val stream = ByteArrayOutputStream()
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 88, stream)
+                            stream.toByteArray()
+                        } else {
+                            null
+                        }
+                    }
+                    if (fileBytes == null || fileBytes.isEmpty()) {
+                        callback.error("empty_photo", "Camera returned no image data", null)
+                    } else {
+                        callback.success(
+                            mapOf(
+                                "bytes" to fileBytes,
+                                "mimeType" to "image/jpeg",
+                                "name" to "photo-${System.currentTimeMillis()}.jpg",
+                            ),
+                        )
+                    }
+                } catch (err: Exception) {
+                    photoFile?.delete()
+                    callback.error("photo_read_failed", err.message ?: "Failed to read captured photo", null)
+                }
+                return
+            }
+
             if (resultCode != Activity.RESULT_OK || data == null) {
                 callback.error("cancelled", "Request was cancelled", null)
                 return
@@ -1103,24 +1211,6 @@ class MainActivity : FlutterActivity() {
                         callback.error("empty_result", "Signer returned an empty NIP-44 result", null)
                     } else {
                         callback.success(value)
-                    }
-                }
-
-                REQUEST_CAPTURE_PHOTO -> {
-                    @Suppress("DEPRECATION")
-                    val bitmap = data.extras?.get("data") as? Bitmap
-                    if (bitmap == null) {
-                        callback.error("empty_photo", "Camera returned no image bitmap", null)
-                    } else {
-                        val stream = ByteArrayOutputStream()
-                        bitmap.compress(Bitmap.CompressFormat.JPEG, 88, stream)
-                        callback.success(
-                            mapOf(
-                                "bytes" to stream.toByteArray(),
-                                "mimeType" to "image/jpeg",
-                                "name" to "sighting-${System.currentTimeMillis()}.jpg",
-                            ),
-                        )
                     }
                 }
 

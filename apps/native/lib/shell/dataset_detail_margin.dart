@@ -32,6 +32,7 @@ class DatasetDetailMargin extends StatefulWidget {
     required this.onZoomToMap,
     required this.onJumpToFeature,
     required this.onEditOrForkMap,
+    this.onProposeEdit,
     required this.onOpenDiscussion,
     required this.onDeleteMap,
     required this.onClose,
@@ -53,6 +54,7 @@ class DatasetDetailMargin extends StatefulWidget {
   final VoidCallback onZoomToMap;
   final void Function(ShelfShape shape) onJumpToFeature;
   final VoidCallback onEditOrForkMap;
+  final VoidCallback? onProposeEdit;
   final VoidCallback onOpenDiscussion;
   final Future<PublishOutcomeDto> Function(MapSummaryDto map) onDeleteMap;
   final ValueChanged<String>? onOpenPerson;
@@ -430,8 +432,15 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
                   widget.isOwned ? Icons.edit_outlined : Icons.copy_all_outlined,
                   size: 16,
                 ),
-                label: Text(widget.isOwned ? 'Edit in Draft' : 'Fork to Draft'),
+                label: Text(widget.isOwned ? 'Edit in Desk' : 'Create Copy'),
               ),
+              if (!widget.isOwned && widget.onProposeEdit != null)
+                OutlinedButton.icon(
+                  key: const Key('dataset-detail-propose-edit-btn'),
+                  onPressed: widget.onProposeEdit,
+                  icon: const Icon(Icons.compare_arrows, size: 16),
+                  label: const Text('Propose Edit'),
+                ),
               if (widget.isOwned)
                 OutlinedButton.icon(
                   onPressed: _deleting ? null : _confirmAndDelete,

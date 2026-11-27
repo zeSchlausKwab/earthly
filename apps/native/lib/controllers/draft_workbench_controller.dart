@@ -16,6 +16,77 @@ import '../shell/desk_sheet.dart';
 import '../src/rust/api/geo.dart';
 import '../src/rust/api/publish.dart';
 
+/// Explicit provenance for the active working draft so Desk can accurately
+/// distinguish a new map, an in-place update to your own map, an explicit
+/// editable copy of someone else's map, or an edit proposal (`37519`).
+enum DraftPublishMode {
+  newMap,
+  updatingOwned,
+  copyingOther,
+  proposingEdit,
+}
+
+@immutable
+class DraftProvenance {
+  const DraftProvenance({
+    required this.mode,
+    this.sourceTitle,
+    this.sourceAuthorPubkey,
+    this.sourceAuthorLabel,
+    this.targetDatasetId,
+    this.targetAddress,
+    this.targetEventId,
+    this.targetCircleWorkspaceId,
+    this.targetCircleName,
+  });
+
+  static const DraftProvenance fresh = DraftProvenance(
+    mode: DraftPublishMode.newMap,
+  );
+
+  final DraftPublishMode mode;
+  final String? sourceTitle;
+  final String? sourceAuthorPubkey;
+  final String? sourceAuthorLabel;
+  final String? targetDatasetId;
+  final String? targetAddress;
+  final String? targetEventId;
+  final String? targetCircleWorkspaceId;
+  final String? targetCircleName;
+
+  bool get isNew => mode == DraftPublishMode.newMap;
+  bool get isUpdatingOwned => mode == DraftPublishMode.updatingOwned;
+  bool get isCopyingOther => mode == DraftPublishMode.copyingOther;
+  bool get isProposingEdit => mode == DraftPublishMode.proposingEdit;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DraftProvenance &&
+          other.mode == mode &&
+          other.sourceTitle == sourceTitle &&
+          other.sourceAuthorPubkey == sourceAuthorPubkey &&
+          other.sourceAuthorLabel == sourceAuthorLabel &&
+          other.targetDatasetId == targetDatasetId &&
+          other.targetAddress == targetAddress &&
+          other.targetEventId == targetEventId &&
+          other.targetCircleWorkspaceId == targetCircleWorkspaceId &&
+          other.targetCircleName == targetCircleName;
+
+  @override
+  int get hashCode => Object.hash(
+        mode,
+        sourceTitle,
+        sourceAuthorPubkey,
+        sourceAuthorLabel,
+        targetDatasetId,
+        targetAddress,
+        targetEventId,
+        targetCircleWorkspaceId,
+        targetCircleName,
+      );
+}
+
 /// Snapshot of the interactive finger-drag preview state rendered by
 /// [MapGeometryLayer] without rebuilding heavy GPU map layers.
 @immutable
@@ -69,6 +140,8 @@ class DraftWorkbenchController extends ChangeNotifier {
   String draftDTag = 'field-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
   String draftTitle = '';
   DraftAudienceChoice draftAudience = DraftAudienceChoice.publicRelay;
+  DraftProvenance provenance = DraftProvenance.fresh;
+  String proposalSummary = '';
 
   final List<DrawnFeature> features = <DrawnFeature>[];
   final Set<String> selectedDraftFeatureIds = <String>{};
@@ -211,6 +284,62 @@ class DraftWorkbenchController extends ChangeNotifier {
   }) {
     draftAudience = audience;
     notifyListeners();
+    onPersist?.call();
+  }
+
+  void setProposalSummary(String summary) {
+    if (proposalSummary == summary) return;
+    proposalSummary = summary;
+    notifyListeners();
+  }
+
+  /// Detaches an in-place owned edit or edit proposal into a brand-new
+  /// standalone copy with a fresh `d`-tag so the original map stays untouched.
+  void detachAsNewCopy({VoidCallback? onPersist}) {
+    draftDTag = _mintFreshId('field', current: draftDTag);
+    final trimmed = draftTitle.trim();
+    if (trimmed.isNotEmpty &&
+        !trimmed.endsWith('(Copy)') &&
+        !trimmed.endsWith('(Draft)')) {
+      draftTitle = '$trimmed (Copy)';
+    }
+    proposalSummary = '';
+    if (provenance.sourceTitle != null ||
+        provenance.sourceAuthorPubkey != null) {
+      provenance = DraftProvenance(
+        mode: DraftPublishMode.copyingOther,
+        sourceTitle: provenance.sourceTitle ?? trimmed,
+        sourceAuthorPubkey: provenance.sourceAuthorPubkey,
+        sourceAuthorLabel: provenance.sourceAuthorLabel,
+        targetCircleWorkspaceId: provenance.targetCircleWorkspaceId,
+        targetCircleName: provenance.targetCircleName,
+      );
+    } else {
+      provenance = DraftProvenance.fresh;
+    }
+    notifyListeners();
+    onPersist?.call();
+  }
+
+  /// Releases the Desk form after a successful publish so the next sketch
+  /// starts fresh with no ghost draft/shelf duplication or accidental overwrite.
+  void releaseAfterPublish({VoidCallback? onPersist}) {
+    activeDraftId = _mintFreshId('draft', current: activeDraftId);
+    draftDTag = _mintFreshId('field', current: draftDTag);
+    draftTitle = '';
+    proposalSummary = '';
+    provenance = DraftProvenance.fresh;
+    features.clear();
+    selectedDraftFeatureIds.clear();
+    undoStack.clear();
+    redoStack.clear();
+    draftVertices.clear();
+    editingDraftFeature = null;
+    editingFeatureId = null;
+    selectedVertexIndex = null;
+    featureCounter = 0;
+    undoRedoListenable.notifyListeners();
+    _notifyGeometry(selectionChanged: true);
     onPersist?.call();
   }
 
@@ -1010,6 +1139,8 @@ class DraftWorkbenchController extends ChangeNotifier {
     selectedVertexIndex = null;
     draftVertices.clear();
     draftTitle = '';
+    proposalSummary = '';
+    provenance = DraftProvenance.fresh;
     draftDTag = _mintFreshId('field', current: draftDTag);
     _notifyGeometry(selectionChanged: true);
     onPersist?.call();
@@ -1308,13 +1439,21 @@ class DraftWorkbenchController extends ChangeNotifier {
   int cloneGeoJsonToDraft(
     String sourceTitle,
     String geojson, {
+    String? sourceAuthorPubkey,
+    String? sourceAuthorLabel,
+    String? targetAddress,
+    DraftAudienceChoice audience = DraftAudienceChoice.publicRelay,
+    String? targetCircleWorkspaceId,
+    String? targetCircleName,
+    String suffix = '(Draft)',
     VoidCallback? onPersist,
   }) {
     final cloned = parseDraftFeaturesFromGeoJson(geojson);
     if (cloned.isEmpty) return 0;
     activeDraftId = _mintFreshId('draft', current: activeDraftId);
     draftDTag = _mintFreshId('field', current: draftDTag);
-    draftAudience = DraftAudienceChoice.publicRelay;
+    draftAudience = audience;
+    proposalSummary = '';
     features
       ..clear()
       ..addAll(cloned);
@@ -1325,7 +1464,18 @@ class DraftWorkbenchController extends ChangeNotifier {
     selectedVertexIndex = null;
     featureCounter = features.length;
     final trimmedSource = sourceTitle.trim();
-    draftTitle = trimmedSource.isEmpty ? '' : '$trimmedSource (Draft)';
+    draftTitle = trimmedSource.isEmpty
+        ? ''
+        : (suffix.isEmpty ? trimmedSource : '$trimmedSource $suffix');
+    provenance = DraftProvenance(
+      mode: DraftPublishMode.copyingOther,
+      sourceTitle: trimmedSource.isEmpty ? null : trimmedSource,
+      sourceAuthorPubkey: sourceAuthorPubkey,
+      sourceAuthorLabel: sourceAuthorLabel,
+      targetAddress: targetAddress,
+      targetCircleWorkspaceId: targetCircleWorkspaceId,
+      targetCircleName: targetCircleName,
+    );
     _notifyGeometry(selectionChanged: true);
     onPersist?.call();
     return cloned.length;
@@ -1336,9 +1486,16 @@ class DraftWorkbenchController extends ChangeNotifier {
     required bool isOwned,
     required String dTag,
     required String title,
+    String? sourceAuthorPubkey,
+    String? sourceAuthorLabel,
+    String? targetAddress,
+    String? targetEventId,
+    DraftAudienceChoice audience = DraftAudienceChoice.publicRelay,
     VoidCallback? onPersist,
   }) {
     pushUndo();
+    draftAudience = audience;
+    proposalSummary = '';
     features
       ..clear()
       ..addAll(cloned);
@@ -1348,10 +1505,62 @@ class DraftWorkbenchController extends ChangeNotifier {
     if (isOwned) {
       draftDTag = dTag;
       draftTitle = title;
+      provenance = DraftProvenance(
+        mode: DraftPublishMode.updatingOwned,
+        sourceTitle: title,
+        sourceAuthorPubkey: sourceAuthorPubkey,
+        sourceAuthorLabel: sourceAuthorLabel,
+        targetDatasetId: dTag,
+        targetAddress: targetAddress,
+        targetEventId: targetEventId,
+      );
     } else {
-      draftDTag = 'field-${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
-      draftTitle = '$title (Fork)';
+      draftDTag = _mintFreshId('field', current: draftDTag);
+      draftTitle = '$title (Copy)';
+      provenance = DraftProvenance(
+        mode: DraftPublishMode.copyingOther,
+        sourceTitle: title,
+        sourceAuthorPubkey: sourceAuthorPubkey,
+        sourceAuthorLabel: sourceAuthorLabel,
+        targetDatasetId: dTag,
+        targetAddress: targetAddress,
+        targetEventId: targetEventId,
+      );
     }
+    _notifyGeometry(selectionChanged: true);
+    onPersist?.call();
+  }
+
+  void loadPublicMapForProposal({
+    required List<DrawnFeature> parsed,
+    required String dTag,
+    required String title,
+    required String targetAddress,
+    required String targetEventId,
+    required String targetAuthorPubkey,
+    String? targetAuthorLabel,
+    VoidCallback? onPersist,
+  }) {
+    pushUndo();
+    draftAudience = DraftAudienceChoice.publicRelay;
+    draftDTag = _mintFreshId('prop', current: draftDTag);
+    draftTitle = title;
+    proposalSummary = '';
+    features
+      ..clear()
+      ..addAll(parsed);
+    selectedDraftFeatureIds.clear();
+    draftVertices.clear();
+    featureCounter = parsed.length;
+    provenance = DraftProvenance(
+      mode: DraftPublishMode.proposingEdit,
+      sourceTitle: title,
+      sourceAuthorPubkey: targetAuthorPubkey,
+      sourceAuthorLabel: targetAuthorLabel,
+      targetDatasetId: dTag,
+      targetAddress: targetAddress,
+      targetEventId: targetEventId,
+    );
     _notifyGeometry(selectionChanged: true);
     onPersist?.call();
   }
@@ -1360,14 +1569,77 @@ class DraftWorkbenchController extends ChangeNotifier {
     required String dTag,
     required String title,
     required List<DrawnFeature> parsed,
+    bool isOwned = true,
+    String? sourceAuthorPubkey,
+    String? sourceAuthorLabel,
+    String? circleWorkspaceId,
+    String? circleName,
     VoidCallback? onPersist,
   }) {
     draftAudience = DraftAudienceChoice.privateCircle;
-    draftDTag = dTag;
-    draftTitle = title;
+    proposalSummary = '';
+    if (isOwned) {
+      draftDTag = dTag;
+      draftTitle = title;
+      provenance = DraftProvenance(
+        mode: DraftPublishMode.updatingOwned,
+        sourceTitle: title,
+        sourceAuthorPubkey: sourceAuthorPubkey,
+        sourceAuthorLabel: sourceAuthorLabel,
+        targetDatasetId: dTag,
+        targetCircleWorkspaceId: circleWorkspaceId,
+        targetCircleName: circleName,
+      );
+    } else {
+      draftDTag = _mintFreshId('circle-copy', current: draftDTag);
+      draftTitle = title.trim().isEmpty ? '' : '${title.trim()} (Copy)';
+      provenance = DraftProvenance(
+        mode: DraftPublishMode.copyingOther,
+        sourceTitle: title,
+        sourceAuthorPubkey: sourceAuthorPubkey,
+        sourceAuthorLabel: sourceAuthorLabel,
+        targetDatasetId: dTag,
+        targetCircleWorkspaceId: circleWorkspaceId,
+        targetCircleName: circleName,
+      );
+    }
     features
       ..clear()
       ..addAll(parsed);
+    selectedDraftFeatureIds.clear();
+    draftVertices.clear();
+    featureCounter = parsed.length;
+    _notifyGeometry(selectionChanged: true);
+    onPersist?.call();
+  }
+
+  void loadCircleDatasetForProposal({
+    required String targetDatasetId,
+    required String targetAuthorPubkey,
+    String? targetAuthorLabel,
+    required String circleWorkspaceId,
+    required String circleName,
+    required String title,
+    required List<DrawnFeature> parsed,
+    VoidCallback? onPersist,
+  }) {
+    draftAudience = DraftAudienceChoice.privateCircle;
+    draftDTag = _mintFreshId('prop', current: draftDTag);
+    draftTitle = title;
+    proposalSummary = '';
+    provenance = DraftProvenance(
+      mode: DraftPublishMode.proposingEdit,
+      sourceTitle: title,
+      sourceAuthorPubkey: targetAuthorPubkey,
+      sourceAuthorLabel: targetAuthorLabel,
+      targetDatasetId: targetDatasetId,
+      targetCircleWorkspaceId: circleWorkspaceId,
+      targetCircleName: circleName,
+    );
+    features
+      ..clear()
+      ..addAll(parsed);
+    selectedDraftFeatureIds.clear();
     draftVertices.clear();
     featureCounter = parsed.length;
     _notifyGeometry(selectionChanged: true);
@@ -1381,8 +1653,11 @@ class DraftWorkbenchController extends ChangeNotifier {
     final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     draftAudience = DraftAudienceChoice.privateCircle;
     draftDTag = 'circle-map-$nowSec';
-    draftTitle = '$circleName Map';
+    draftTitle = '';
+    proposalSummary = '';
+    provenance = DraftProvenance.fresh;
     features.clear();
+    selectedDraftFeatureIds.clear();
     draftVertices.clear();
     featureCounter = 0;
     _notifyGeometry(selectionChanged: true);
@@ -2273,6 +2548,8 @@ class DraftWorkbenchController extends ChangeNotifier {
     draftDTag = draft.dTag;
     draftTitle = draft.title;
     draftAudience = audienceFromChannel(draft.audienceChannel);
+    proposalSummary = '';
+    provenance = DraftProvenance.fresh;
     features
       ..clear()
       ..addAll(restored);
@@ -2289,6 +2566,8 @@ class DraftWorkbenchController extends ChangeNotifier {
     activeDraftId = _mintFreshId('draft', current: activeDraftId);
     draftDTag = _mintFreshId('field', current: draftDTag);
     draftTitle = '';
+    proposalSummary = '';
+    provenance = DraftProvenance.fresh;
     draftAudience = DraftAudienceChoice.publicRelay;
     features.clear();
     selectedDraftFeatureIds.clear();

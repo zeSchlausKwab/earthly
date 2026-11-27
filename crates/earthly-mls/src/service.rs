@@ -7,7 +7,10 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use earthly_domain::kinds::{GEO_COMMENT_KIND, GEO_EVENT_KIND};
+use earthly_domain::kinds::{
+    GEO_COMMENT_KIND, GEO_EDIT_PROPOSAL_KIND, GEO_EVENT_KIND, PROPOSAL_STATUS_APPLIED_KIND,
+    PROPOSAL_STATUS_CLOSED_KIND, PROPOSAL_STATUS_OPEN_KIND,
+};
 use nostr::{Event, JsonUtil};
 use serde::{Deserialize, Serialize};
 
@@ -47,7 +50,9 @@ use crate::storage::{
     StoredKeyPackage, StoredWorkspace, WorkspaceMetadata, SYNC_HEALTH_BEHIND, SYNC_HEALTH_FORKED,
     SYNC_HEALTH_HEALTHY, SYNC_HEALTH_REMOVED,
 };
-use crate::{PRIVATE_WORKSPACE_CHAT_KIND, PRIVATE_WORKSPACE_METADATA_KIND};
+use crate::{
+    is_valid_hex_pubkey, PRIVATE_WORKSPACE_CHAT_KIND, PRIVATE_WORKSPACE_METADATA_KIND,
+};
 
 const MAX_SKIPPED_COORDINATOR_MESSAGES: usize = 32;
 const MAX_MEMBERSHIP_RECOVERY_PASSES: usize = 4;
@@ -87,6 +92,31 @@ pub struct ProjectedPrivateMessage {
     pub geometry_feature_count: usize,
     #[serde(default)]
     pub media_attachments: Vec<ProjectedMediaAttachment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub epoch: Option<u64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectedPrivateProposal {
+    pub workspace_id: String,
+    pub envelope_id: String,
+    pub proposal_id: String,
+    pub target_dataset_id: String,
+    pub target_author_pubkey: String,
+    pub pubkey: String,
+    pub created_at: u64,
+    pub title: String,
+    pub summary: String,
+    pub geojson_json: String,
+    pub feature_count: usize,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_updated_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_updated_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub epoch: Option<u64>,
 }
@@ -1955,6 +1985,134 @@ impl PrivateWorkspaceService {
             .await
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub async fn send_dataset_proposal(
+        &self,
+        workspace_id: &str,
+        target_dataset_id: &str,
+        target_author_pubkey: &str,
+        geojson_json: &str,
+        name: Option<&str>,
+        summary: Option<&str>,
+        proposal_id: Option<&str>,
+    ) -> Result<PrivateWorkspaceEnvelope, String> {
+        let target_d = target_dataset_id.trim();
+        if target_d.is_empty() {
+            return Err("Target dataset ID is required for a Circle edit proposal".to_owned());
+        }
+        let target_author = target_author_pubkey.trim().to_ascii_lowercase();
+        if !is_valid_hex_pubkey(&target_author) {
+            return Err("Target dataset author pubkey must be 64-char hex".to_owned());
+        }
+        let val: serde_json::Value = serde_json::from_str(geojson_json)
+            .map_err(|e| format!("Invalid GeoJSON proposal: {e}"))?;
+        if val.get("type").and_then(|t| t.as_str()) != Some("FeatureCollection") {
+            return Err("A Circle edit proposal must be a GeoJSON FeatureCollection".to_owned());
+        }
+        let title = name
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .or_else(|| val.get("name").and_then(|n| n.as_str()))
+            .unwrap_or("Proposed Map Edit")
+            .to_owned();
+        let note = summary
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("Proposed map update")
+            .to_owned();
+        let p_id = proposal_id
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| format!("prop-{}", uuid::Uuid::new_v4()));
+
+        let tags = vec![
+            vec!["d".to_owned(), p_id],
+            vec![
+                "a".to_owned(),
+                format!("{GEO_EVENT_KIND}:{target_author}:{target_d}"),
+            ],
+            vec!["dataset".to_owned(), target_d.to_owned()],
+            vec!["p".to_owned(), target_author],
+            vec!["name".to_owned(), title],
+            vec!["summary".to_owned(), note],
+        ];
+
+        self.send_envelope(
+            workspace_id,
+            GEO_EDIT_PROPOSAL_KIND,
+            geojson_json.to_owned(),
+            tags,
+        )
+        .await
+    }
+
+    pub async fn respond_dataset_proposal(
+        &self,
+        workspace_id: &str,
+        proposal_id: &str,
+        status_kind: u16,
+        note: Option<&str>,
+        apply_updated_geojson: Option<&str>,
+    ) -> Result<PrivateWorkspaceEnvelope, String> {
+        if !matches!(
+            status_kind,
+            PROPOSAL_STATUS_OPEN_KIND | PROPOSAL_STATUS_APPLIED_KIND | PROPOSAL_STATUS_CLOSED_KIND
+        ) {
+            return Err(format!(
+                "Unsupported Circle proposal status kind: {status_kind}"
+            ));
+        }
+        let owner = self.owner_pubkey();
+        let ws = self
+            .store
+            .get_workspace(&owner, workspace_id)?
+            .ok_or_else(|| "Circle was not found in this device profile".to_owned())?;
+        let proposal = Self::project_proposals(&ws)
+            .into_iter()
+            .find(|p| p.proposal_id == proposal_id || p.envelope_id == proposal_id)
+            .ok_or_else(|| "Edit proposal was not found in this Circle".to_owned())?;
+
+        if status_kind == PROPOSAL_STATUS_APPLIED_KIND && proposal.target_author_pubkey != owner {
+            return Err(
+                "Only the map's original author can apply an edit proposal in place".to_owned(),
+            );
+        }
+        if status_kind != PROPOSAL_STATUS_APPLIED_KIND
+            && proposal.target_author_pubkey != owner
+            && proposal.pubkey != owner
+        {
+            return Err(
+                "Only the map author or proposal author can update this proposal's status"
+                    .to_owned(),
+            );
+        }
+
+        if status_kind == PROPOSAL_STATUS_APPLIED_KIND {
+            let applied_geojson = apply_updated_geojson
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&proposal.geojson_json);
+            self.send_dataset(
+                workspace_id,
+                applied_geojson,
+                Some(&proposal.target_dataset_id),
+                Some(&proposal.title),
+            )
+            .await?;
+        }
+
+        let status_body = note.map(str::trim).unwrap_or("").to_owned();
+        let tags = vec![
+            vec!["e".to_owned(), proposal.envelope_id],
+            vec!["d".to_owned(), proposal.proposal_id],
+            vec!["p".to_owned(), proposal.pubkey],
+            vec!["dataset".to_owned(), proposal.target_dataset_id],
+        ];
+        self.send_envelope(workspace_id, status_kind, status_body, tags)
+            .await
+    }
+
     pub async fn remove_member(
         &self,
         workspace_id: &str,
@@ -2682,6 +2840,174 @@ impl PrivateWorkspaceService {
             });
         }
         out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        out
+    }
+
+    pub fn project_proposals(ws: &StoredWorkspace) -> Vec<ProjectedPrivateProposal> {
+        let mut latest_proposals: HashMap<String, &PrivateWorkspaceEnvelope> = HashMap::new();
+        for env in &ws.envelopes {
+            if env.kind != GEO_EDIT_PROPOSAL_KIND {
+                continue;
+            }
+            let pid = env
+                .tags
+                .iter()
+                .find(|t| t.first().map(String::as_str) == Some("d"))
+                .and_then(|t| t.get(1))
+                .map(String::as_str)
+                .unwrap_or(env.id.as_str());
+            latest_proposals.insert(format!("{}:{pid}", env.pubkey), env);
+        }
+
+        let mut out = Vec::new();
+        for env in latest_proposals.values() {
+            let Ok(val) = serde_json::from_str::<serde_json::Value>(&env.content) else {
+                continue;
+            };
+            let feature_count = val
+                .get("features")
+                .and_then(|f| f.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+            let proposal_id = env
+                .tags
+                .iter()
+                .find(|t| t.first().map(String::as_str) == Some("d"))
+                .and_then(|t| t.get(1))
+                .cloned()
+                .unwrap_or_else(|| env.id.clone());
+
+            let a_tag = env
+                .tags
+                .iter()
+                .find(|t| t.first().map(String::as_str) == Some("a"))
+                .and_then(|t| t.get(1))
+                .map(String::as_str);
+            let (a_author, a_dataset) = a_tag
+                .and_then(|raw| {
+                    let mut parts = raw.splitn(3, ':');
+                    let _kind = parts.next()?;
+                    let author = parts.next()?.trim().to_ascii_lowercase();
+                    let d = parts.next()?.trim().to_owned();
+                    if author.is_empty() || d.is_empty() {
+                        None
+                    } else {
+                        Some((author, d))
+                    }
+                })
+                .unzip();
+
+            let target_dataset_id = env
+                .tags
+                .iter()
+                .find(|t| t.first().map(String::as_str) == Some("dataset"))
+                .and_then(|t| t.get(1))
+                .cloned()
+                .or(a_dataset)
+                .unwrap_or_default();
+            let target_author_pubkey = env
+                .tags
+                .iter()
+                .find(|t| t.first().map(String::as_str) == Some("p"))
+                .and_then(|t| t.get(1))
+                .map(|s| s.trim().to_ascii_lowercase())
+                .or(a_author)
+                .unwrap_or_default();
+
+            if target_dataset_id.is_empty() || target_author_pubkey.is_empty() {
+                continue;
+            }
+
+            let title = env
+                .tags
+                .iter()
+                .find(|t| matches!(t.first().map(String::as_str), Some("name") | Some("title")))
+                .and_then(|t| t.get(1))
+                .cloned()
+                .or_else(|| val.get("name").and_then(|n| n.as_str()).map(ToOwned::to_owned))
+                .unwrap_or_else(|| "Proposed Map Edit".to_owned());
+            let summary = env
+                .tags
+                .iter()
+                .find(|t| t.first().map(String::as_str) == Some("summary"))
+                .and_then(|t| t.get(1))
+                .cloned()
+                .unwrap_or_else(|| "Proposed map update".to_owned());
+
+            let mut status = "open".to_owned();
+            let mut status_note: Option<String> = None;
+            let mut status_updated_by: Option<String> = None;
+            let mut status_updated_at: Option<u64> = None;
+
+            for st_env in &ws.envelopes {
+                if !matches!(
+                    st_env.kind,
+                    PROPOSAL_STATUS_OPEN_KIND
+                        | PROPOSAL_STATUS_APPLIED_KIND
+                        | PROPOSAL_STATUS_CLOSED_KIND
+                ) {
+                    continue;
+                }
+                let matches_d = st_env.tags.iter().any(|t| {
+                    t.first().map(String::as_str) == Some("d")
+                        && t.get(1).map(String::as_str) == Some(proposal_id.as_str())
+                });
+                let matches_e = st_env.tags.iter().any(|t| {
+                    t.first().map(String::as_str) == Some("e")
+                        && t.get(1).map(String::as_str) == Some(env.id.as_str())
+                });
+                if !matches_d && !matches_e {
+                    continue;
+                }
+                let is_target_author = st_env.pubkey == target_author_pubkey;
+                let is_proposer = st_env.pubkey == env.pubkey;
+                if st_env.kind == PROPOSAL_STATUS_APPLIED_KIND && !is_target_author {
+                    continue;
+                }
+                if !is_target_author && !is_proposer {
+                    continue;
+                }
+                status = match st_env.kind {
+                    PROPOSAL_STATUS_APPLIED_KIND => "applied".to_owned(),
+                    PROPOSAL_STATUS_CLOSED_KIND => "closed".to_owned(),
+                    _ => "open".to_owned(),
+                };
+                let trimmed_note = st_env.content.trim();
+                status_note = if trimmed_note.is_empty() {
+                    None
+                } else {
+                    Some(trimmed_note.to_owned())
+                };
+                status_updated_by = Some(st_env.pubkey.clone());
+                status_updated_at = Some(st_env.created_at);
+            }
+
+            out.push(ProjectedPrivateProposal {
+                workspace_id: ws.workspace_id.clone(),
+                envelope_id: env.id.clone(),
+                proposal_id,
+                target_dataset_id,
+                target_author_pubkey,
+                pubkey: env.pubkey.clone(),
+                created_at: env.created_at,
+                title,
+                summary,
+                geojson_json: env.content.clone(),
+                feature_count,
+                status,
+                status_note,
+                status_updated_by,
+                status_updated_at,
+                epoch: ws.envelope_epochs.get(&env.id).copied(),
+            });
+        }
+        out.sort_by(|a, b| {
+            let a_open = a.status == "open";
+            let b_open = b.status == "open";
+            b_open
+                .cmp(&a_open)
+                .then_with(|| b.created_at.cmp(&a.created_at))
+        });
         out
     }
 
@@ -3852,5 +4178,117 @@ mod tests {
         assert!(!final_members.contains(&carol_pk));
         assert!(final_members.contains(&bob_pk));
         assert!(final_members.contains(&alice_pk));
+    }
+
+    #[tokio::test]
+    async fn encrypted_dataset_edit_proposal_and_owner_apply_in_place() {
+        let dir = tempfile::tempdir().unwrap();
+        let alice_store =
+            Arc::new(SqlitePrivateWorkspaceStore::open(dir.path().join("alice.sqlite")).unwrap());
+        let bob_store =
+            Arc::new(SqlitePrivateWorkspaceStore::open(dir.path().join("bob.sqlite")).unwrap());
+        let coord_state = Arc::new(Mutex::new(MockCordnState::default()));
+
+        let alice_keys = Keys::generate();
+        let bob_keys = Keys::generate();
+        let coord_keys = Keys::generate();
+        let alice_pk = alice_keys.public_key().to_hex();
+        let coord_pk = coord_keys.public_key().to_hex();
+
+        let alice = PrivateWorkspaceService::with_factory(
+            Arc::new(LocalKeysSigner::new(alice_keys)),
+            Arc::clone(&alice_store),
+            coord_pk.clone(),
+            vec!["wss://relay.earthly.city".to_owned()],
+            make_mock_factory(Arc::clone(&coord_state)),
+        );
+        let bob = PrivateWorkspaceService::with_factory(
+            Arc::new(LocalKeysSigner::new(bob_keys)),
+            Arc::clone(&bob_store),
+            coord_pk,
+            vec!["wss://relay.earthly.city".to_owned()],
+            make_mock_factory(Arc::clone(&coord_state)),
+        );
+
+        let ws = alice
+            .create_workspace(WorkspaceMetadata {
+                name: "Proposal Circle".to_owned(),
+                description: None,
+                recommended_basemap: None,
+            })
+            .unwrap();
+        let inv = alice.create_invitation_url(&ws.workspace_id).await.unwrap();
+        bob.request_to_join(&inv).await.unwrap();
+        let reqs = alice.fetch_join_requests(&ws.workspace_id).await.unwrap();
+        alice
+            .approve_join_request(&ws.workspace_id, &reqs[0])
+            .await
+            .unwrap();
+        bob.accept_pending_welcomes().await.unwrap();
+
+        let v1 = r#"{"type":"FeatureCollection","features":[{"type":"Feature","id":"p1","geometry":{"type":"Point","coordinates":[16.37,48.20]},"properties":{"name":"Origin"}}]}"#;
+        alice
+            .send_dataset(&ws.workspace_id, v1, Some("vienna-trail"), Some("Vienna Trail"))
+            .await
+            .unwrap();
+        let bob_ws = bob.sync_workspace(&ws.workspace_id).await.unwrap();
+        assert_eq!(PrivateWorkspaceService::project_datasets(&bob_ws).len(), 1);
+
+        // Bob proposes an edit to Alice's map (does NOT create a duplicate dataset!).
+        let v2 = r#"{"type":"FeatureCollection","features":[{"type":"Feature","id":"p1","geometry":{"type":"Point","coordinates":[16.37,48.20]},"properties":{"name":"Origin"}},{"type":"Feature","id":"p2","geometry":{"type":"Point","coordinates":[16.39,48.22]},"properties":{"name":"Water Stop"}}]}"#;
+        bob.send_dataset_proposal(
+            &ws.workspace_id,
+            "vienna-trail",
+            &alice_pk,
+            v2,
+            Some("Vienna Trail"),
+            Some("Added water stop"),
+            Some("prop-water-1"),
+        )
+        .await
+        .unwrap();
+
+        // Non-owner (Bob) cannot apply his own proposal to Alice's map.
+        let non_owner_err = bob
+            .respond_dataset_proposal(
+                &ws.workspace_id,
+                "prop-water-1",
+                PROPOSAL_STATUS_APPLIED_KIND,
+                Some("self apply"),
+                None,
+            )
+            .await;
+        assert!(non_owner_err.is_err());
+
+        // Alice syncs, sees 1 open proposal & still 1 dataset (no copy created).
+        let alice_ws = alice.sync_workspace(&ws.workspace_id).await.unwrap();
+        assert_eq!(PrivateWorkspaceService::project_datasets(&alice_ws).len(), 1);
+        let props = PrivateWorkspaceService::project_proposals(&alice_ws);
+        assert_eq!(props.len(), 1);
+        assert_eq!(props[0].status, "open");
+        assert_eq!(props[0].feature_count, 2);
+        assert_eq!(props[0].summary, "Added water stop");
+
+        // Alice accepts & applies -> updates original dataset in place & marks proposal applied.
+        alice
+            .respond_dataset_proposal(
+                &ws.workspace_id,
+                "prop-water-1",
+                PROPOSAL_STATUS_APPLIED_KIND,
+                Some("Looks great!"),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let bob_after = bob.sync_workspace(&ws.workspace_id).await.unwrap();
+        let datasets = PrivateWorkspaceService::project_datasets(&bob_after);
+        assert_eq!(datasets.len(), 1, "original dataset updated in place without creating copy");
+        assert_eq!(datasets[0].dataset_id, "vienna-trail");
+        assert_eq!(datasets[0].pubkey, alice_pk);
+        assert_eq!(datasets[0].feature_count, 2);
+        let props_after = PrivateWorkspaceService::project_proposals(&bob_after);
+        assert_eq!(props_after[0].status, "applied");
+        assert_eq!(props_after[0].status_note.as_deref(), Some("Looks great!"));
     }
 }

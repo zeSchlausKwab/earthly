@@ -216,6 +216,9 @@ abstract class EarthlyRustLibApiImplPlatform
   CirclePendingJoinDto dco_decode_circle_pending_join_dto(dynamic raw);
 
   @protected
+  CircleProposalDto dco_decode_circle_proposal_dto(dynamic raw);
+
+  @protected
   CircleSnapshotDto dco_decode_circle_snapshot_dto(dynamic raw);
 
   @protected
@@ -326,6 +329,9 @@ abstract class EarthlyRustLibApiImplPlatform
   List<CirclePendingJoinDto> dco_decode_list_circle_pending_join_dto(
     dynamic raw,
   );
+
+  @protected
+  List<CircleProposalDto> dco_decode_list_circle_proposal_dto(dynamic raw);
 
   @protected
   List<CircleWorkspaceDto> dco_decode_list_circle_workspace_dto(dynamic raw);
@@ -973,6 +979,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  CircleProposalDto sse_decode_circle_proposal_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   CircleSnapshotDto sse_decode_circle_snapshot_dto(
     SseDeserializer deserializer,
   );
@@ -1123,6 +1134,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   List<CirclePendingJoinDto> sse_decode_list_circle_pending_join_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<CircleProposalDto> sse_decode_list_circle_proposal_dto(
     SseDeserializer deserializer,
   );
 
@@ -1985,6 +2001,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_circle_proposal_dto(
+    CircleProposalDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_circle_snapshot_dto(
     CircleSnapshotDto self,
     SseSerializer serializer,
@@ -2170,6 +2192,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_list_circle_pending_join_dto(
     List<CirclePendingJoinDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_circle_proposal_dto(
+    List<CircleProposalDto> self,
     SseSerializer serializer,
   );
 

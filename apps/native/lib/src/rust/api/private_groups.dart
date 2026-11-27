@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `abort_all`, `adaptive_poll_interval_ms`, `decode_hex_32`, `decrypt_circle_media_ciphertext`, `encode_hex_lower`, `external_signer_lock`, `fetch_http_bytes_capped`, `fetch_sealed_multi_device_blob`, `media_imeta_to_dto`, `new`, `normalize_http_base_url`, `normalize_pubkey_hex`, `normalize_relay_urls`, `now_secs`, `parse_external_signed_event`, `publish_event_to_relays`, `resolve_signer`, `sanitize_attachment_filename`, `sha256_hex`, `sign_blossom_upload_auth_local`, `workspace_dto_fingerprint`, `workspace_to_dto`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ActiveEndpointStream`, `ActiveStreamsGuard`, `CircleStreamEvent`, `ExternalDartCircleSigner`, `ExternalSignEnvelope`, `ExternalSignPayload`, `RegisteredExternalSigner`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `drop`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `pubkey_hex`, `sign_event_template`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `drop`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `pubkey_hex`, `sign_event_template`
 
 /// Registers an external Dart-backed Nostr event signer (such as Android Amber
 /// NIP-55) so MLS Circles and Cordn ContextVM operations work seamlessly
@@ -501,6 +501,56 @@ Future<CircleWorkspaceDto> sendCircleDatasetWithMedia({
       imetaTags: imetaTags,
     );
 
+Future<CircleWorkspaceDto> sendCircleDatasetProposal({
+  required String databasePath,
+  String? signerNsec,
+  String? bunkerUri,
+  String? bunkerClientNsec,
+  required String workspaceId,
+  required String targetDatasetId,
+  required String targetAuthorPubkey,
+  required String geojsonJson,
+  String? name,
+  String? summary,
+  String? proposalId,
+}) =>
+    EarthlyRustLib.instance.api.crateApiPrivateGroupsSendCircleDatasetProposal(
+      databasePath: databasePath,
+      signerNsec: signerNsec,
+      bunkerUri: bunkerUri,
+      bunkerClientNsec: bunkerClientNsec,
+      workspaceId: workspaceId,
+      targetDatasetId: targetDatasetId,
+      targetAuthorPubkey: targetAuthorPubkey,
+      geojsonJson: geojsonJson,
+      name: name,
+      summary: summary,
+      proposalId: proposalId,
+    );
+
+Future<CircleWorkspaceDto> respondCircleDatasetProposal({
+  required String databasePath,
+  String? signerNsec,
+  String? bunkerUri,
+  String? bunkerClientNsec,
+  required String workspaceId,
+  required String proposalId,
+  required int statusKind,
+  String? note,
+  String? applyUpdatedGeojson,
+}) => EarthlyRustLib.instance.api
+    .crateApiPrivateGroupsRespondCircleDatasetProposal(
+      databasePath: databasePath,
+      signerNsec: signerNsec,
+      bunkerUri: bunkerUri,
+      bunkerClientNsec: bunkerClientNsec,
+      workspaceId: workspaceId,
+      proposalId: proposalId,
+      statusKind: statusKind,
+      note: note,
+      applyUpdatedGeojson: applyUpdatedGeojson,
+    );
+
 Future<CircleWorkspaceDto> removeCircleMember({
   required String databasePath,
   String? signerNsec,
@@ -777,6 +827,85 @@ class CirclePendingJoinDto {
           createdAtMs == other.createdAtMs;
 }
 
+class CircleProposalDto {
+  final String workspaceId;
+  final String envelopeId;
+  final String proposalId;
+  final String targetDatasetId;
+  final String targetAuthorPubkey;
+  final String pubkey;
+  final BigInt createdAt;
+  final String title;
+  final String summary;
+  final String geojsonJson;
+  final int featureCount;
+  final String status;
+  final String? statusNote;
+  final String? statusUpdatedBy;
+  final BigInt? statusUpdatedAt;
+  final BigInt? epoch;
+
+  const CircleProposalDto({
+    required this.workspaceId,
+    required this.envelopeId,
+    required this.proposalId,
+    required this.targetDatasetId,
+    required this.targetAuthorPubkey,
+    required this.pubkey,
+    required this.createdAt,
+    required this.title,
+    required this.summary,
+    required this.geojsonJson,
+    required this.featureCount,
+    required this.status,
+    this.statusNote,
+    this.statusUpdatedBy,
+    this.statusUpdatedAt,
+    this.epoch,
+  });
+
+  @override
+  int get hashCode =>
+      workspaceId.hashCode ^
+      envelopeId.hashCode ^
+      proposalId.hashCode ^
+      targetDatasetId.hashCode ^
+      targetAuthorPubkey.hashCode ^
+      pubkey.hashCode ^
+      createdAt.hashCode ^
+      title.hashCode ^
+      summary.hashCode ^
+      geojsonJson.hashCode ^
+      featureCount.hashCode ^
+      status.hashCode ^
+      statusNote.hashCode ^
+      statusUpdatedBy.hashCode ^
+      statusUpdatedAt.hashCode ^
+      epoch.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CircleProposalDto &&
+          runtimeType == other.runtimeType &&
+          workspaceId == other.workspaceId &&
+          envelopeId == other.envelopeId &&
+          proposalId == other.proposalId &&
+          targetDatasetId == other.targetDatasetId &&
+          targetAuthorPubkey == other.targetAuthorPubkey &&
+          pubkey == other.pubkey &&
+          createdAt == other.createdAt &&
+          title == other.title &&
+          summary == other.summary &&
+          geojsonJson == other.geojsonJson &&
+          featureCount == other.featureCount &&
+          status == other.status &&
+          statusNote == other.statusNote &&
+          statusUpdatedBy == other.statusUpdatedBy &&
+          statusUpdatedAt == other.statusUpdatedAt &&
+          epoch == other.epoch;
+}
+
 class CircleSnapshotDto {
   final List<CircleWorkspaceDto> workspaces;
   final List<CirclePendingJoinDto> pendingJoins;
@@ -818,6 +947,7 @@ class CircleWorkspaceDto {
   final List<String> administrators;
   final List<CircleDatasetDto> datasets;
   final List<CircleMessageDto> messages;
+  final List<CircleProposalDto> proposals;
   final BigInt createdAtMs;
   final String syncHealth;
   final int consecutiveDecryptErrors;
@@ -840,6 +970,7 @@ class CircleWorkspaceDto {
     required this.administrators,
     required this.datasets,
     required this.messages,
+    required this.proposals,
     required this.createdAtMs,
     required this.syncHealth,
     required this.consecutiveDecryptErrors,
@@ -864,6 +995,7 @@ class CircleWorkspaceDto {
       administrators.hashCode ^
       datasets.hashCode ^
       messages.hashCode ^
+      proposals.hashCode ^
       createdAtMs.hashCode ^
       syncHealth.hashCode ^
       consecutiveDecryptErrors.hashCode ^
@@ -890,6 +1022,7 @@ class CircleWorkspaceDto {
           administrators == other.administrators &&
           datasets == other.datasets &&
           messages == other.messages &&
+          proposals == other.proposals &&
           createdAtMs == other.createdAtMs &&
           syncHealth == other.syncHealth &&
           consecutiveDecryptErrors == other.consecutiveDecryptErrors &&

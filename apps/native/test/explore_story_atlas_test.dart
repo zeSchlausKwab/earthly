@@ -314,7 +314,7 @@ See also nostr:naddr1qqxnzd3cxqmrzv3exgmr2wfeqgsrhuxx8l9ex3s#trail-1 for details
         ),
       ),
     );
-    expect(find.text('Edit in Draft'), findsOneWidget);
+    expect(find.text('Edit in Desk'), findsOneWidget);
     expect(find.text('Delete'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('North Pier'),
