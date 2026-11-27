@@ -13,6 +13,7 @@ jobs:
   android:
     name: Android (arm64-v8a APK & AAB)
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - name: Check out release commit
         uses: actions/checkout@v4
@@ -135,7 +136,7 @@ jobs:
           jarsigner -verify "$AAB"
 
           mkdir -p out/release/android
-          SHA256_RAW="$(printf '%s\n' "$VERIFY_OUT" | sed -n 's/.*Signer #1 certificate SHA-256 digest: \([0-9a-fA-F]\{64\}\).*/\1/p' | head -n 1)"
+          SHA256_RAW="$(printf '%s\n' "$VERIFY_OUT" | sed -n 's/.*certificate SHA-256 digest: \([0-9a-fA-F]\{64\}\).*/\1/p' | head -n 1)"
           test -n "$SHA256_RAW"
           python3 - "$SHA256_RAW" "out/release/android/assetlinks.json" <<'PY'
           import json, sys
@@ -168,6 +169,11 @@ jobs:
   macos:
     name: macOS (Apple Silicon DMG)
     runs-on: macos-15
+    timeout-minutes: 25
+    env:
+      CI: "true"
+      FLUTTER_SUPPRESS_ANALYTICS: "true"
+      COCOAPODS_DISABLE_STATS: "true"
     steps:
       - name: Check out release commit
         uses: actions/checkout@v4
@@ -197,12 +203,32 @@ jobs:
       - name: Build earthly-ffi arm64 dylib
         run: ./apps/native/scripts/build-macos-rust.sh
 
-      - name: Fetch Flutter dependencies & build Earthly.app
+      - name: Fetch Flutter dependencies
         working-directory: apps/native
+        timeout-minutes: 6
         run: |
           set -euo pipefail
-          flutter pub get
-          flutter build macos --release
+          flutter --suppress-analytics --version < /dev/null
+          for attempt in 1 2 3; do
+            echo "flutter pub get attempt $attempt..."
+            if python3 -c 'import subprocess, sys; sys.exit(subprocess.run(["flutter", "--suppress-analytics", "pub", "get", "--verbose"], stdin=subprocess.DEVNULL, timeout=120).returncode)'; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "flutter pub get failed after 3 attempts" >&2
+              exit 1
+            fi
+            killall dart dartvm 2>/dev/null || true
+            sleep 3
+          done
+
+      - name: Build Earthly.app (Release)
+        working-directory: apps/native
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          export DEVELOPER_DIR="$(xcode-select -p)"
+          flutter --suppress-analytics build macos --release < /dev/null
 
       - name: Embed FFI dylib, ad-hoc sign, verify, and package DMG
         run: |
@@ -239,6 +265,7 @@ jobs:
   linux:
     name: Linux (x86_64 tar.gz)
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - name: Check out release commit
         uses: actions/checkout@v4
@@ -308,6 +335,7 @@ jobs:
   windows:
     name: Windows (x86_64 zip)
     runs-on: windows-latest
+    timeout-minutes: 25
     steps:
       - name: Check out release commit
         uses: actions/checkout@v4
