@@ -14,7 +14,8 @@ use std::sync::{Arc, Mutex};
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
-use chacha20poly1305::aead::{Aead, KeyInit, Payload};
+use chacha20poly1305::aead::rand_core::RngCore;
+use chacha20poly1305::aead::{Aead, KeyInit, OsRng, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use mls_rs::client_builder::{ClientBuilder, WithCryptoProvider, WithIdentityProvider};
 use mls_rs::error::IntoAnyError;
@@ -48,15 +49,16 @@ use crate::is_valid_hex_pubkey;
 
 pub const APP_DATA_DICTIONARY_EXTENSION_TYPE: u16 = 0x0006;
 pub const LAST_RESORT_KEY_PACKAGE_COMPONENT_ID: u16 = 0x0004;
+pub const MAX_RETAINED_MLS_EPOCHS: usize = 32;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PersistedEpochRecord {
     pub id: u64,
     pub data_b64: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PersistedMlsState {
     pub group_id: String,
@@ -429,8 +431,9 @@ impl GroupStateStorage for SnapshotGroupStorage {
                 *existing = upd;
             }
         }
-        // Keep last 4 epochs for out-of-order / delayed delivery.
-        while entry.epochs.len() > 4 {
+        // Keep last 32 epochs for out-of-order / delayed delivery.
+        entry.epochs.sort_by_key(|e| e.id);
+        while entry.epochs.len() > MAX_RETAINED_MLS_EPOCHS {
             entry.epochs.remove(0);
         }
         Ok(())
@@ -804,20 +807,49 @@ fn load_group_from_state(
     Ok((group, group_storage))
 }
 
-pub fn member_pubkeys_from_state(state: &PersistedMlsState) -> Result<Vec<String>, String> {
+/// Loads the MLS group state once and returns `(current_epoch, member_pubkeys)`.
+pub fn inspect_group_summary(state: &PersistedMlsState) -> Result<(u64, Vec<String>), String> {
     let (group, _) = load_group_from_state(state, &[])?;
-    let mut out = Vec::new();
+    let epoch = group.current_epoch();
+    let mut members = Vec::new();
     for member in group.roster().members_iter() {
         if let Ok(pk) = pubkey_from_credential(&member.signing_identity.credential) {
-            out.push(pk);
+            members.push(pk);
         }
     }
-    Ok(out)
+    Ok((epoch, members))
+}
+
+pub fn member_pubkeys_from_state(state: &PersistedMlsState) -> Result<Vec<String>, String> {
+    Ok(inspect_group_summary(state)?.1)
 }
 
 pub fn epoch_from_state(state: &PersistedMlsState) -> Result<u64, String> {
     let (group, _) = load_group_from_state(state, &[])?;
     Ok(group.current_epoch())
+}
+
+/// Derives the 32-byte Cordn `cordn-em-v1` encrypted-media key for the state's current epoch
+/// using `MLS-Exporter("cordn", b"encrypted-media", 32)` (spec/applications/encrypted-media.md §3.1).
+pub fn derive_encrypted_media_key(state: &PersistedMlsState) -> Result<[u8; 32], String> {
+    Ok(derive_encrypted_media_key_with_epoch(state)?.1)
+}
+
+/// Loads MLS state once and returns `(current_epoch, encrypted_media_key)`.
+pub fn derive_encrypted_media_key_with_epoch(
+    state: &PersistedMlsState,
+) -> Result<(u64, [u8; 32]), String> {
+    let (group, _) = load_group_from_state(state, &[])?;
+    let epoch = group.current_epoch();
+    let secret = group
+        .export_secret(b"cordn", b"encrypted-media", 32)
+        .map_err(|e| format!("Failed to derive Cordn MLS encrypted-media key: {e}"))?;
+    let mut key = [0u8; 32];
+    if secret.len() != 32 {
+        return Err("MLS exporter returned unexpected media key length".to_owned());
+    }
+    key.copy_from_slice(&secret);
+    Ok((epoch, key))
 }
 
 pub fn add_workspace_member(
@@ -974,11 +1006,23 @@ pub fn process_workspace_message(
     message_64: &str,
     admins: &[String],
 ) -> Result<ProcessedMlsMessage, String> {
+    Ok(process_workspace_message_with_epoch(state, message_64, admins)?.0)
+}
+
+/// Processes an MLS message and returns `(ProcessedMlsMessage, message_or_new_epoch)`.
+/// For application messages, returns the exact epoch carried in the MLS wire frame (important
+/// for resolving historical `cordn-em-v1` epoch media keys on delayed messages).
+pub fn process_workspace_message_with_epoch(
+    state: &PersistedMlsState,
+    message_64: &str,
+    admins: &[String],
+) -> Result<(ProcessedMlsMessage, u64), String> {
     let bytes = BASE64
         .decode(message_64.trim())
         .map_err(|_| "Invalid MLS message base64".to_owned())?;
     let msg = MlsMessage::from_bytes(&bytes)
         .map_err(|e| format!("Invalid MLS framed message: {e}"))?;
+    let frame_epoch = msg.epoch();
     let (mut group, storage) = load_group_from_state(state, admins)?;
     match group.process_incoming_message(msg) {
         Ok(ReceivedMessage::ApplicationMessage(app)) => {
@@ -991,6 +1035,7 @@ pub fn process_workspace_message(
                     "MLS authenticated data does not match the envelope authorization".to_owned(),
                 );
             }
+            let effective_epoch = frame_epoch.unwrap_or_else(|| group.current_epoch());
             group
                 .write_to_storage()
                 .map_err(|e| format!("Failed to persist MLS state: {e}"))?;
@@ -999,12 +1044,16 @@ pub fn process_workspace_message(
                 &state.signer_sk_b64,
                 &state.signer_pk_b64,
             )?;
-            Ok(ProcessedMlsMessage::ApplicationMessage {
-                new_state,
-                envelope,
-            })
+            Ok((
+                ProcessedMlsMessage::ApplicationMessage {
+                    new_state,
+                    envelope,
+                },
+                effective_epoch,
+            ))
         }
         Ok(ReceivedMessage::Commit(desc)) => {
+            let new_epoch = group.current_epoch();
             group
                 .write_to_storage()
                 .map_err(|e| format!("Failed to persist MLS commit state: {e}"))?;
@@ -1014,12 +1063,13 @@ pub fn process_workspace_message(
                 &state.signer_pk_b64,
             )?;
             if matches!(desc.effect, CommitEffect::Removed { .. }) {
-                Ok(ProcessedMlsMessage::Removed(new_state))
+                Ok((ProcessedMlsMessage::Removed(new_state), new_epoch))
             } else {
-                Ok(ProcessedMlsMessage::NewState(new_state))
+                Ok((ProcessedMlsMessage::NewState(new_state), new_epoch))
             }
         }
         Ok(ReceivedMessage::Proposal(_)) => {
+            let cur_epoch = group.current_epoch();
             group
                 .write_to_storage()
                 .map_err(|e| format!("Failed to persist MLS proposal state: {e}"))?;
@@ -1028,16 +1078,22 @@ pub fn process_workspace_message(
                 &state.signer_sk_b64,
                 &state.signer_pk_b64,
             )?;
-            Ok(ProcessedMlsMessage::NewState(new_state))
+            Ok((ProcessedMlsMessage::NewState(new_state), cur_epoch))
         }
-        Ok(_) => Ok(ProcessedMlsMessage::NewState(state.clone())),
+        Ok(_) => Ok((
+            ProcessedMlsMessage::NewState(state.clone()),
+            group.current_epoch(),
+        )),
         Err(err) => {
             let msg_str = err.to_string();
             if msg_str.contains("Unauthorized non-administrator")
                 || msg_str.contains("Cannot remove an administrator")
                 || msg_str.contains("External commits are not authorized")
             {
-                return Ok(ProcessedMlsMessage::Rejected(state.clone()));
+                return Ok((
+                    ProcessedMlsMessage::Rejected(state.clone()),
+                    group.current_epoch(),
+                ));
             }
             Err(format!("Failed to process MLS message: {msg_str}"))
         }
@@ -1069,8 +1125,7 @@ pub fn seal_coordinator_payload(
     let cipher = ChaCha20Poly1305::new_from_slice(&key)
         .map_err(|e| format!("ChaCha20-Poly1305 init failed: {e}"))?;
     let mut nonce_bytes = [0u8; 12];
-    let random = uuid::Uuid::new_v4();
-    nonce_bytes.copy_from_slice(&random.as_bytes()[..12]);
+    OsRng.fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
     let ciphertext = cipher
         .encrypt(
@@ -1117,4 +1172,70 @@ pub fn open_coordinator_payload(
 #[allow(dead_code)]
 fn _default_rules_marker() -> DefaultMlsRules {
     DefaultMlsRules::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nostr::Keys;
+
+    #[test]
+    fn seal_coordinator_payload_uses_csprng_nonces_not_uuidv4_bits() {
+        let pk = Keys::generate().public_key().to_hex();
+        let state = create_workspace_group("earthly:nonce-test", &pk).unwrap();
+        let payload_b64 = BASE64.encode(b"sample mls payload bytes for nonce test");
+
+        // Collect 64 nonces and confirm:
+        // 1. All 64 nonces are unique.
+        // 2. Byte 6 high nibble is NOT stuck at 0x4 (UUIDv4 version) and byte 8 high 2 bits
+        //    are NOT stuck at 0b10 (UUIDv4 variant).
+        let mut seen = HashSet::new();
+        let mut any_non_uuid_v4_byte6 = false;
+        let mut any_non_uuid_v4_byte8 = false;
+        for _ in 0..64 {
+            let sealed = seal_coordinator_payload(&state, &payload_b64).unwrap();
+            let raw = BASE64.decode(&sealed).unwrap();
+            let nonce = &raw[..12];
+            assert!(seen.insert(nonce.to_vec()));
+            if (nonce[6] & 0xF0) != 0x40 {
+                any_non_uuid_v4_byte6 = true;
+            }
+            if (nonce[8] & 0xC0) != 0x80 {
+                any_non_uuid_v4_byte8 = true;
+            }
+            assert_eq!(open_coordinator_payload(&state, &sealed).unwrap(), payload_b64);
+        }
+        assert!(any_non_uuid_v4_byte6, "nonce byte 6 looked like fixed UUIDv4 version");
+        assert!(any_non_uuid_v4_byte8, "nonce byte 8 looked like fixed UUIDv4 variant");
+    }
+
+    #[test]
+    fn snapshot_storage_retains_up_to_32_epochs_and_exports_distinct_media_keys() {
+        let admin_pk = Keys::generate().public_key().to_hex();
+        let mut state = create_workspace_group("earthly:epoch-retention", &admin_pk).unwrap();
+        let mut media_keys = HashSet::new();
+        let (ep0, key0) = derive_encrypted_media_key_with_epoch(&state).unwrap();
+        assert_eq!(ep0, 0);
+        media_keys.insert(key0);
+
+        // Advance through 35 epochs by adding & removing transient members.
+        for _ in 0..18 {
+            let peer_pk = Keys::generate().public_key().to_hex();
+            let kp = generate_mls_key_package(&peer_pk, true).unwrap();
+            let added = add_workspace_member(&state, &kp.kp_64, &[admin_pk.clone()]).unwrap();
+            state = added.new_state;
+            media_keys.insert(derive_encrypted_media_key(&state).unwrap());
+            let removed = remove_workspace_member(&state, &peer_pk, &[admin_pk.clone()]).unwrap();
+            state = removed.new_state;
+            media_keys.insert(derive_encrypted_media_key(&state).unwrap());
+        }
+
+        let (final_epoch, members) = inspect_group_summary(&state).unwrap();
+        assert_eq!(final_epoch, 36);
+        assert_eq!(members, vec![admin_pk]);
+        assert_eq!(state.epochs.len(), MAX_RETAINED_MLS_EPOCHS);
+        assert_eq!(state.epochs.len(), 32);
+        // Every epoch produces a unique 32-byte `cordn-em-v1` exporter secret!
+        assert_eq!(media_keys.len(), 37);
+    }
 }

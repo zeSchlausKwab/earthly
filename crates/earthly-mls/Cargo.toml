@@ -1,7 +1,7 @@
 [package]
 name = "earthly-mls"
 version = "0.1.0"
-description = "RFC 9420 MLS + Cordn ContextVM private collaboration engine for Earthly (100% wire-compatible with Earthly Web ts-mls & cordn-rs v0.4.0)"
+description = "RFC 9420 MLS + Cordn ContextVM private collaboration engine for Earthly (100% wire-compatible with Earthly Web ts-mls & cordn v0.4/v0.5)"
 edition = "2021"
 rust-version = "1.82.0"
 license = "MIT"
@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 base64 = "0.22"
+bech32 = "0.11"
 chacha20poly1305 = "0.10"
 earthly-domain = { path = "../earthly-domain" }
 hex = "0.4"
@@ -16,7 +17,7 @@ mls-rs = { version = "0.58.0", default-features = false, features = ["std", "rfc
 mls-rs-codec = "0.7.1"
 mls-rs-core = "0.27.0"
 mls-rs-crypto-rustcrypto = "0.24.0"
-nostr = "0.44.1"
+nostr = { version = "0.44.1", features = ["nip44"] }
 nostr-sdk = "0.44.1"
 rusqlite = { version = "0.32.1", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

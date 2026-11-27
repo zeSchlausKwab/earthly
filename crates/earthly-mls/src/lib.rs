@@ -1,13 +1,16 @@
 //! RFC 9420 MLS + Cordn ContextVM private collaboration engine for Earthly.
 //!
 //! Wire-compatible with Earthly Web (`src/lib/private-workspace/`, `ts-mls`)
-//! and the official `cordn-rs` v0.4.0 ContextVM coordinator over Nostr.
+//! and both `cordn` v0.4.0 and `cordn` v0.5.8 / `cordn-rs` v0.5.1 ContextVM coordinators over Nostr.
 
 pub mod checkpoint;
 pub mod coordinator;
 pub mod envelope;
+pub mod group_ref;
 pub mod invitation;
+pub mod media;
 pub mod mls;
+pub mod multi_device;
 pub mod policy;
 pub mod service;
 pub mod storage;

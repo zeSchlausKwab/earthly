@@ -93,6 +93,40 @@ impl NostrEventSigner for LocalKeysSigner {
     }
 }
 
+/// Read-only pubkey identity for delivery-only coordinator sync (ZERO user signing prompts).
+#[derive(Clone, Debug)]
+pub struct ReadOnlyNostrSigner {
+    pubkey_hex: String,
+}
+
+impl ReadOnlyNostrSigner {
+    pub fn new(pubkey_hex: String) -> Result<Self, String> {
+        if !is_valid_hex_pubkey(&pubkey_hex) {
+            return Err("Invalid read-only Nostr pubkey".to_owned());
+        }
+        Ok(Self { pubkey_hex })
+    }
+}
+
+impl NostrEventSigner for ReadOnlyNostrSigner {
+    fn pubkey_hex(&self) -> String {
+        self.pubkey_hex.clone()
+    }
+
+    fn sign_event_template(
+        &self,
+        _kind: u16,
+        _created_at: u64,
+        _tags: Vec<Vec<String>>,
+        _content: String,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Event, String>> + Send + '_>>
+    {
+        Box::pin(async {
+            Err("Read-only workspace identity cannot sign Nostr events".to_owned())
+        })
+    }
+}
+
 pub fn parse_nostr_tags(raw: &[Vec<String>]) -> Result<Vec<Tag>, String> {
     raw.iter()
         .map(|items| {
