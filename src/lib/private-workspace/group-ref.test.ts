@@ -26,6 +26,18 @@ describe('Cordn group-ref (cordn1...) Bech32 TLV codec', () => {
 		expect(decodeGroupRef(encoded)).toEqual(ref)
 	})
 
+	test('matches Rust earthly-mls pinned cordn1... vector char-for-char', () => {
+		const rustRef = {
+			gid: 'earthly:danube-survey-42',
+			relays: ['wss://relay.earthly.city', 'wss://nos.lol'],
+			coordinator: 'fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37',
+		}
+		const expected =
+			'cordn1qqvx2ctjw35xc7f6v3skuatzv5khxatjwejhjtf5xgq3samnwvaz7tmjv4kxz7fwv4shyargd3ujucmfw3uszrthwden5te0dehhxtnvdakqyg8a2sc68updmgeajfu2msketcq8mdld7rx5xazs3gltr2fvp3j7xu22mhrl'
+		expect(encodeGroupRef(rustRef)).toBe(expected)
+		expect(decodeGroupRef(expected)).toEqual(rustRef)
+	})
+
 	test('extracts cordn1... from URL fragments, query params, and cordn: URIs', () => {
 		const ref = {
 			gid: 'earthly:fragment-group',

@@ -68,7 +68,7 @@ export type MultiDeviceDocument = MultiDeviceGroupDocument | MultiDeviceMetaDocu
 export interface MultiDeviceBlobRef {
 	/** 64-char lowercase hex SHA-256 of the sealed document blob. */
 	x: string
-	url?: string
+	urls: string[]
 	issuedAt: number
 }
 
@@ -77,12 +77,13 @@ export interface MultiDeviceBlobRef {
  * `d: "cordn-md-tip-v1"`) event content. Relays only see NIP-44 ciphertext.
  */
 export interface MultiDeviceTipPointer {
-	version: typeof MULTI_DEVICE_SCHEMA_VERSION
+	schemaVersion: typeof MULTI_DEVICE_SCHEMA_VERSION
 	/** 64-char hex 32-byte per-identity DEK used to seal/unseal Blossom documents. */
 	dekHex: string
 	blossomServers: string[]
 	groups: Record<string, MultiDeviceBlobRef>
 	meta?: MultiDeviceBlobRef
+	updatedAt?: number
 }
 
 export interface MultiDeviceNip44Signer {
@@ -123,14 +124,14 @@ function assertValidDek(dek: Uint8Array): void {
 }
 
 function validateGroupDocument(candidate: Record<string, unknown>): MultiDeviceGroupDocument {
+	const prev = candidate.prev === undefined ? null : candidate.prev
 	if (
 		candidate.schemaVersion !== MULTI_DEVICE_SCHEMA_VERSION ||
 		candidate.type !== 'group' ||
 		typeof candidate.issuedAt !== 'number' ||
 		!Number.isSafeInteger(candidate.issuedAt) ||
 		candidate.issuedAt < 0 ||
-		(candidate.prev !== null &&
-			(typeof candidate.prev !== 'string' || !HEX_64_PATTERN.test(candidate.prev))) ||
+		(prev !== null && (typeof prev !== 'string' || !HEX_64_PATTERN.test(prev))) ||
 		typeof candidate.gid !== 'string' ||
 		candidate.gid.length === 0 ||
 		typeof candidate.coordinator !== 'string' ||
@@ -159,7 +160,7 @@ function validateGroupDocument(candidate: Record<string, unknown>): MultiDeviceG
 		schemaVersion: MULTI_DEVICE_SCHEMA_VERSION,
 		type: 'group',
 		issuedAt: candidate.issuedAt,
-		prev: candidate.prev,
+		prev,
 		gid: candidate.gid,
 		coordinator: candidate.coordinator,
 		coordinatorRelays: [...candidate.coordinatorRelays],
@@ -304,19 +305,36 @@ function validateBlobRef(value: unknown): MultiDeviceBlobRef {
 		throw new Error('Invalid blob reference in multi-device tip pointer')
 	}
 	const ref = value as Record<string, unknown>
+	const issuedAt = ref.issuedAt === undefined ? 0 : ref.issuedAt
 	if (
 		typeof ref.x !== 'string' ||
 		!HEX_64_PATTERN.test(ref.x) ||
-		typeof ref.issuedAt !== 'number' ||
-		!Number.isSafeInteger(ref.issuedAt) ||
-		ref.issuedAt < 0
+		typeof issuedAt !== 'number' ||
+		!Number.isSafeInteger(issuedAt) ||
+		issuedAt < 0
 	) {
 		throw new Error('Invalid blob reference in multi-device tip pointer')
 	}
+
+	let urls: string[]
+	if (ref.urls !== undefined) {
+		if (
+			!Array.isArray(ref.urls) ||
+			!ref.urls.every((item): item is string => typeof item === 'string' && item.length > 0)
+		) {
+			throw new Error('Invalid urls in multi-device blob reference')
+		}
+		urls = [...ref.urls]
+	} else if (typeof ref.url === 'string' && ref.url.length > 0) {
+		urls = [ref.url]
+	} else {
+		urls = []
+	}
+
 	return {
 		x: ref.x,
-		...(typeof ref.url === 'string' && ref.url.length > 0 ? { url: ref.url } : {}),
-		issuedAt: ref.issuedAt,
+		urls,
+		issuedAt,
 	}
 }
 
@@ -326,7 +344,7 @@ function validateTipPointer(value: unknown): MultiDeviceTipPointer {
 	}
 	const candidate = value as Record<string, unknown>
 	if (
-		candidate.version !== MULTI_DEVICE_SCHEMA_VERSION ||
+		candidate.schemaVersion !== MULTI_DEVICE_SCHEMA_VERSION ||
 		typeof candidate.dekHex !== 'string' ||
 		!HEX_64_PATTERN.test(candidate.dekHex) ||
 		!Array.isArray(candidate.blossomServers) ||
@@ -337,17 +355,28 @@ function validateTipPointer(value: unknown): MultiDeviceTipPointer {
 	) {
 		throw new Error('Invalid multi-device tip pointer')
 	}
+	if (
+		candidate.updatedAt !== undefined &&
+		(typeof candidate.updatedAt !== 'number' ||
+			!Number.isSafeInteger(candidate.updatedAt) ||
+			candidate.updatedAt < 0)
+	) {
+		throw new Error('Invalid updatedAt in multi-device tip pointer')
+	}
 	const groups: Record<string, MultiDeviceBlobRef> = {}
 	for (const [gid, ref] of Object.entries(candidate.groups as Record<string, unknown>)) {
 		if (!gid) throw new Error('Invalid empty gid in multi-device tip pointer')
 		groups[gid] = validateBlobRef(ref)
 	}
 	return {
-		version: MULTI_DEVICE_SCHEMA_VERSION,
+		schemaVersion: MULTI_DEVICE_SCHEMA_VERSION,
 		dekHex: candidate.dekHex,
 		blossomServers: [...candidate.blossomServers],
 		groups,
-		...(candidate.meta !== undefined ? { meta: validateBlobRef(candidate.meta) } : {}),
+		...(candidate.meta !== undefined && candidate.meta !== null
+			? { meta: validateBlobRef(candidate.meta) }
+			: {}),
+		...(candidate.updatedAt !== undefined ? { updatedAt: candidate.updatedAt } : {}),
 	}
 }
 
@@ -360,7 +389,10 @@ export async function createMultiDeviceTipEvent(
 	pointer: MultiDeviceTipPointer,
 	createdAt = Math.floor(Date.now() / 1000),
 ): Promise<NostrEvent> {
-	const validated = validateTipPointer(pointer)
+	const validated = validateTipPointer({
+		...pointer,
+		updatedAt: pointer.updatedAt ?? createdAt,
+	})
 	const ownerPubkey = await signer.getPublicKey()
 	const content = await signer.nip44Encrypt(ownerPubkey, JSON.stringify(validated))
 	return signer.signEvent({

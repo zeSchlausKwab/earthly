@@ -50,7 +50,12 @@ describe('Cordn multi-device sync (spec/applications/multi-device.md)', () => {
 		}
 
 		const encoded = encodeMultiDeviceDocument(groupDoc)
+		expect(encoded).toContain('"prev":null')
 		expect(decodeMultiDeviceDocument(encoded)).toEqual(groupDoc)
+
+		// Defensively accept omitted `prev` from older producers as `null`
+		const { prev: _omittedPrev, ...withoutPrev } = groupDoc
+		expect(decodeMultiDeviceDocument(JSON.stringify(withoutPrev))).toEqual(groupDoc)
 
 		const sealed = sealMultiDeviceDocument(groupDoc, dek)
 		expect(sealed).not.toContain('Alpine Survey')
@@ -79,18 +84,19 @@ describe('Cordn multi-device sync (spec/applications/multi-device.md)', () => {
 		const signer = createLocalMultiDeviceNip44Signer(secretKey)
 		const dek = generateMultiDeviceDek()
 		const pointer = {
-			version: MULTI_DEVICE_SCHEMA_VERSION,
+			schemaVersion: MULTI_DEVICE_SCHEMA_VERSION,
 			dekHex: bytesToHex(dek),
 			blossomServers: ['https://blossom.earthly.city'],
 			groups: {
 				'earthly:sync-group-1': {
 					x: 'aa'.repeat(32),
-					url: 'https://blossom.earthly.city/aa',
+					urls: ['https://blossom.earthly.city/aa'],
 					issuedAt: 1_760_000_000,
 				},
 			},
 			meta: {
 				x: 'bb'.repeat(32),
+				urls: [],
 				issuedAt: 1_760_000_010,
 			},
 		}
@@ -101,8 +107,45 @@ describe('Cordn multi-device sync (spec/applications/multi-device.md)', () => {
 		expect(tipEvent.content).not.toContain(pointer.dekHex)
 
 		const opened = await openMultiDeviceTipEvent(signer, tipEvent)
-		expect(opened).toEqual(pointer)
+		expect(opened).toEqual({ ...pointer, updatedAt: 1_760_000_020 })
 		expect(multiDeviceDekFromPointer(opened)).toEqual(dek)
+
+		// Decodes cross-stack tip payload with explicit `meta: null` and legacy single `url`
+		const legacyContent = await signer.nip44Encrypt(
+			ownerPubkey,
+			JSON.stringify({
+				schemaVersion: 1,
+				dekHex: bytesToHex(dek),
+				blossomServers: ['https://blossom.earthly.city'],
+				groups: {
+					'earthly:sync-group-1': {
+						x: 'aa'.repeat(32),
+						url: 'https://blossom.earthly.city/aa',
+						issuedAt: 1_760_000_000,
+					},
+				},
+				meta: null,
+			}),
+		)
+		const legacyEvent = await signer.signEvent({
+			kind: MULTI_DEVICE_TIP_KIND,
+			created_at: 1_760_000_025,
+			tags: [['d', MULTI_DEVICE_TIP_D_TAG]],
+			content: legacyContent,
+		})
+		const openedLegacy = await openMultiDeviceTipEvent(signer, legacyEvent)
+		expect(openedLegacy).toEqual({
+			schemaVersion: 1,
+			dekHex: bytesToHex(dek),
+			blossomServers: ['https://blossom.earthly.city'],
+			groups: {
+				'earthly:sync-group-1': {
+					x: 'aa'.repeat(32),
+					urls: ['https://blossom.earthly.city/aa'],
+					issuedAt: 1_760_000_000,
+				},
+			},
+		})
 
 		// Another account must not accept or decrypt this tip event
 		const otherSigner = createLocalMultiDeviceNip44Signer(generateSecretKey())

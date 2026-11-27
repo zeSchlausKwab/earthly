@@ -90,6 +90,38 @@ describe('cordn-em-v1 and earthly-pm-v1 encrypted media', () => {
 		expect(decrypted).toEqual(plaintext)
 	})
 
+	test('matches Rust earthly-mls pinned cordn-em-v1 wire vector byte-for-byte', () => {
+		const key = hexToBytes('000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f')
+		const nonce = hexToBytes('a0a1a2a3a4a5a6a7a8a9aaab')
+		const plaintext = new TextEncoder().encode('Earthly encrypted photo payload')
+		const mime = 'image/jpeg'
+		const filename = 'field-photo.jpg'
+
+		const encrypted = encryptCordnMedia({ plaintext, mime, filename, key, nonce })
+		expect(encrypted.sha256Hex).toBe(
+			'0da9e891b44998a85eaba28923148381990229493d0b42f1bd8e78770e28c919',
+		)
+		expect(bytesToHex(encrypted.ciphertext)).toBe(
+			'49ca0a2b258abb8dc5619066858a899ef97ea3d72c1e0f83c4b9a2dd1e03a7f7f34ccf8d6cebacbd116d478371a5f9',
+		)
+
+		const decrypted = decryptEncryptedMedia({
+			ciphertext: hexToBytes(
+				'49ca0a2b258abb8dc5619066858a899ef97ea3d72c1e0f83c4b9a2dd1e03a7f7f34ccf8d6cebacbd116d478371a5f9',
+			),
+			attachment: {
+				url: 'https://blossom.earthly.city/rust-vector',
+				mime,
+				filename,
+				x: '0da9e891b44998a85eaba28923148381990229493d0b42f1bd8e78770e28c919',
+				n: 'a0a1a2a3a4a5a6a7a8a9aaab',
+				v: CORDN_ENCRYPTED_MEDIA_VERSION,
+			},
+			epochMediaKey: key,
+		})
+		expect(decrypted).toEqual(plaintext)
+	})
+
 	test('rejects AAD tampering, ciphertext tampering, wrong key, and missing/unknown versions', () => {
 		const key = hexToBytes('11'.repeat(32))
 		const nonce = hexToBytes('22'.repeat(12))
