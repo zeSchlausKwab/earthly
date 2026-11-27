@@ -7,9 +7,10 @@ import '../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `blind_message`, `build_http_client`, `build_nip60_history_event`, `build_nip60_token_event`, `build_nip60_wallet_event`, `build_nip61_nutzap_event`, `build_nip61_nutzap_info_event`, `build_nut11_p2pk_secret`, `bytes_to_hex`, `compute_input_fee_sats`, `current_unix_secs`, `decode_cashu_v3_token`, `default_true`, `default_wallet_for`, `derive_keyset_id`, `encode_cashu_v3_token`, `fetch_active_sat_keyset`, `fetch_keys_for_id`, `fetch_keysets`, `generate_p2pk_keypair_hex`, `generate_random_secret_hex`, `get_mint_quote_bolt11`, `hash_to_curve`, `hex_to_bytes`, `is_quote_paid`, `load_existing_wallet`, `make_record_id`, `merge_unique_proofs`, `normalize_mint_url`, `normalize_p2pk_compressed_hex`, `normalize_relays_with_fallback`, `parse_compressed_pubkey`, `parse_nip61_nutzap_event`, `parse_nip61_nutzap_info_event`, `post_checkstate`, `post_melt_bolt11`, `post_melt_quote_bolt11`, `post_mint_bolt11`, `post_mint_quote_bolt11`, `post_swap`, `prepare_blinded_outputs`, `proofs_to_wire`, `remove_spent_proofs`, `resolve_target_mint`, `save_updated_wallet`, `select_proofs_for_amount`, `sign_p2pk_proof_if_needed`, `split_amount_for_keyset`, `split_amount_powers_of_two`, `unblind_signature`, `unblind_signatures_to_proofs`, `wallet_to_dto`
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ActiveMintKeyset`, `BlindSignatureWire`, `BlindedMessageWire`, `CashuProofWire`, `CashuV3Entry`, `CashuV3Payload`, `CheckStateResponse`, `DecodedCashuToken`, `KeysResponse`, `KeysetKeysWire`, `KeysetSummary`, `KeysetsResponse`, `MeltQuoteResponse`, `MeltTokensResponse`, `MintQuoteResponse`, `MintTokensResponse`, `ParsedNutzapInfo`, `PendingBlinding`, `ProofSelection`, `ProofStateEntry`, `SwapResponse`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `apply_decrypted_nip60_to_wallet`, `blind_message`, `build_http_client`, `build_nip60_history_event`, `build_nip60_token_event`, `build_nip60_wallet_event`, `build_nip61_nutzap_event`, `build_nip61_nutzap_info_event`, `build_nut11_p2pk_secret`, `bytes_to_hex`, `check_proofs_liveness_non_fatal`, `compute_input_fee_sats`, `current_unix_secs`, `decode_cashu_v3_token`, `default_true`, `default_wallet_for`, `derive_keyset_id`, `discover_nip60_wallet_events`, `encode_cashu_v3_token`, `event_to_raw_dto`, `extract_deleted_event_ids_from_kind5`, `extract_nip65_relays`, `fetch_active_sat_keyset`, `fetch_keys_for_id`, `fetch_keysets`, `fetch_nip60_data_events_internal`, `generate_p2pk_keypair_hex`, `generate_random_secret_hex`, `get_mint_quote_bolt11`, `hash_to_curve`, `hex_to_bytes`, `is_quote_paid`, `load_existing_wallet`, `make_record_id`, `merge_relay_urls`, `merge_unique_proofs`, `normalize_mint_url`, `normalize_p2pk_compressed_hex`, `normalize_relays_with_fallback`, `parse_compressed_pubkey`, `parse_nip60_history_content`, `parse_nip60_wallet_content`, `parse_nip61_nutzap_event`, `parse_nip61_nutzap_info_event`, `post_checkstate`, `post_melt_bolt11`, `post_melt_quote_bolt11`, `post_mint_bolt11`, `post_mint_quote_bolt11`, `post_swap`, `prepare_blinded_outputs`, `proofs_to_wire`, `remove_spent_proofs`, `resolve_target_mint`, `save_updated_wallet`, `select_proofs_for_amount`, `sign_p2pk_proof_if_needed`, `split_amount_for_keyset`, `split_amount_powers_of_two`, `unblind_signature`, `unblind_signatures_to_proofs`, `wallet_to_dto`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ActiveMintKeyset`, `BlindSignatureWire`, `BlindedMessageWire`, `CashuProofWire`, `CashuV3Entry`, `CashuV3Payload`, `CheckStateResponse`, `DecodedCashuToken`, `KeysResponse`, `KeysetKeysWire`, `KeysetSummary`, `KeysetsResponse`, `MeltQuoteResponse`, `MeltTokensResponse`, `MintQuoteResponse`, `MintTokensResponse`, `Nip60ProofSerde`, `Nip60TokenContent`, `ParsedNip60HistoryContent`, `ParsedNip60WalletContent`, `ParsedNutzapInfo`, `PendingBlinding`, `ProofSelection`, `ProofStateEntry`, `SwapResponse`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Loads the persisted Cashu wallet state (or initializes an empty in-memory view if not created yet).
 Future<CashuWalletStateDto> loadCashuWalletState({
@@ -140,7 +141,56 @@ Future<CashuMeltResultDto> payBolt11ViaCashu({
   masterKeyB64: masterKeyB64,
 );
 
-/// Syncs NIP-60 wallet state (`17375`, `7375`, `7376`) over the shared persistent Nostr relay pool.
+/// Discovers NIP-60 relays (`10002` + `10019`) and fetches the latest `kind 17375` wallet metadata
+/// event for signer-agnostic decryption (Amber NIP-55 / NIP-46 Bunker / local nsec).
+Future<Nip60WalletDiscoveryDto> fetchNip60WalletDiscovery({
+  required String pubkeyHex,
+  required List<String> relays,
+}) => EarthlyRustLib.instance.api.crateApiWalletFetchNip60WalletDiscovery(
+  pubkeyHex: pubkeyHex,
+  relays: relays,
+);
+
+/// Fetches encrypted NIP-60 `kind 7375` token events, `kind 7376` history events, and NIP-09
+/// `kind 5` (`#k: ["7375"]`) deletion IDs across the provided relays.
+Future<Nip60DataFetchDto> fetchNip60DataEvents({
+  required String pubkeyHex,
+  required List<String> relays,
+}) => EarthlyRustLib.instance.api.crateApiWalletFetchNip60DataEvents(
+  pubkeyHex: pubkeyHex,
+  relays: relays,
+);
+
+/// Extracts valid `ws://` / `wss://` relay URLs from decrypted `kind 17375` JSON.
+Future<List<String>> parseNip60WalletRelaysFromJson({
+  required String decryptedWalletJson,
+}) => EarthlyRustLib.instance.api.crateApiWalletParseNip60WalletRelaysFromJson(
+  decryptedWalletJson: decryptedWalletJson,
+);
+
+/// Applies caller-decrypted NIP-60 wallet/token/history events to local SQLite state, pruning
+/// deleted/destroyed proofs and checking NUT-07 proof liveness where mints are reachable.
+Future<CashuWalletStateDto> applyDecryptedNip60Sync({
+  required String databasePath,
+  required String pubkeyHex,
+  required List<String> relays,
+  String? decryptedWalletJson,
+  required List<DecryptedNip60EventDto> decryptedTokenEvents,
+  required List<DecryptedNip60EventDto> decryptedHistoryEvents,
+  required List<String> deletedEventIds,
+  String? masterKeyB64,
+}) => EarthlyRustLib.instance.api.crateApiWalletApplyDecryptedNip60Sync(
+  databasePath: databasePath,
+  pubkeyHex: pubkeyHex,
+  relays: relays,
+  decryptedWalletJson: decryptedWalletJson,
+  decryptedTokenEvents: decryptedTokenEvents,
+  decryptedHistoryEvents: decryptedHistoryEvents,
+  deletedEventIds: deletedEventIds,
+  masterKeyB64: masterKeyB64,
+);
+
+/// Syncs NIP-60 wallet state (`17375`, `7375`, `7376`, `5`) over the shared persistent Nostr relay pool.
 Future<CashuWalletStateDto> syncNip60Wallet({
   required String databasePath,
   required String nsecOrHex,
@@ -149,6 +199,23 @@ Future<CashuWalletStateDto> syncNip60Wallet({
 }) => EarthlyRustLib.instance.api.crateApiWalletSyncNip60Wallet(
   databasePath: databasePath,
   nsecOrHex: nsecOrHex,
+  relays: relays,
+  masterKeyB64: masterKeyB64,
+);
+
+/// Syncs NIP-60 wallet state (`17375`, `7375`, `7376`, `5`) using a NIP-46 remote Bunker signer.
+Future<CashuWalletStateDto> syncNip60WalletWithBunker({
+  required String databasePath,
+  required String bunkerUri,
+  required String clientNsec,
+  required String pubkeyHex,
+  required List<String> relays,
+  String? masterKeyB64,
+}) => EarthlyRustLib.instance.api.crateApiWalletSyncNip60WalletWithBunker(
+  databasePath: databasePath,
+  bunkerUri: bunkerUri,
+  clientNsec: clientNsec,
+  pubkeyHex: pubkeyHex,
   relays: relays,
   masterKeyB64: masterKeyB64,
 );
@@ -301,11 +368,17 @@ class CashuMeltResultDto {
 class CashuMintBalanceDto {
   final String mintUrl;
   final BigInt balanceSats;
+  final BigInt proofCount;
 
-  const CashuMintBalanceDto({required this.mintUrl, required this.balanceSats});
+  const CashuMintBalanceDto({
+    required this.mintUrl,
+    required this.balanceSats,
+    required this.proofCount,
+  });
 
   @override
-  int get hashCode => mintUrl.hashCode ^ balanceSats.hashCode;
+  int get hashCode =>
+      mintUrl.hashCode ^ balanceSats.hashCode ^ proofCount.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -313,7 +386,8 @@ class CashuMintBalanceDto {
       other is CashuMintBalanceDto &&
           runtimeType == other.runtimeType &&
           mintUrl == other.mintUrl &&
-          balanceSats == other.balanceSats;
+          balanceSats == other.balanceSats &&
+          proofCount == other.proofCount;
 }
 
 class CashuMintQuoteDto {
@@ -455,6 +529,115 @@ class CashuWalletStateDto {
           history == other.history &&
           nutzapEnabled == other.nutzapEnabled &&
           updatedAt == other.updatedAt;
+}
+
+class DecryptedNip60EventDto {
+  final String eventId;
+  final BigInt createdAt;
+  final String decryptedJson;
+
+  const DecryptedNip60EventDto({
+    required this.eventId,
+    required this.createdAt,
+    required this.decryptedJson,
+  });
+
+  @override
+  int get hashCode =>
+      eventId.hashCode ^ createdAt.hashCode ^ decryptedJson.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DecryptedNip60EventDto &&
+          runtimeType == other.runtimeType &&
+          eventId == other.eventId &&
+          createdAt == other.createdAt &&
+          decryptedJson == other.decryptedJson;
+}
+
+class Nip60DataFetchDto {
+  final List<Nip60RawEventDto> tokenEvents;
+  final List<Nip60RawEventDto> historyEvents;
+  final List<String> deletedEventIds;
+
+  const Nip60DataFetchDto({
+    required this.tokenEvents,
+    required this.historyEvents,
+    required this.deletedEventIds,
+  });
+
+  @override
+  int get hashCode =>
+      tokenEvents.hashCode ^ historyEvents.hashCode ^ deletedEventIds.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Nip60DataFetchDto &&
+          runtimeType == other.runtimeType &&
+          tokenEvents == other.tokenEvents &&
+          historyEvents == other.historyEvents &&
+          deletedEventIds == other.deletedEventIds;
+}
+
+class Nip60RawEventDto {
+  final String eventId;
+  final int kind;
+  final BigInt createdAt;
+  final String content;
+
+  const Nip60RawEventDto({
+    required this.eventId,
+    required this.kind,
+    required this.createdAt,
+    required this.content,
+  });
+
+  @override
+  int get hashCode =>
+      eventId.hashCode ^ kind.hashCode ^ createdAt.hashCode ^ content.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Nip60RawEventDto &&
+          runtimeType == other.runtimeType &&
+          eventId == other.eventId &&
+          kind == other.kind &&
+          createdAt == other.createdAt &&
+          content == other.content;
+}
+
+class Nip60WalletDiscoveryDto {
+  final List<String> discoveredRelays;
+  final Nip60RawEventDto? walletEvent;
+  final List<String> nutzapRelays;
+  final List<String> nutzapMints;
+
+  const Nip60WalletDiscoveryDto({
+    required this.discoveredRelays,
+    this.walletEvent,
+    required this.nutzapRelays,
+    required this.nutzapMints,
+  });
+
+  @override
+  int get hashCode =>
+      discoveredRelays.hashCode ^
+      walletEvent.hashCode ^
+      nutzapRelays.hashCode ^
+      nutzapMints.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Nip60WalletDiscoveryDto &&
+          runtimeType == other.runtimeType &&
+          discoveredRelays == other.discoveredRelays &&
+          walletEvent == other.walletEvent &&
+          nutzapRelays == other.nutzapRelays &&
+          nutzapMints == other.nutzapMints;
 }
 
 class NutzapClaimResultDto {

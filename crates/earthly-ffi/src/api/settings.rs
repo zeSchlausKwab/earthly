@@ -99,6 +99,7 @@ pub struct AppSettingsDto {
     pub story_draft_json: Option<String>,
     pub agent_messages_json: Option<String>,
     pub nwc_uri: Option<String>,
+    pub nip60_wallet_enabled: bool,
 }
 
 pub fn load_app_settings(database_path: String) -> Result<AppSettingsDto, String> {
@@ -193,6 +194,7 @@ fn from_record(r: PersistedAppSettings) -> AppSettingsDto {
         story_draft_json: r.story_draft_json,
         agent_messages_json: r.agent_messages_json,
         nwc_uri: r.nwc_uri,
+        nip60_wallet_enabled: r.nip60_wallet_enabled,
     }
 }
 
@@ -266,6 +268,7 @@ fn to_record(d: AppSettingsDto) -> PersistedAppSettings {
         story_draft_json: d.story_draft_json,
         agent_messages_json: d.agent_messages_json,
         nwc_uri: d.nwc_uri,
+        nip60_wallet_enabled: d.nip60_wallet_enabled,
     }
 }
 
@@ -311,6 +314,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let db = dir.path().join("settings.sqlite3").display().to_string();
         let mut s = load_app_settings(db.clone()).unwrap();
+        assert!(!s.nip60_wallet_enabled);
         assert_eq!(s.blossom_server_url, "https://blossom.earthly.city");
         assert_eq!(s.theme_mode, "system");
         assert_eq!(s.basemap_style, "auto");
@@ -326,10 +330,13 @@ mod tests {
         s.story_draft_json = Some(r#"{"title":"Field Log"}"#.to_owned());
         s.agent_messages_json = Some(r#"[{"role":"user","content":"Measure draft"}]"#.to_owned());
         s.nwc_uri = Some("nostr+walletconnect://abc?relay=wss%3A%2F%2Frelay.earthly.city&secret=def".to_owned());
+        s.nip60_wallet_enabled = true;
         let saved = save_app_settings(db.clone(), s).unwrap();
+        assert!(saved.nip60_wallet_enabled);
         assert_eq!(saved.blossom_server_url, "https://blossom.primal.net");
         assert_eq!(saved.muted_pubkeys, vec!["f".repeat(64)]);
         let reloaded = load_app_settings(db).unwrap();
+        assert!(reloaded.nip60_wallet_enabled);
         assert_eq!(reloaded.inbox_read_all_before, 1_790_000_000);
         assert_eq!(reloaded.inbox_read_ids, vec!["reply:abc".to_owned()]);
         assert_eq!(reloaded.muted_pubkeys, vec!["f".repeat(64)]);

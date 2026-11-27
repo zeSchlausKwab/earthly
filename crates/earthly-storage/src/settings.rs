@@ -132,6 +132,8 @@ pub struct PersistedAppSettings {
     pub agent_messages_json: Option<String>,
     #[serde(default)]
     pub nwc_uri: Option<String>,
+    #[serde(default)]
+    pub nip60_wallet_enabled: bool,
 }
 
 impl Default for PersistedAppSettings {
@@ -164,6 +166,7 @@ impl Default for PersistedAppSettings {
             story_draft_json: None,
             agent_messages_json: None,
             nwc_uri: None,
+            nip60_wallet_enabled: false,
         }
     }
 }
@@ -674,5 +677,37 @@ mod tests {
 
         let bad_key_err = store.load_with_master_key(Some("not-valid-base64!")).unwrap_err();
         assert_eq!(bad_key_err.code, "settings-invalid-master-key");
+    }
+
+    #[test]
+    fn nip60_wallet_enabled_defaults_false_and_persists_true() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("nip60-setting.sqlite3");
+        let store = AppSettingsStore::open(&db).unwrap();
+
+        // Fresh store defaults to false.
+        let fresh = store.load().unwrap();
+        assert!(!fresh.nip60_wallet_enabled);
+
+        // Legacy JSON missing the `nip60WalletEnabled` field defaults to false.
+        let mut legacy_json: serde_json::Value =
+            serde_json::to_value(PersistedAppSettings::default()).unwrap();
+        legacy_json
+            .as_object_mut()
+            .unwrap()
+            .remove("nip60WalletEnabled");
+        let legacy_parsed: PersistedAppSettings = serde_json::from_value(legacy_json).unwrap();
+        assert!(!legacy_parsed.nip60_wallet_enabled);
+
+        // Persisting `true` survives reopen.
+        let mut updated = fresh;
+        updated.nip60_wallet_enabled = true;
+        let saved = store.save(updated).unwrap();
+        assert!(saved.nip60_wallet_enabled);
+        drop(store);
+
+        let reopened = AppSettingsStore::open(&db).unwrap();
+        let reloaded = reopened.load().unwrap();
+        assert!(reloaded.nip60_wallet_enabled);
     }
 }

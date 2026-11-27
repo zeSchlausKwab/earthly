@@ -57,6 +57,32 @@ Future<String> signEventWithNip46Bunker({
   unsignedEventJson: unsignedEventJson,
 );
 
+/// Decrypts a NIP-44 ciphertext via the connected NIP-46 Bunker (`nip44_decrypt`).
+Future<String> nip46Nip44Decrypt({
+  required String bunkerUri,
+  required String clientNsec,
+  required String thirdPartyPubkeyHex,
+  required String ciphertext,
+}) => EarthlyRustLib.instance.api.crateApiNip46Nip46Nip44Decrypt(
+  bunkerUri: bunkerUri,
+  clientNsec: clientNsec,
+  thirdPartyPubkeyHex: thirdPartyPubkeyHex,
+  ciphertext: ciphertext,
+);
+
+/// Encrypts a plaintext payload via NIP-44 using the connected NIP-46 Bunker (`nip44_encrypt`).
+Future<String> nip46Nip44Encrypt({
+  required String bunkerUri,
+  required String clientNsec,
+  required String thirdPartyPubkeyHex,
+  required String plaintext,
+}) => EarthlyRustLib.instance.api.crateApiNip46Nip46Nip44Encrypt(
+  bunkerUri: bunkerUri,
+  clientNsec: clientNsec,
+  thirdPartyPubkeyHex: thirdPartyPubkeyHex,
+  plaintext: plaintext,
+);
+
 class Nip46ClientOfferDto {
   final String connectUri;
   final String clientNsec;

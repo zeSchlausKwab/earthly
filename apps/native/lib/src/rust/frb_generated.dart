@@ -95,7 +95,7 @@ class EarthlyRustLib
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => 1503012188;
+  int get rustContentHash => -513906092;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -118,6 +118,17 @@ abstract class EarthlyRustLibApi extends BaseApi {
     required String databasePath,
     required String pubkeyHex,
     required String mintUrl,
+    String? masterKeyB64,
+  });
+
+  Future<CashuWalletStateDto> crateApiWalletApplyDecryptedNip60Sync({
+    required String databasePath,
+    required String pubkeyHex,
+    required List<String> relays,
+    String? decryptedWalletJson,
+    required List<DecryptedNip60EventDto> decryptedTokenEvents,
+    required List<DecryptedNip60EventDto> decryptedHistoryEvents,
+    required List<String> deletedEventIds,
     String? masterKeyB64,
   });
 
@@ -319,6 +330,16 @@ abstract class EarthlyRustLibApi extends BaseApi {
   Future<List<MapSummaryDto>> crateApiNostrClientEntitiesFetchMapsByAddresses({
     required List<String> relayUrls,
     required List<String> addresses,
+  });
+
+  Future<Nip60DataFetchDto> crateApiWalletFetchNip60DataEvents({
+    required String pubkeyHex,
+    required List<String> relays,
+  });
+
+  Future<Nip60WalletDiscoveryDto> crateApiWalletFetchNip60WalletDiscovery({
+    required String pubkeyHex,
+    required List<String> relays,
   });
 
   Future<NwcWalletStatusDto> crateApiNwcFetchNwcWalletStatus({
@@ -596,8 +617,26 @@ abstract class EarthlyRustLibApi extends BaseApi {
 
   Future<NearbyPeersSnapshot> crateApiSpikeNearbyPeersStatus();
 
+  Future<String> crateApiNip46Nip46Nip44Decrypt({
+    required String bunkerUri,
+    required String clientNsec,
+    required String thirdPartyPubkeyHex,
+    required String ciphertext,
+  });
+
+  Future<String> crateApiNip46Nip46Nip44Encrypt({
+    required String bunkerUri,
+    required String clientNsec,
+    required String thirdPartyPubkeyHex,
+    required String plaintext,
+  });
+
   Future<OutboxSummarySnapshot> crateApiSpikeOutboxSummary({
     required String databasePath,
+  });
+
+  Future<List<String>> crateApiWalletParseNip60WalletRelaysFromJson({
+    required String decryptedWalletJson,
   });
 
   Future<NwcConnectionInfoDto> crateApiNwcParseNwcUri({required String uri});
@@ -1076,6 +1115,15 @@ abstract class EarthlyRustLibApi extends BaseApi {
     String? masterKeyB64,
   });
 
+  Future<CashuWalletStateDto> crateApiWalletSyncNip60WalletWithBunker({
+    required String databasePath,
+    required String bunkerUri,
+    required String clientNsec,
+    required String pubkeyHex,
+    required List<String> relays,
+    String? masterKeyB64,
+  });
+
   Future<BlossomUploadDto> crateApiBlossomUploadBlobToBlossom({
     required String serverUrl,
     required List<int> bytes,
@@ -1183,6 +1231,77 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   );
 
   @override
+  Future<CashuWalletStateDto> crateApiWalletApplyDecryptedNip60Sync({
+    required String databasePath,
+    required String pubkeyHex,
+    required List<String> relays,
+    String? decryptedWalletJson,
+    required List<DecryptedNip60EventDto> decryptedTokenEvents,
+    required List<DecryptedNip60EventDto> decryptedHistoryEvents,
+    required List<String> deletedEventIds,
+    String? masterKeyB64,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(databasePath, serializer);
+          sse_encode_String(pubkeyHex, serializer);
+          sse_encode_list_String(relays, serializer);
+          sse_encode_opt_String(decryptedWalletJson, serializer);
+          sse_encode_list_decrypted_nip_60_event_dto(
+            decryptedTokenEvents,
+            serializer,
+          );
+          sse_encode_list_decrypted_nip_60_event_dto(
+            decryptedHistoryEvents,
+            serializer,
+          );
+          sse_encode_list_String(deletedEventIds, serializer);
+          sse_encode_opt_String(masterKeyB64, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 3,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_cashu_wallet_state_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiWalletApplyDecryptedNip60SyncConstMeta,
+        argValues: [
+          databasePath,
+          pubkeyHex,
+          relays,
+          decryptedWalletJson,
+          decryptedTokenEvents,
+          decryptedHistoryEvents,
+          deletedEventIds,
+          masterKeyB64,
+        ],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiWalletApplyDecryptedNip60SyncConstMeta =>
+      const TaskConstMeta(
+        debugName: "apply_decrypted_nip60_sync",
+        argNames: [
+          "databasePath",
+          "pubkeyHex",
+          "relays",
+          "decryptedWalletJson",
+          "decryptedTokenEvents",
+          "decryptedHistoryEvents",
+          "deletedEventIds",
+          "masterKeyB64",
+        ],
+      );
+
+  @override
   Future<CircleWorkspaceDto> crateApiPrivateGroupsApproveCircleJoinRequest({
     required String databasePath,
     String? signerNsec,
@@ -1208,7 +1327,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 3,
+            funcId: 4,
             port: port_,
           );
         },
@@ -1257,7 +1376,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 5,
             port: port_,
           );
         },
@@ -1294,7 +1413,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 6,
             port: port_,
           );
         },
@@ -1337,7 +1456,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 7,
             port: port_,
           );
         },
@@ -1390,7 +1509,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 8,
             port: port_,
           );
         },
@@ -1421,7 +1540,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 8,
+            funcId: 9,
             port: port_,
           );
         },
@@ -1453,7 +1572,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 10,
             port: port_,
           );
         },
@@ -1494,7 +1613,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 11,
             port: port_,
           );
         },
@@ -1555,7 +1674,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 12,
             port: port_,
           );
         },
@@ -1614,7 +1733,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 13,
             port: port_,
           );
         },
@@ -1654,7 +1773,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 14,
             port: port_,
           );
         },
@@ -1687,7 +1806,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 15,
             port: port_,
           );
         },
@@ -1720,7 +1839,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 16,
             port: port_,
           );
         },
@@ -1753,7 +1872,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 17,
             port: port_,
           );
         },
@@ -1787,7 +1906,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 18,
             port: port_,
           );
         },
@@ -1818,7 +1937,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 19,
             port: port_,
           );
         },
@@ -1848,7 +1967,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 20,
             port: port_,
           );
         },
@@ -1886,7 +2005,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 21,
             port: port_,
           );
         },
@@ -1921,7 +2040,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 22,
             port: port_,
           );
         },
@@ -1958,7 +2077,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 23,
             port: port_,
           );
         },
@@ -1993,7 +2112,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 24,
             port: port_,
           );
         },
@@ -2025,7 +2144,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 25,
             port: port_,
           );
         },
@@ -2055,7 +2174,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 26,
             port: port_,
           );
         },
@@ -2085,7 +2204,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 26,
+            funcId: 27,
             port: port_,
           );
         },
@@ -2127,7 +2246,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 27,
+            funcId: 28,
             port: port_,
           );
         },
@@ -2163,7 +2282,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 28,
+            funcId: 29,
             port: port_,
           );
         },
@@ -2198,7 +2317,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 29,
+            funcId: 30,
             port: port_,
           );
         },
@@ -2240,7 +2359,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 30,
+            funcId: 31,
             port: port_,
           );
         },
@@ -2287,7 +2406,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 31,
+            funcId: 32,
             port: port_,
           );
         },
@@ -2322,7 +2441,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 32,
+            funcId: 33,
             port: port_,
           );
         },
@@ -2362,7 +2481,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 33,
+            funcId: 34,
             port: port_,
           );
         },
@@ -2403,7 +2522,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 34,
+            funcId: 35,
             port: port_,
           );
         },
@@ -2448,7 +2567,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 35,
+            funcId: 36,
             port: port_,
           );
         },
@@ -2497,7 +2616,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 36,
+            funcId: 37,
             port: port_,
           );
         },
@@ -2530,7 +2649,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 37,
+            funcId: 38,
             port: port_,
           );
         },
@@ -2562,7 +2681,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 38,
+            funcId: 39,
             port: port_,
           );
         },
@@ -2584,6 +2703,76 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
+  Future<Nip60DataFetchDto> crateApiWalletFetchNip60DataEvents({
+    required String pubkeyHex,
+    required List<String> relays,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(pubkeyHex, serializer);
+          sse_encode_list_String(relays, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 40,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_nip_60_data_fetch_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiWalletFetchNip60DataEventsConstMeta,
+        argValues: [pubkeyHex, relays],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiWalletFetchNip60DataEventsConstMeta =>
+      const TaskConstMeta(
+        debugName: "fetch_nip60_data_events",
+        argNames: ["pubkeyHex", "relays"],
+      );
+
+  @override
+  Future<Nip60WalletDiscoveryDto> crateApiWalletFetchNip60WalletDiscovery({
+    required String pubkeyHex,
+    required List<String> relays,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(pubkeyHex, serializer);
+          sse_encode_list_String(relays, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 41,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_nip_60_wallet_discovery_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiWalletFetchNip60WalletDiscoveryConstMeta,
+        argValues: [pubkeyHex, relays],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiWalletFetchNip60WalletDiscoveryConstMeta =>
+      const TaskConstMeta(
+        debugName: "fetch_nip60_wallet_discovery",
+        argNames: ["pubkeyHex", "relays"],
+      );
+
+  @override
   Future<NwcWalletStatusDto> crateApiNwcFetchNwcWalletStatus({
     required String nwcUri,
   }) {
@@ -2595,7 +2784,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 39,
+            funcId: 42,
             port: port_,
           );
         },
@@ -2631,7 +2820,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 40,
+            funcId: 43,
             port: port_,
           );
         },
@@ -2664,7 +2853,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 41,
+            funcId: 44,
             port: port_,
           );
         },
@@ -2702,7 +2891,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 42,
+            funcId: 45,
             port: port_,
           );
         },
@@ -2740,7 +2929,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 43,
+            funcId: 46,
             port: port_,
           );
         },
@@ -2775,7 +2964,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 44,
+            funcId: 47,
             port: port_,
           );
         },
@@ -2806,7 +2995,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 45,
+            funcId: 48,
             port: port_,
           );
         },
@@ -2836,7 +3025,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 46,
+            funcId: 49,
             port: port_,
           );
         },
@@ -2871,7 +3060,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 47,
+            funcId: 50,
             port: port_,
           );
         },
@@ -2907,7 +3096,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 48,
+            funcId: 51,
             port: port_,
           );
         },
@@ -2942,7 +3131,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 49,
+            funcId: 52,
             port: port_,
           );
         },
@@ -2977,7 +3166,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 50,
+            funcId: 53,
             port: port_,
           );
         },
@@ -3010,7 +3199,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 51,
+            funcId: 54,
             port: port_,
           );
         },
@@ -3045,7 +3234,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 52,
+            funcId: 55,
             port: port_,
           );
         },
@@ -3079,7 +3268,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 53,
+            funcId: 56,
             port: port_,
           );
         },
@@ -3113,7 +3302,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 54,
+            funcId: 57,
             port: port_,
           );
         },
@@ -3150,7 +3339,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 55,
+            funcId: 58,
             port: port_,
           );
         },
@@ -3186,7 +3375,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 56,
+            funcId: 59,
             port: port_,
           );
         },
@@ -3220,7 +3409,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 57,
+            funcId: 60,
             port: port_,
           );
         },
@@ -3255,7 +3444,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 58,
+            funcId: 61,
             port: port_,
           );
         },
@@ -3290,7 +3479,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 59,
+            funcId: 62,
             port: port_,
           );
         },
@@ -3322,7 +3511,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 60,
+            funcId: 63,
             port: port_,
           );
         },
@@ -3355,7 +3544,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 61,
+            funcId: 64,
             port: port_,
           );
         },
@@ -3388,7 +3577,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 62,
+            funcId: 65,
             port: port_,
           );
         },
@@ -3423,7 +3612,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 63,
+            funcId: 66,
             port: port_,
           );
         },
@@ -3457,7 +3646,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 64,
+            funcId: 67,
             port: port_,
           );
         },
@@ -3492,7 +3681,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 65,
+            funcId: 68,
             port: port_,
           );
         },
@@ -3537,7 +3726,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 66,
+            funcId: 69,
             port: port_,
           );
         },
@@ -3580,7 +3769,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 67,
+            funcId: 70,
             port: port_,
           );
         },
@@ -3614,7 +3803,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 68,
+            funcId: 71,
             port: port_,
           );
         },
@@ -3649,7 +3838,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 69,
+            funcId: 72,
             port: port_,
           );
         },
@@ -3684,7 +3873,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 70,
+            funcId: 73,
             port: port_,
           );
         },
@@ -3719,7 +3908,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 71,
+            funcId: 74,
             port: port_,
           );
         },
@@ -3760,7 +3949,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 72,
+            funcId: 75,
             port: port_,
           );
         },
@@ -3799,7 +3988,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 73,
+            funcId: 76,
             port: port_,
           );
         },
@@ -3835,7 +4024,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 74,
+            funcId: 77,
             port: port_,
           );
         },
@@ -3872,7 +4061,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 75,
+            funcId: 78,
             port: port_,
           );
         },
@@ -3905,7 +4094,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 76,
+            funcId: 79,
             port: port_,
           );
         },
@@ -3935,7 +4124,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 77,
+            funcId: 80,
             port: port_,
           );
         },
@@ -3965,7 +4154,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 78,
+            funcId: 81,
             port: port_,
           );
         },
@@ -4000,7 +4189,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 79,
+            funcId: 82,
             port: port_,
           );
         },
@@ -4035,7 +4224,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 80,
+            funcId: 83,
             port: port_,
           );
         },
@@ -4070,7 +4259,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 81,
+            funcId: 84,
             port: port_,
           );
         },
@@ -4100,7 +4289,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 82,
+            funcId: 85,
             port: port_,
           );
         },
@@ -4138,7 +4327,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 83,
+            funcId: 86,
             port: port_,
           );
         },
@@ -4179,7 +4368,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 84,
+            funcId: 87,
             port: port_,
           );
         },
@@ -4212,7 +4401,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 85,
+            funcId: 88,
             port: port_,
           );
         },
@@ -4245,7 +4434,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 86,
+            funcId: 89,
             port: port_,
           );
         },
@@ -4282,7 +4471,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 87,
+            funcId: 90,
             port: port_,
           );
         },
@@ -4315,7 +4504,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 88,
+            funcId: 91,
             port: port_,
           );
         },
@@ -4348,7 +4537,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 89,
+            funcId: 92,
             port: port_,
           );
         },
@@ -4381,7 +4570,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 90,
+            funcId: 93,
             port: port_,
           );
         },
@@ -4418,7 +4607,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 91,
+            funcId: 94,
             port: port_,
           );
         },
@@ -4453,7 +4642,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 92,
+            funcId: 95,
             port: port_,
           );
         },
@@ -4488,7 +4677,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 93,
+            funcId: 96,
             port: port_,
           );
         },
@@ -4518,7 +4707,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 94,
+            funcId: 97,
             port: port_,
           );
         },
@@ -4545,7 +4734,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 95,
+            funcId: 98,
             port: port_,
           );
         },
@@ -4564,6 +4753,94 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       const TaskConstMeta(debugName: "nearby_peers_status", argNames: []);
 
   @override
+  Future<String> crateApiNip46Nip46Nip44Decrypt({
+    required String bunkerUri,
+    required String clientNsec,
+    required String thirdPartyPubkeyHex,
+    required String ciphertext,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(bunkerUri, serializer);
+          sse_encode_String(clientNsec, serializer);
+          sse_encode_String(thirdPartyPubkeyHex, serializer);
+          sse_encode_String(ciphertext, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 99,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiNip46Nip46Nip44DecryptConstMeta,
+        argValues: [bunkerUri, clientNsec, thirdPartyPubkeyHex, ciphertext],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiNip46Nip46Nip44DecryptConstMeta =>
+      const TaskConstMeta(
+        debugName: "nip46_nip44_decrypt",
+        argNames: [
+          "bunkerUri",
+          "clientNsec",
+          "thirdPartyPubkeyHex",
+          "ciphertext",
+        ],
+      );
+
+  @override
+  Future<String> crateApiNip46Nip46Nip44Encrypt({
+    required String bunkerUri,
+    required String clientNsec,
+    required String thirdPartyPubkeyHex,
+    required String plaintext,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(bunkerUri, serializer);
+          sse_encode_String(clientNsec, serializer);
+          sse_encode_String(thirdPartyPubkeyHex, serializer);
+          sse_encode_String(plaintext, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 100,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiNip46Nip46Nip44EncryptConstMeta,
+        argValues: [bunkerUri, clientNsec, thirdPartyPubkeyHex, plaintext],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiNip46Nip46Nip44EncryptConstMeta =>
+      const TaskConstMeta(
+        debugName: "nip46_nip44_encrypt",
+        argNames: [
+          "bunkerUri",
+          "clientNsec",
+          "thirdPartyPubkeyHex",
+          "plaintext",
+        ],
+      );
+
+  @override
   Future<OutboxSummarySnapshot> crateApiSpikeOutboxSummary({
     required String databasePath,
   }) {
@@ -4575,7 +4852,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 96,
+            funcId: 101,
             port: port_,
           );
         },
@@ -4596,6 +4873,39 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   );
 
   @override
+  Future<List<String>> crateApiWalletParseNip60WalletRelaysFromJson({
+    required String decryptedWalletJson,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(decryptedWalletJson, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 102,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiWalletParseNip60WalletRelaysFromJsonConstMeta,
+        argValues: [decryptedWalletJson],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiWalletParseNip60WalletRelaysFromJsonConstMeta =>
+      const TaskConstMeta(
+        debugName: "parse_nip60_wallet_relays_from_json",
+        argNames: ["decryptedWalletJson"],
+      );
+
+  @override
   Future<NwcConnectionInfoDto> crateApiNwcParseNwcUri({required String uri}) {
     return handler.executeNormal(
       NormalTask(
@@ -4605,7 +4915,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 97,
+            funcId: 103,
             port: port_,
           );
         },
@@ -4643,7 +4953,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 98,
+            funcId: 104,
             port: port_,
           );
         },
@@ -4684,7 +4994,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 99,
+            funcId: 105,
             port: port_,
           );
         },
@@ -4736,7 +5046,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 100,
+            funcId: 106,
             port: port_,
           );
         },
@@ -4804,7 +5114,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 101,
+            funcId: 107,
             port: port_,
           );
         },
@@ -4857,7 +5167,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 102,
+            funcId: 108,
             port: port_,
           );
         },
@@ -4909,7 +5219,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 103,
+            funcId: 109,
             port: port_,
           );
         },
@@ -4974,7 +5284,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 104,
+            funcId: 110,
             port: port_,
           );
         },
@@ -5039,7 +5349,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 105,
+            funcId: 111,
             port: port_,
           );
         },
@@ -5109,7 +5419,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 106,
+            funcId: 112,
             port: port_,
           );
         },
@@ -5176,7 +5486,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 107,
+            funcId: 113,
             port: port_,
           );
         },
@@ -5237,7 +5547,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 108,
+            funcId: 114,
             port: port_,
           );
         },
@@ -5297,7 +5607,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 109,
+            funcId: 115,
             port: port_,
           );
         },
@@ -5348,7 +5658,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 110,
+            funcId: 116,
             port: port_,
           );
         },
@@ -5387,7 +5697,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 111,
+            funcId: 117,
             port: port_,
           );
         },
@@ -5444,7 +5754,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 112,
+            funcId: 118,
             port: port_,
           );
         },
@@ -5523,7 +5833,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 113,
+            funcId: 119,
             port: port_,
           );
         },
@@ -5591,7 +5901,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 114,
+            funcId: 120,
             port: port_,
           );
         },
@@ -5657,7 +5967,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 115,
+            funcId: 121,
             port: port_,
           );
         },
@@ -5711,7 +6021,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 116,
+            funcId: 122,
             port: port_,
           );
         },
@@ -5745,7 +6055,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 117,
+            funcId: 123,
             port: port_,
           );
         },
@@ -5782,7 +6092,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 118,
+            funcId: 124,
             port: port_,
           );
         },
@@ -5824,7 +6134,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 119,
+            funcId: 125,
             port: port_,
           );
         },
@@ -5867,7 +6177,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 120,
+            funcId: 126,
             port: port_,
           );
         },
@@ -5907,7 +6217,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 121,
+            funcId: 127,
             port: port_,
           );
         },
@@ -5940,7 +6250,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 122,
+            funcId: 128,
             port: port_,
           );
         },
@@ -5975,7 +6285,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 123,
+            funcId: 129,
             port: port_,
           );
         },
@@ -6014,7 +6324,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 124,
+            funcId: 130,
             port: port_,
           );
         },
@@ -6057,7 +6367,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 125,
+            funcId: 131,
             port: port_,
           );
         },
@@ -6112,7 +6422,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 126,
+            funcId: 132,
             port: port_,
           );
         },
@@ -6159,7 +6469,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 127,
+            funcId: 133,
             port: port_,
           );
         },
@@ -6202,7 +6512,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 128,
+            funcId: 134,
             port: port_,
           );
         },
@@ -6237,7 +6547,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 129,
+            funcId: 135,
             port: port_,
           );
         },
@@ -6273,7 +6583,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 130,
+            funcId: 136,
             port: port_,
           );
         },
@@ -6308,7 +6618,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 131,
+            funcId: 137,
             port: port_,
           );
         },
@@ -6340,7 +6650,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 132,
+            funcId: 138,
             port: port_,
           );
         },
@@ -6409,7 +6719,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 133,
+            funcId: 139,
             port: port_,
           );
         },
@@ -6484,7 +6794,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 134,
+            funcId: 140,
             port: port_,
           );
         },
@@ -6531,7 +6841,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 135,
+            funcId: 141,
             port: port_,
           );
         },
@@ -6582,7 +6892,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 136,
+            funcId: 142,
             port: port_,
           );
         },
@@ -6615,7 +6925,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 137,
+            funcId: 143,
             port: port_,
           );
         },
@@ -6660,7 +6970,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 138,
+            funcId: 144,
             port: port_,
           );
         },
@@ -6719,7 +7029,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 139,
+            funcId: 145,
             port: port_,
           );
         },
@@ -6782,7 +7092,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 140,
+            funcId: 146,
             port: port_,
           );
         },
@@ -6849,7 +7159,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 141,
+            funcId: 147,
             port: port_,
           );
         },
@@ -6914,7 +7224,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 142,
+            funcId: 148,
             port: port_,
           );
         },
@@ -6963,7 +7273,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 143,
+            funcId: 149,
             port: port_,
           );
         },
@@ -6993,7 +7303,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 144,
+            funcId: 150,
             port: port_,
           );
         },
@@ -7027,7 +7337,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 145,
+            funcId: 151,
             port: port_,
           );
         },
@@ -7062,7 +7372,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 146,
+            funcId: 152,
             port: port_,
           );
         },
@@ -7095,7 +7405,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 147,
+            funcId: 153,
             port: port_,
           );
         },
@@ -7127,7 +7437,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 148,
+            funcId: 154,
             port: port_,
           );
         },
@@ -7160,7 +7470,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 149,
+            funcId: 155,
             port: port_,
           );
         },
@@ -7195,7 +7505,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 150,
+            funcId: 156,
             port: port_,
           );
         },
@@ -7225,7 +7535,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 151,
+            funcId: 157,
             port: port_,
           );
         },
@@ -7302,7 +7612,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 152,
+              funcId: 158,
               port: port_,
             );
           },
@@ -7391,7 +7701,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 153,
+              funcId: 159,
               port: port_,
             );
           },
@@ -7436,7 +7746,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 154,
+            funcId: 160,
             port: port_,
           );
         },
@@ -7481,7 +7791,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 155,
+            funcId: 161,
             port: port_,
           );
         },
@@ -7512,7 +7822,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 156,
+            funcId: 162,
             port: port_,
           );
         },
@@ -7548,7 +7858,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 157,
+            funcId: 163,
             port: port_,
           );
         },
@@ -7570,6 +7880,63 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       );
 
   @override
+  Future<CashuWalletStateDto> crateApiWalletSyncNip60WalletWithBunker({
+    required String databasePath,
+    required String bunkerUri,
+    required String clientNsec,
+    required String pubkeyHex,
+    required List<String> relays,
+    String? masterKeyB64,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(databasePath, serializer);
+          sse_encode_String(bunkerUri, serializer);
+          sse_encode_String(clientNsec, serializer);
+          sse_encode_String(pubkeyHex, serializer);
+          sse_encode_list_String(relays, serializer);
+          sse_encode_opt_String(masterKeyB64, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 164,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_cashu_wallet_state_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiWalletSyncNip60WalletWithBunkerConstMeta,
+        argValues: [
+          databasePath,
+          bunkerUri,
+          clientNsec,
+          pubkeyHex,
+          relays,
+          masterKeyB64,
+        ],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiWalletSyncNip60WalletWithBunkerConstMeta =>
+      const TaskConstMeta(
+        debugName: "sync_nip60_wallet_with_bunker",
+        argNames: [
+          "databasePath",
+          "bunkerUri",
+          "clientNsec",
+          "pubkeyHex",
+          "relays",
+          "masterKeyB64",
+        ],
+      );
+
+  @override
   Future<BlossomUploadDto> crateApiBlossomUploadBlobToBlossom({
     required String serverUrl,
     required List<int> bytes,
@@ -7587,7 +7954,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 158,
+            funcId: 165,
             port: port_,
           );
         },
@@ -7625,7 +7992,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 159,
+            funcId: 166,
             port: port_,
           );
         },
@@ -7757,8 +8124,8 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   AppSettingsDto dco_decode_app_settings_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 27)
-      throw Exception('unexpected arr length: expect 27 but see ${arr.length}');
+    if (arr.length != 28)
+      throw Exception('unexpected arr length: expect 28 but see ${arr.length}');
     return AppSettingsDto(
       relayUrls: dco_decode_list_String(arr[0]),
       localPubkeyHex: dco_decode_opt_String(arr[1]),
@@ -7789,6 +8156,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       storyDraftJson: dco_decode_opt_String(arr[24]),
       agentMessagesJson: dco_decode_opt_String(arr[25]),
       nwcUri: dco_decode_opt_String(arr[26]),
+      nip60WalletEnabled: dco_decode_bool(arr[27]),
     );
   }
 
@@ -8001,6 +8369,12 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  Nip60RawEventDto dco_decode_box_autoadd_nip_60_raw_event_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_nip_60_raw_event_dto(raw);
+  }
+
+  @protected
   ProfileMetadataDto dco_decode_box_autoadd_profile_metadata_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_profile_metadata_dto(raw);
@@ -8076,11 +8450,12 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   CashuMintBalanceDto dco_decode_cashu_mint_balance_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 2)
-      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
     return CashuMintBalanceDto(
       mintUrl: dco_decode_String(arr[0]),
       balanceSats: dco_decode_u_64(arr[1]),
+      proofCount: dco_decode_u_64(arr[2]),
     );
   }
 
@@ -8292,6 +8667,19 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       address: dco_decode_String(arr[3]),
       featureId: dco_decode_opt_String(arr[4]),
       relays: dco_decode_list_String(arr[5]),
+    );
+  }
+
+  @protected
+  DecryptedNip60EventDto dco_decode_decrypted_nip_60_event_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return DecryptedNip60EventDto(
+      eventId: dco_decode_String(arr[0]),
+      createdAt: dco_decode_u_64(arr[1]),
+      decryptedJson: dco_decode_String(arr[2]),
     );
   }
 
@@ -8572,6 +8960,16 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  List<DecryptedNip60EventDto> dco_decode_list_decrypted_nip_60_event_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_decrypted_nip_60_event_dto)
+        .toList();
+  }
+
+  @protected
   List<GeoCommentDto> dco_decode_list_geo_comment_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_geo_comment_dto).toList();
@@ -8641,6 +9039,12 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     return (raw as List<dynamic>)
         .map(dco_decode_mounted_atlas_workspace_dto)
         .toList();
+  }
+
+  @protected
+  List<Nip60RawEventDto> dco_decode_list_nip_60_raw_event_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_nip_60_raw_event_dto).toList();
   }
 
   @protected
@@ -9050,6 +9454,47 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  Nip60DataFetchDto dco_decode_nip_60_data_fetch_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return Nip60DataFetchDto(
+      tokenEvents: dco_decode_list_nip_60_raw_event_dto(arr[0]),
+      historyEvents: dco_decode_list_nip_60_raw_event_dto(arr[1]),
+      deletedEventIds: dco_decode_list_String(arr[2]),
+    );
+  }
+
+  @protected
+  Nip60RawEventDto dco_decode_nip_60_raw_event_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return Nip60RawEventDto(
+      eventId: dco_decode_String(arr[0]),
+      kind: dco_decode_u_16(arr[1]),
+      createdAt: dco_decode_u_64(arr[2]),
+      content: dco_decode_String(arr[3]),
+    );
+  }
+
+  @protected
+  Nip60WalletDiscoveryDto dco_decode_nip_60_wallet_discovery_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return Nip60WalletDiscoveryDto(
+      discoveredRelays: dco_decode_list_String(arr[0]),
+      walletEvent: dco_decode_opt_box_autoadd_nip_60_raw_event_dto(arr[1]),
+      nutzapRelays: dco_decode_list_String(arr[2]),
+      nutzapMints: dco_decode_list_String(arr[3]),
+    );
+  }
+
+  @protected
   NutzapClaimResultDto dco_decode_nutzap_claim_result_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -9230,6 +9675,16 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     return raw == null
         ? null
         : dco_decode_box_autoadd_mcp_camera_action_dto(raw);
+  }
+
+  @protected
+  Nip60RawEventDto? dco_decode_opt_box_autoadd_nip_60_raw_event_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null
+        ? null
+        : dco_decode_box_autoadd_nip_60_raw_event_dto(raw);
   }
 
   @protected
@@ -9985,6 +10440,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     var var_storyDraftJson = sse_decode_opt_String(deserializer);
     var var_agentMessagesJson = sse_decode_opt_String(deserializer);
     var var_nwcUri = sse_decode_opt_String(deserializer);
+    var var_nip60WalletEnabled = sse_decode_bool(deserializer);
     return AppSettingsDto(
       relayUrls: var_relayUrls,
       localPubkeyHex: var_localPubkeyHex,
@@ -10013,6 +10469,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       storyDraftJson: var_storyDraftJson,
       agentMessagesJson: var_agentMessagesJson,
       nwcUri: var_nwcUri,
+      nip60WalletEnabled: var_nip60WalletEnabled,
     );
   }
 
@@ -10276,6 +10733,14 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  Nip60RawEventDto sse_decode_box_autoadd_nip_60_raw_event_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_nip_60_raw_event_dto(deserializer));
+  }
+
+  @protected
   ProfileMetadataDto sse_decode_box_autoadd_profile_metadata_dto(
     SseDeserializer deserializer,
   ) {
@@ -10372,9 +10837,11 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_mintUrl = sse_decode_String(deserializer);
     var var_balanceSats = sse_decode_u_64(deserializer);
+    var var_proofCount = sse_decode_u_64(deserializer);
     return CashuMintBalanceDto(
       mintUrl: var_mintUrl,
       balanceSats: var_balanceSats,
+      proofCount: var_proofCount,
     );
   }
 
@@ -10659,6 +11126,21 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
       address: var_address,
       featureId: var_featureId,
       relays: var_relays,
+    );
+  }
+
+  @protected
+  DecryptedNip60EventDto sse_decode_decrypted_nip_60_event_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_eventId = sse_decode_String(deserializer);
+    var var_createdAt = sse_decode_u_64(deserializer);
+    var var_decryptedJson = sse_decode_String(deserializer);
+    return DecryptedNip60EventDto(
+      eventId: var_eventId,
+      createdAt: var_createdAt,
+      decryptedJson: var_decryptedJson,
     );
   }
 
@@ -11081,6 +11563,20 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  List<DecryptedNip60EventDto> sse_decode_list_decrypted_nip_60_event_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <DecryptedNip60EventDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_decrypted_nip_60_event_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<GeoCommentDto> sse_decode_list_geo_comment_dto(
     SseDeserializer deserializer,
   ) {
@@ -11230,6 +11726,20 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     var ans_ = <MountedAtlasWorkspaceDto>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_mounted_atlas_workspace_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<Nip60RawEventDto> sse_decode_list_nip_60_raw_event_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <Nip60RawEventDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_nip_60_raw_event_dto(deserializer));
     }
     return ans_;
   }
@@ -11824,6 +12334,57 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  Nip60DataFetchDto sse_decode_nip_60_data_fetch_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_tokenEvents = sse_decode_list_nip_60_raw_event_dto(deserializer);
+    var var_historyEvents = sse_decode_list_nip_60_raw_event_dto(deserializer);
+    var var_deletedEventIds = sse_decode_list_String(deserializer);
+    return Nip60DataFetchDto(
+      tokenEvents: var_tokenEvents,
+      historyEvents: var_historyEvents,
+      deletedEventIds: var_deletedEventIds,
+    );
+  }
+
+  @protected
+  Nip60RawEventDto sse_decode_nip_60_raw_event_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_eventId = sse_decode_String(deserializer);
+    var var_kind = sse_decode_u_16(deserializer);
+    var var_createdAt = sse_decode_u_64(deserializer);
+    var var_content = sse_decode_String(deserializer);
+    return Nip60RawEventDto(
+      eventId: var_eventId,
+      kind: var_kind,
+      createdAt: var_createdAt,
+      content: var_content,
+    );
+  }
+
+  @protected
+  Nip60WalletDiscoveryDto sse_decode_nip_60_wallet_discovery_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_discoveredRelays = sse_decode_list_String(deserializer);
+    var var_walletEvent = sse_decode_opt_box_autoadd_nip_60_raw_event_dto(
+      deserializer,
+    );
+    var var_nutzapRelays = sse_decode_list_String(deserializer);
+    var var_nutzapMints = sse_decode_list_String(deserializer);
+    return Nip60WalletDiscoveryDto(
+      discoveredRelays: var_discoveredRelays,
+      walletEvent: var_walletEvent,
+      nutzapRelays: var_nutzapRelays,
+      nutzapMints: var_nutzapMints,
+    );
+  }
+
+  @protected
   NutzapClaimResultDto sse_decode_nutzap_claim_result_dto(
     SseDeserializer deserializer,
   ) {
@@ -12083,6 +12644,19 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_box_autoadd_mcp_camera_action_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  Nip60RawEventDto? sse_decode_opt_box_autoadd_nip_60_raw_event_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_nip_60_raw_event_dto(deserializer));
     } else {
       return null;
     }
@@ -13011,6 +13585,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     sse_encode_opt_String(self.storyDraftJson, serializer);
     sse_encode_opt_String(self.agentMessagesJson, serializer);
     sse_encode_opt_String(self.nwcUri, serializer);
+    sse_encode_bool(self.nip60WalletEnabled, serializer);
   }
 
   @protected
@@ -13242,6 +13817,15 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  void sse_encode_box_autoadd_nip_60_raw_event_dto(
+    Nip60RawEventDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_nip_60_raw_event_dto(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_profile_metadata_dto(
     ProfileMetadataDto self,
     SseSerializer serializer,
@@ -13326,6 +13910,7 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.mintUrl, serializer);
     sse_encode_u_64(self.balanceSats, serializer);
+    sse_encode_u_64(self.proofCount, serializer);
   }
 
   @protected
@@ -13511,6 +14096,17 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     sse_encode_String(self.address, serializer);
     sse_encode_opt_String(self.featureId, serializer);
     sse_encode_list_String(self.relays, serializer);
+  }
+
+  @protected
+  void sse_encode_decrypted_nip_60_event_dto(
+    DecryptedNip60EventDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.eventId, serializer);
+    sse_encode_u_64(self.createdAt, serializer);
+    sse_encode_String(self.decryptedJson, serializer);
   }
 
   @protected
@@ -13830,6 +14426,18 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  void sse_encode_list_decrypted_nip_60_event_dto(
+    List<DecryptedNip60EventDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_decrypted_nip_60_event_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_geo_comment_dto(
     List<GeoCommentDto> self,
     SseSerializer serializer,
@@ -13958,6 +14566,18 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_mounted_atlas_workspace_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_nip_60_raw_event_dto(
+    List<Nip60RawEventDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_nip_60_raw_event_dto(item, serializer);
     }
   }
 
@@ -14436,6 +15056,44 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
   }
 
   @protected
+  void sse_encode_nip_60_data_fetch_dto(
+    Nip60DataFetchDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_nip_60_raw_event_dto(self.tokenEvents, serializer);
+    sse_encode_list_nip_60_raw_event_dto(self.historyEvents, serializer);
+    sse_encode_list_String(self.deletedEventIds, serializer);
+  }
+
+  @protected
+  void sse_encode_nip_60_raw_event_dto(
+    Nip60RawEventDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.eventId, serializer);
+    sse_encode_u_16(self.kind, serializer);
+    sse_encode_u_64(self.createdAt, serializer);
+    sse_encode_String(self.content, serializer);
+  }
+
+  @protected
+  void sse_encode_nip_60_wallet_discovery_dto(
+    Nip60WalletDiscoveryDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_String(self.discoveredRelays, serializer);
+    sse_encode_opt_box_autoadd_nip_60_raw_event_dto(
+      self.walletEvent,
+      serializer,
+    );
+    sse_encode_list_String(self.nutzapRelays, serializer);
+    sse_encode_list_String(self.nutzapMints, serializer);
+  }
+
+  @protected
   void sse_encode_nutzap_claim_result_dto(
     NutzapClaimResultDto self,
     SseSerializer serializer,
@@ -14665,6 +15323,19 @@ class EarthlyRustLibApiImpl extends EarthlyRustLibApiImplPlatform
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_box_autoadd_mcp_camera_action_dto(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_nip_60_raw_event_dto(
+    Nip60RawEventDto? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_nip_60_raw_event_dto(self, serializer);
     }
   }
 

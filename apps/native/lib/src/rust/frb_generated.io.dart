@@ -146,6 +146,9 @@ abstract class EarthlyRustLibApiImplPlatform
   McpWorkspaceDto dco_decode_box_autoadd_mcp_workspace_dto(dynamic raw);
 
   @protected
+  Nip60RawEventDto dco_decode_box_autoadd_nip_60_raw_event_dto(dynamic raw);
+
+  @protected
   ProfileMetadataDto dco_decode_box_autoadd_profile_metadata_dto(dynamic raw);
 
   @protected
@@ -209,6 +212,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   DecodedNaddrDto dco_decode_decoded_naddr_dto(dynamic raw);
+
+  @protected
+  DecryptedNip60EventDto dco_decode_decrypted_nip_60_event_dto(dynamic raw);
 
   @protected
   DraftValidationDto dco_decode_draft_validation_dto(dynamic raw);
@@ -292,6 +298,11 @@ abstract class EarthlyRustLibApiImplPlatform
   List<CircleWorkspaceDto> dco_decode_list_circle_workspace_dto(dynamic raw);
 
   @protected
+  List<DecryptedNip60EventDto> dco_decode_list_decrypted_nip_60_event_dto(
+    dynamic raw,
+  );
+
+  @protected
   List<GeoCommentDto> dco_decode_list_geo_comment_dto(dynamic raw);
 
   @protected
@@ -325,6 +336,9 @@ abstract class EarthlyRustLibApiImplPlatform
   List<MountedAtlasWorkspaceDto> dco_decode_list_mounted_atlas_workspace_dto(
     dynamic raw,
   );
+
+  @protected
+  List<Nip60RawEventDto> dco_decode_list_nip_60_raw_event_dto(dynamic raw);
 
   @protected
   List<OutboxItemDto> dco_decode_list_outbox_item_dto(dynamic raw);
@@ -446,6 +460,15 @@ abstract class EarthlyRustLibApiImplPlatform
   Nip46ConnectionDto dco_decode_nip_46_connection_dto(dynamic raw);
 
   @protected
+  Nip60DataFetchDto dco_decode_nip_60_data_fetch_dto(dynamic raw);
+
+  @protected
+  Nip60RawEventDto dco_decode_nip_60_raw_event_dto(dynamic raw);
+
+  @protected
+  Nip60WalletDiscoveryDto dco_decode_nip_60_wallet_discovery_dto(dynamic raw);
+
+  @protected
   NutzapClaimResultDto dco_decode_nutzap_claim_result_dto(dynamic raw);
 
   @protected
@@ -509,6 +532,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   McpCameraActionDto? dco_decode_opt_box_autoadd_mcp_camera_action_dto(
+    dynamic raw,
+  );
+
+  @protected
+  Nip60RawEventDto? dco_decode_opt_box_autoadd_nip_60_raw_event_dto(
     dynamic raw,
   );
 
@@ -791,6 +819,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  Nip60RawEventDto sse_decode_box_autoadd_nip_60_raw_event_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   ProfileMetadataDto sse_decode_box_autoadd_profile_metadata_dto(
     SseDeserializer deserializer,
   );
@@ -880,6 +913,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   DecodedNaddrDto sse_decode_decoded_naddr_dto(SseDeserializer deserializer);
+
+  @protected
+  DecryptedNip60EventDto sse_decode_decrypted_nip_60_event_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   DraftValidationDto sse_decode_draft_validation_dto(
@@ -995,6 +1033,11 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  List<DecryptedNip60EventDto> sse_decode_list_decrypted_nip_60_event_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<GeoCommentDto> sse_decode_list_geo_comment_dto(
     SseDeserializer deserializer,
   );
@@ -1044,6 +1087,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   List<MountedAtlasWorkspaceDto> sse_decode_list_mounted_atlas_workspace_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<Nip60RawEventDto> sse_decode_list_nip_60_raw_event_dto(
     SseDeserializer deserializer,
   );
 
@@ -1211,6 +1259,21 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  Nip60DataFetchDto sse_decode_nip_60_data_fetch_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  Nip60RawEventDto sse_decode_nip_60_raw_event_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  Nip60WalletDiscoveryDto sse_decode_nip_60_wallet_discovery_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   NutzapClaimResultDto sse_decode_nutzap_claim_result_dto(
     SseDeserializer deserializer,
   );
@@ -1294,6 +1357,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   McpCameraActionDto? sse_decode_opt_box_autoadd_mcp_camera_action_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  Nip60RawEventDto? sse_decode_opt_box_autoadd_nip_60_raw_event_dto(
     SseDeserializer deserializer,
   );
 
@@ -1661,6 +1729,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_box_autoadd_nip_60_raw_event_dto(
+    Nip60RawEventDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_profile_metadata_dto(
     ProfileMetadataDto self,
     SseSerializer serializer,
@@ -1774,6 +1848,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_decoded_naddr_dto(
     DecodedNaddrDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_decrypted_nip_60_event_dto(
+    DecryptedNip60EventDto self,
     SseSerializer serializer,
   );
 
@@ -1916,6 +1996,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_decrypted_nip_60_event_dto(
+    List<DecryptedNip60EventDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_geo_comment_dto(
     List<GeoCommentDto> self,
     SseSerializer serializer,
@@ -1978,6 +2064,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_list_mounted_atlas_workspace_dto(
     List<MountedAtlasWorkspaceDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_nip_60_raw_event_dto(
+    List<Nip60RawEventDto> self,
     SseSerializer serializer,
   );
 
@@ -2189,6 +2281,24 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_nip_60_data_fetch_dto(
+    Nip60DataFetchDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_nip_60_raw_event_dto(
+    Nip60RawEventDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_nip_60_wallet_discovery_dto(
+    Nip60WalletDiscoveryDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_nutzap_claim_result_dto(
     NutzapClaimResultDto self,
     SseSerializer serializer,
@@ -2287,6 +2397,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_opt_box_autoadd_mcp_camera_action_dto(
     McpCameraActionDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_nip_60_raw_event_dto(
+    Nip60RawEventDto? self,
     SseSerializer serializer,
   );
 

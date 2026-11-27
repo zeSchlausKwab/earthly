@@ -31,7 +31,7 @@ pub struct Nip46ConnectionDto {
 }
 
 /// Validates and parses a `bunker://...` URI and optional persisted client secret key.
-fn build_nostr_connect(
+pub(crate) fn build_nostr_connect(
     bunker_uri: &str,
     client_nsec: Option<&str>,
 ) -> Result<(NostrConnect, Keys, Vec<String>), String> {
@@ -206,6 +206,42 @@ pub async fn sign_event_with_nip46_bunker(
         .map_err(|e| format!("NIP-46 remote signing failed: {e}"))?;
     connect.shutdown().await;
     Ok(signed.as_json())
+}
+
+/// Decrypts a NIP-44 ciphertext via the connected NIP-46 Bunker (`nip44_decrypt`).
+pub async fn nip46_nip44_decrypt(
+    bunker_uri: String,
+    client_nsec: String,
+    third_party_pubkey_hex: String,
+    ciphertext: String,
+) -> Result<String, String> {
+    let pk = PublicKey::parse(third_party_pubkey_hex.trim())
+        .map_err(|e| format!("Invalid NIP-46 third-party pubkey: {e}"))?;
+    let (connect, _, _) = build_nostr_connect(&bunker_uri, Some(&client_nsec))?;
+    let res = connect
+        .nip44_decrypt(&pk, &ciphertext)
+        .await
+        .map_err(|e| format!("NIP-46 nip44_decrypt failed: {e}"));
+    connect.shutdown().await;
+    res
+}
+
+/// Encrypts a plaintext payload via NIP-44 using the connected NIP-46 Bunker (`nip44_encrypt`).
+pub async fn nip46_nip44_encrypt(
+    bunker_uri: String,
+    client_nsec: String,
+    third_party_pubkey_hex: String,
+    plaintext: String,
+) -> Result<String, String> {
+    let pk = PublicKey::parse(third_party_pubkey_hex.trim())
+        .map_err(|e| format!("Invalid NIP-46 third-party pubkey: {e}"))?;
+    let (connect, _, _) = build_nostr_connect(&bunker_uri, Some(&client_nsec))?;
+    let res = connect
+        .nip44_encrypt(&pk, &plaintext)
+        .await
+        .map_err(|e| format!("NIP-46 nip44_encrypt failed: {e}"));
+    connect.shutdown().await;
+    res
 }
 
 /// Adapter letting NIP-46 Bunker accounts sign MLS Circle envelopes, invitations,

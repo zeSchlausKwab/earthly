@@ -11,10 +11,12 @@ use earthly_storage::{
     CashuHistoryRecord, CashuProofRecord, CashuWalletStore, PendingCashuToken,
     PersistedCashuWallet,
 };
-use nostr::nips::nip60::{
-    CashuProof as Nip60CashuProof, SpendingHistory, TokenEvent, TransactionDirection, WalletEvent,
+use nostr::nips::nip44;
+use nostr::nips::nip60::{SpendingHistory, TransactionDirection};
+use nostr::{
+    Alphabet, Event, EventBuilder, EventId, Filter, Keys, Kind, PublicKey as NostrPublicKey,
+    SingleLetterTag, Tag,
 };
-use nostr::{Event, EventBuilder, EventId, Filter, Keys, Kind, PublicKey as NostrPublicKey, Tag, Url};
 use rand::RngCore;
 use secp256k1::{Keypair, Message, PublicKey, Scalar, Secp256k1, SecretKey, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
@@ -22,6 +24,12 @@ use sha2::{Digest, Sha256};
 
 const CASHU_HASH_DOMAIN: &[u8] = b"Secp256k1_HashToCurve_Cashu_";
 const DEFAULT_RELAY: &str = "wss://relay.earthly.city";
+const DISCOVERY_RELAYS: &[&str] = &[
+    "wss://relay.damus.io",
+    "wss://nos.lol",
+    "wss://relay.primal.net",
+    "wss://purplepag.es",
+];
 const HTTP_TIMEOUT_SECS: u64 = 20;
 const RELAY_FETCH_TIMEOUT_SECS: u64 = 8;
 
@@ -33,6 +41,7 @@ const RELAY_FETCH_TIMEOUT_SECS: u64 = 8;
 pub struct CashuMintBalanceDto {
     pub mint_url: String,
     pub balance_sats: u64,
+    pub proof_count: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -130,6 +139,36 @@ pub struct NutzapClaimResultDto {
     pub claimed_sats: u64,
     pub failed_count: u64,
     pub wallet_state: CashuWalletStateDto,
+}
+
+#[derive(Clone, Debug)]
+pub struct Nip60RawEventDto {
+    pub event_id: String,
+    pub kind: u16,
+    pub created_at: u64,
+    pub content: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct Nip60WalletDiscoveryDto {
+    pub discovered_relays: Vec<String>,
+    pub wallet_event: Option<Nip60RawEventDto>,
+    pub nutzap_relays: Vec<String>,
+    pub nutzap_mints: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Nip60DataFetchDto {
+    pub token_events: Vec<Nip60RawEventDto>,
+    pub history_events: Vec<Nip60RawEventDto>,
+    pub deleted_event_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct DecryptedNip60EventDto {
+    pub event_id: String,
+    pub created_at: u64,
+    pub decrypted_json: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -1085,52 +1124,227 @@ async fn post_checkstate(
 // NIP-60 & NIP-61 Event Builders / Parsers
 // ---------------------------------------------------------------------------
 
-/// Builds a NIP-60 `kind 17375` Wallet metadata EventBuilder (NIP-44 encrypted to self).
+#[flutter_rust_bridge::frb(ignore)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct Nip60ProofSerde {
+    pub id: String,
+    pub amount: u64,
+    pub secret: String,
+    #[serde(rename = "C", alias = "c")]
+    pub c: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub witness: Option<String>,
+}
+
+#[flutter_rust_bridge::frb(ignore)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct Nip60TokenContent {
+    pub mint: String,
+    pub proofs: Vec<Nip60ProofSerde>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub del: Vec<String>,
+}
+
+#[flutter_rust_bridge::frb(ignore)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct ParsedNip60WalletContent {
+    pub privkey: Option<String>,
+    pub mints: Vec<String>,
+    pub relays: Vec<String>,
+}
+
+#[flutter_rust_bridge::frb(ignore)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ParsedNip60HistoryContent {
+    pub direction: Option<String>,
+    pub amount_sats: Option<u64>,
+    pub unit: String,
+    pub created: Vec<String>,
+    pub destroyed: Vec<String>,
+    pub redeemed: Vec<String>,
+}
+
+/// Parses decrypted NIP-60 `kind 17375` JSON (`Vec<Vec<String>>`), tolerating optional/extra tags.
+fn parse_nip60_wallet_content(decrypted_json: &str) -> Result<ParsedNip60WalletContent, String> {
+    let tags: Vec<Vec<String>> = serde_json::from_str(decrypted_json)
+        .map_err(|e| format!("Invalid NIP-60 wallet content JSON: {e}"))?;
+    let mut out = ParsedNip60WalletContent::default();
+    for item in tags {
+        if item.len() < 2 {
+            continue;
+        }
+        match item[0].as_str() {
+            "privkey" => {
+                let trimmed = item[1].trim();
+                if !trimmed.is_empty() && out.privkey.is_none() {
+                    out.privkey = Some(trimmed.to_owned());
+                }
+            }
+            "mint" => {
+                if let Ok(clean) = normalize_mint_url(&item[1]) {
+                    if !out.mints.contains(&clean) {
+                        out.mints.push(clean);
+                    }
+                }
+            }
+            "relay" => {
+                let clean = item[1].trim().to_owned();
+                if (clean.starts_with("wss://") || clean.starts_with("ws://"))
+                    && !out.relays.contains(&clean)
+                {
+                    out.relays.push(clean);
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
+/// Parses decrypted NIP-60 `kind 7376` spending history JSON (`Vec<Vec<String>>`).
+fn parse_nip60_history_content(decrypted_json: &str) -> Result<ParsedNip60HistoryContent, String> {
+    let tags: Vec<Vec<String>> = serde_json::from_str(decrypted_json)
+        .map_err(|e| format!("Invalid NIP-60 history content JSON: {e}"))?;
+    let mut out = ParsedNip60HistoryContent {
+        direction: None,
+        amount_sats: None,
+        unit: "sat".to_owned(),
+        created: Vec::new(),
+        destroyed: Vec::new(),
+        redeemed: Vec::new(),
+    };
+    for item in tags {
+        if item.len() < 2 {
+            continue;
+        }
+        match item[0].as_str() {
+            "direction" => {
+                let dir = item[1].trim().to_ascii_lowercase();
+                if dir == "in" || dir == "out" {
+                    out.direction = Some(dir);
+                }
+            }
+            "amount" => {
+                if let Ok(amt) = item[1].trim().parse::<u64>() {
+                    out.amount_sats = Some(amt);
+                }
+            }
+            "unit" => {
+                let u = item[1].trim();
+                if !u.is_empty() {
+                    out.unit = u.to_owned();
+                }
+            }
+            "e" => {
+                let ev_id = item[1].trim().to_ascii_lowercase();
+                if ev_id.is_empty() {
+                    continue;
+                }
+                let marker = item
+                    .get(3)
+                    .map(String::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| {
+                        item.get(2)
+                            .map(String::as_str)
+                            .map(str::trim)
+                            .filter(|s| matches!(*s, "created" | "destroyed" | "redeemed"))
+                    });
+                match marker {
+                    Some("created") => out.created.push(ev_id),
+                    Some("destroyed") => out.destroyed.push(ev_id),
+                    Some("redeemed") => out.redeemed.push(ev_id),
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
+/// Builds a NIP-60 `kind 17375` Wallet metadata EventBuilder (NIP-44 v2 encrypted to self).
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn build_nip60_wallet_event(
     keys: &Keys,
     p2pk_privkey_hex: &str,
     mints: &[String],
+    relays: &[String],
 ) -> Result<EventBuilder, String> {
-    let mut parsed_mints = Vec::new();
+    let mut wallet_data: Vec<Vec<String>> = Vec::new();
+    let clean_privkey = p2pk_privkey_hex.trim();
+    if !clean_privkey.is_empty() {
+        wallet_data.push(vec!["privkey".to_owned(), clean_privkey.to_owned()]);
+    }
+    let mut seen_mints = BTreeSet::new();
     for m in mints {
-        if let Ok(u) = Url::parse(m.trim()) {
-            parsed_mints.push(u);
+        if let Ok(clean) = normalize_mint_url(m) {
+            if seen_mints.insert(clean.clone()) {
+                wallet_data.push(vec!["mint".to_owned(), clean]);
+            }
         }
     }
-    if parsed_mints.is_empty() {
+    if seen_mints.is_empty() {
         return Err("At least one valid mint URL is required for NIP-60 wallet event".to_owned());
     }
-    let wallet_ev = WalletEvent::new(p2pk_privkey_hex, parsed_mints);
-    wallet_ev
-        .to_event_builder(keys.secret_key(), &keys.public_key())
-        .map_err(|e| format!("Failed to encrypt NIP-60 wallet event: {e}"))
+    let mut seen_relays = BTreeSet::new();
+    for r in relays {
+        let clean = r.trim().to_owned();
+        if (clean.starts_with("wss://") || clean.starts_with("ws://"))
+            && seen_relays.insert(clean.clone())
+        {
+            wallet_data.push(vec!["relay".to_owned(), clean]);
+        }
+    }
+    let json = serde_json::to_string(&wallet_data)
+        .map_err(|e| format!("Failed to serialize NIP-60 wallet event: {e}"))?;
+    let content = nip44::encrypt(
+        keys.secret_key(),
+        &keys.public_key(),
+        json,
+        nip44::Version::V2,
+    )
+    .map_err(|e| format!("Failed to encrypt NIP-60 wallet event: {e}"))?;
+    Ok(EventBuilder::new(Kind::CashuWallet, content))
 }
 
-/// Builds a NIP-60 `kind 7375` unspent proof TokenEvent EventBuilder (NIP-44 encrypted to self).
+/// Builds a NIP-60 `kind 7375` unspent proof TokenEvent EventBuilder (NIP-44 v2 encrypted to self).
 pub(crate) fn build_nip60_token_event(
     keys: &Keys,
     mint_url: &str,
     proofs: &[CashuProofRecord],
     destroyed_event_ids: &[String],
 ) -> Result<EventBuilder, String> {
-    let parsed_mint =
-        Url::parse(mint_url.trim()).map_err(|e| format!("Invalid mint URL {mint_url}: {e}"))?;
-    let nip60_proofs: Vec<Nip60CashuProof> = proofs
+    let clean_mint = normalize_mint_url(mint_url)?;
+    let nip60_proofs: Vec<Nip60ProofSerde> = proofs
         .iter()
-        .map(|p| Nip60CashuProof {
+        .map(|p| Nip60ProofSerde {
             id: p.id.clone(),
             amount: p.amount,
             secret: p.secret.clone(),
             c: p.c.clone(),
+            witness: None,
         })
         .collect();
-    let mut token_ev = TokenEvent::new(parsed_mint, nip60_proofs);
-    for del_id in destroyed_event_ids {
-        token_ev = token_ev.destroyed(del_id.clone());
-    }
-    token_ev
-        .to_event_builder(keys.secret_key(), &keys.public_key())
-        .map_err(|e| format!("Failed to encrypt NIP-60 token event: {e}"))
+    let token_content = Nip60TokenContent {
+        mint: clean_mint,
+        proofs: nip60_proofs,
+        unit: Some("sat".to_owned()),
+        del: destroyed_event_ids.to_vec(),
+    };
+    let json = serde_json::to_string(&token_content)
+        .map_err(|e| format!("Failed to serialize NIP-60 token event: {e}"))?;
+    let content = nip44::encrypt(
+        keys.secret_key(),
+        &keys.public_key(),
+        json,
+        nip44::Version::V2,
+    )
+    .map_err(|e| format!("Failed to encrypt NIP-60 token event: {e}"))?;
+    Ok(EventBuilder::new(Kind::CashuWalletUnspentProof, content))
 }
 
 /// Builds a NIP-60 `kind 7376` spending history EventBuilder (NIP-44 encrypted to self).
@@ -1427,19 +1641,22 @@ fn save_updated_wallet(
 }
 
 fn wallet_to_dto(w: &PersistedCashuWallet) -> CashuWalletStateDto {
-    let mut by_mint: BTreeMap<String, u64> = BTreeMap::new();
+    let mut by_mint: BTreeMap<String, (u64, u64)> = BTreeMap::new();
     for m in &w.mints {
-        by_mint.entry(m.clone()).or_insert(0);
+        by_mint.entry(m.clone()).or_insert((0, 0));
     }
     for p in &w.proofs {
-        *by_mint.entry(p.mint_url.clone()).or_insert(0) += p.amount;
+        let entry = by_mint.entry(p.mint_url.clone()).or_insert((0, 0));
+        entry.0 = entry.0.saturating_add(p.amount);
+        entry.1 = entry.1.saturating_add(1);
     }
 
     let mint_balances = by_mint
         .into_iter()
-        .map(|(mint_url, balance_sats)| CashuMintBalanceDto {
+        .map(|(mint_url, (balance_sats, proof_count))| CashuMintBalanceDto {
             mint_url,
             balance_sats,
+            proof_count,
         })
         .collect();
 
@@ -2020,56 +2237,116 @@ pub async fn pay_bolt11_via_cashu(
     })
 }
 
-/// Syncs NIP-60 wallet state (`17375`, `7375`, `7376`) over the shared persistent Nostr relay pool.
-pub async fn sync_nip60_wallet(
-    database_path: String,
-    nsec_or_hex: String,
-    relays: Vec<String>,
-    master_key_b64: Option<String>,
-) -> Result<CashuWalletStateDto, String> {
-    let keys = Keys::parse(nsec_or_hex.trim())
-        .map_err(|e| format!("Invalid Nostr key for NIP-60 wallet sync: {e}"))?;
-    let pubkey_hex = keys.public_key().to_hex();
-
-    let store = CashuWalletStore::open(&database_path).map_err(|e| e.to_string())?;
-    let mut wallet = match store
-        .load_wallet_with_master_key(&pubkey_hex, master_key_b64.as_deref())
-        .map_err(|e| e.to_string())?
-    {
-        Some(existing) => existing,
-        None => default_wallet_for(&pubkey_hex, Vec::new(), relays.clone()),
-    };
-
-    if !relays.is_empty() {
-        wallet.relays = normalize_relays_with_fallback(&relays);
+fn merge_relay_urls(target: &mut Vec<String>, extra: &[String]) -> Vec<String> {
+    let mut seen: BTreeSet<String> = target.iter().cloned().collect();
+    let mut added = Vec::new();
+    for raw in extra {
+        let clean = raw.trim().to_owned();
+        if (clean.starts_with("wss://") || clean.starts_with("ws://")) && seen.insert(clean.clone())
+        {
+            target.push(clean.clone());
+            added.push(clean);
+        }
     }
-    let effective_relays = normalize_relays_with_fallback(&wallet.relays);
-    let client = super::relay_pool::shared_client(&effective_relays).await?;
+    added
+}
 
-    let wallet_filter = Filter::new()
-        .author(keys.public_key())
-        .kinds([
-            Kind::CashuWallet,
-            Kind::CashuWalletUnspentProof,
-            Kind::CashuWalletSpendingHistory,
-        ])
-        .limit(200);
+fn extract_nip65_relays(event: &Event) -> Vec<String> {
+    let mut relays = Vec::new();
+    for tag in event.tags.iter() {
+        let s = tag.as_slice();
+        if s.first().map(String::as_str) == Some("r") {
+            if let Some(raw) = s.get(1) {
+                let clean = raw.trim().to_owned();
+                if (clean.starts_with("wss://") || clean.starts_with("ws://"))
+                    && !relays.contains(&clean)
+                {
+                    relays.push(clean);
+                }
+            }
+        }
+    }
+    relays
+}
 
-    let events = client
+fn extract_deleted_event_ids_from_kind5(events: &[Event]) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    let mut ids = Vec::new();
+    for ev in events {
+        if ev.kind != Kind::EventDeletion {
+            continue;
+        }
+        for tag in ev.tags.iter() {
+            let s = tag.as_slice();
+            if s.first().map(String::as_str) == Some("e") {
+                if let Some(id_str) = s.get(1) {
+                    let clean = id_str.trim().to_ascii_lowercase();
+                    if !clean.is_empty() && seen.insert(clean.clone()) {
+                        ids.push(clean);
+                    }
+                }
+            }
+        }
+    }
+    ids
+}
+
+fn event_to_raw_dto(ev: &Event) -> Nip60RawEventDto {
+    Nip60RawEventDto {
+        event_id: ev.id.to_hex(),
+        kind: ev.kind.as_u16(),
+        created_at: ev.created_at.as_secs(),
+        content: ev.content.clone(),
+    }
+}
+
+async fn discover_nip60_wallet_events(
+    author_pk: NostrPublicKey,
+    seed_relays: &[String],
+) -> Result<(Nip60WalletDiscoveryDto, Option<Event>), String> {
+    let user_relays = normalize_relays_with_fallback(seed_relays);
+    let mut phase1_relays = user_relays.clone();
+    let discovery_strings: Vec<String> = DISCOVERY_RELAYS.iter().map(|s| (*s).to_owned()).collect();
+    merge_relay_urls(&mut phase1_relays, &discovery_strings);
+
+    let client = super::relay_pool::shared_client(&phase1_relays).await?;
+
+    let discovery_filter = Filter::new()
+        .author(author_pk)
+        .kinds([Kind::RelayList, Kind::CashuNutZapInfo, Kind::CashuWallet])
+        .limit(30);
+
+    let initial_events = client
         .fetch_events_from(
-            &effective_relays,
-            wallet_filter,
+            &phase1_relays,
+            discovery_filter,
             Duration::from_secs(RELAY_FETCH_TIMEOUT_SECS),
         )
         .await
-        .map_err(|e| format!("Failed to fetch NIP-60 wallet events: {e}"))?;
+        .map_err(|e| format!("Failed to fetch NIP-60 wallet discovery events: {e}"))?;
 
+    let mut latest_10002: Option<Event> = None;
+    let mut latest_10019: Option<Event> = None;
     let mut latest_17375: Option<Event> = None;
-    let mut token_events: Vec<Event> = Vec::new();
-    let mut history_events: Vec<Event> = Vec::new();
 
-    for ev in events.into_iter() {
+    for ev in initial_events.into_iter() {
         match ev.kind {
+            Kind::RelayList => {
+                if latest_10002
+                    .as_ref()
+                    .is_none_or(|cur| ev.created_at > cur.created_at)
+                {
+                    latest_10002 = Some(ev);
+                }
+            }
+            Kind::CashuNutZapInfo => {
+                if latest_10019
+                    .as_ref()
+                    .is_none_or(|cur| ev.created_at > cur.created_at)
+                {
+                    latest_10019 = Some(ev);
+                }
+            }
             Kind::CashuWallet => {
                 if latest_17375
                     .as_ref()
@@ -2078,57 +2355,219 @@ pub async fn sync_nip60_wallet(
                     latest_17375 = Some(ev);
                 }
             }
+            _ => {}
+        }
+    }
+
+    let mut discovered_relays = user_relays;
+    if let Some(ev) = latest_10002.as_ref() {
+        let nip65 = extract_nip65_relays(ev);
+        merge_relay_urls(&mut discovered_relays, &nip65);
+    }
+
+    let mut nutzap_relays = Vec::new();
+    let mut nutzap_mints = Vec::new();
+    if let Some(ev) = latest_10019.as_ref() {
+        if let Ok(info) = parse_nip61_nutzap_info_event(ev) {
+            nutzap_relays = info.relays;
+            nutzap_mints = info.mints;
+            merge_relay_urls(&mut discovered_relays, &nutzap_relays);
+        }
+    }
+
+    let extra_relays: Vec<String> = discovered_relays
+        .iter()
+        .filter(|r| !phase1_relays.contains(r))
+        .cloned()
+        .collect();
+
+    if !extra_relays.is_empty() {
+        if let Ok(expanded_client) = super::relay_pool::shared_client(&discovered_relays).await {
+            let follow_up = Filter::new()
+                .author(author_pk)
+                .kinds([Kind::CashuNutZapInfo, Kind::CashuWallet])
+                .limit(20);
+            if let Ok(more_events) = expanded_client
+                .fetch_events_from(
+                    &extra_relays,
+                    follow_up,
+                    Duration::from_secs(RELAY_FETCH_TIMEOUT_SECS),
+                )
+                .await
+            {
+                for ev in more_events.into_iter() {
+                    match ev.kind {
+                        Kind::CashuNutZapInfo => {
+                            if latest_10019
+                                .as_ref()
+                                .is_none_or(|cur| ev.created_at > cur.created_at)
+                            {
+                                latest_10019 = Some(ev);
+                            }
+                        }
+                        Kind::CashuWallet => {
+                            if latest_17375
+                                .as_ref()
+                                .is_none_or(|cur| ev.created_at > cur.created_at)
+                            {
+                                latest_17375 = Some(ev);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if let Some(ev) = latest_10019.as_ref() {
+                    if let Ok(info) = parse_nip61_nutzap_info_event(ev) {
+                        nutzap_relays = info.relays;
+                        nutzap_mints = info.mints;
+                        merge_relay_urls(&mut discovered_relays, &nutzap_relays);
+                    }
+                }
+            }
+        }
+    }
+
+    let dto = Nip60WalletDiscoveryDto {
+        discovered_relays,
+        wallet_event: latest_17375.as_ref().map(event_to_raw_dto),
+        nutzap_relays,
+        nutzap_mints,
+    };
+    Ok((dto, latest_17375))
+}
+
+async fn fetch_nip60_data_events_internal(
+    author_pk: NostrPublicKey,
+    relays: &[String],
+) -> Result<(Vec<Event>, Vec<Event>, Vec<String>), String> {
+    let effective_relays = normalize_relays_with_fallback(relays);
+    let client = super::relay_pool::shared_client(&effective_relays).await?;
+
+    let data_filter = Filter::new()
+        .author(author_pk)
+        .kinds([Kind::CashuWalletUnspentProof, Kind::CashuWalletSpendingHistory])
+        .limit(200);
+
+    let data_events = client
+        .fetch_events_from(
+            &effective_relays,
+            data_filter,
+            Duration::from_secs(RELAY_FETCH_TIMEOUT_SECS),
+        )
+        .await
+        .map_err(|e| format!("Failed to fetch NIP-60 wallet events: {e}"))?;
+
+    let deletion_filter = Filter::new()
+        .author(author_pk)
+        .kind(Kind::EventDeletion)
+        .custom_tag(SingleLetterTag::lowercase(Alphabet::K), "7375")
+        .limit(200);
+
+    let deletion_events: Vec<Event> = client
+        .fetch_events_from(
+            &effective_relays,
+            deletion_filter,
+            Duration::from_secs(RELAY_FETCH_TIMEOUT_SECS),
+        )
+        .await
+        .map(|evs| evs.into_iter().collect())
+        .unwrap_or_default();
+
+    let deleted_event_ids = extract_deleted_event_ids_from_kind5(&deletion_events);
+
+    let mut token_events = Vec::new();
+    let mut history_events = Vec::new();
+    for ev in data_events.into_iter() {
+        match ev.kind {
             Kind::CashuWalletUnspentProof => token_events.push(ev),
             Kind::CashuWalletSpendingHistory => history_events.push(ev),
             _ => {}
         }
     }
 
-    if let Some(ev) = latest_17375 {
-        if let Ok(remote_wallet) =
-            WalletEvent::from_wallet_event(keys.secret_key(), &keys.public_key(), &ev)
-        {
-            if !remote_wallet.privkey.trim().is_empty() {
-                if let Ok(sk_bytes) = hex_to_bytes(&remote_wallet.privkey) {
-                    if let Ok(sk) = SecretKey::from_slice(&sk_bytes) {
-                        let secp = Secp256k1::new();
-                        let pk = PublicKey::from_secret_key(&secp, &sk);
-                        wallet.p2pk_privkey_hex = bytes_to_hex(&sk.secret_bytes());
-                        wallet.p2pk_pubkey_hex = bytes_to_hex(&pk.serialize());
-                    }
+    Ok((token_events, history_events, deleted_event_ids))
+}
+
+fn apply_decrypted_nip60_to_wallet(
+    wallet: &mut PersistedCashuWallet,
+    relays: &[String],
+    decrypted_wallet_json: Option<&str>,
+    decrypted_token_events: &[DecryptedNip60EventDto],
+    decrypted_history_events: &[DecryptedNip60EventDto],
+    deleted_event_ids: &[String],
+) {
+    if !relays.is_empty() {
+        wallet.relays = normalize_relays_with_fallback(relays);
+    }
+
+    if let Some(raw_wallet_json) = decrypted_wallet_json
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        if let Ok(parsed_wallet) = parse_nip60_wallet_content(raw_wallet_json) {
+            if let Some(ref privkey_str) = parsed_wallet.privkey {
+                let parsed_sk = nostr::SecretKey::parse(privkey_str)
+                    .ok()
+                    .and_then(|nsk| SecretKey::from_slice(&nsk.secret_bytes()).ok())
+                    .or_else(|| {
+                        hex_to_bytes(privkey_str)
+                            .ok()
+                            .and_then(|b| SecretKey::from_slice(&b).ok())
+                    });
+                if let Some(sk) = parsed_sk {
+                    let secp = Secp256k1::new();
+                    let pk = PublicKey::from_secret_key(&secp, &sk);
+                    wallet.p2pk_privkey_hex = bytes_to_hex(&sk.secret_bytes());
+                    wallet.p2pk_pubkey_hex = bytes_to_hex(&pk.serialize());
                 }
             }
-            for mint in remote_wallet.mints {
-                if let Ok(clean) = normalize_mint_url(mint.as_str()) {
-                    if !wallet.mints.contains(&clean) {
-                        wallet.mints.push(clean);
-                    }
+            for clean_mint in parsed_wallet.mints {
+                if !wallet.mints.contains(&clean_mint) {
+                    wallet.mints.push(clean_mint);
                 }
             }
-            if wallet.default_mint.is_none() {
-                wallet.default_mint = wallet.mints.first().cloned();
+            merge_relay_urls(&mut wallet.relays, &parsed_wallet.relays);
+        }
+    }
+
+    let mut destroyed_ids: HashSet<String> = deleted_event_ids
+        .iter()
+        .map(|id| id.trim().to_ascii_lowercase())
+        .filter(|id| !id.is_empty())
+        .collect();
+
+    let mut parsed_tokens: Vec<(String, Nip60TokenContent)> = Vec::new();
+    for ev in decrypted_token_events {
+        if let Ok(tok) = serde_json::from_str::<Nip60TokenContent>(&ev.decrypted_json) {
+            for del_id in &tok.del {
+                let clean = del_id.trim().to_ascii_lowercase();
+                if !clean.is_empty() {
+                    destroyed_ids.insert(clean);
+                }
+            }
+            let ev_hex = ev.event_id.trim().to_ascii_lowercase();
+            if !ev_hex.is_empty() {
+                parsed_tokens.push((ev_hex, tok));
             }
         }
     }
 
-    let mut decrypted_tokens: Vec<(EventId, TokenEvent)> = Vec::new();
-    let mut destroyed_ids: HashSet<String> = HashSet::new();
-    for ev in token_events {
-        if let Ok(tok) = TokenEvent::from_token_event(keys.secret_key(), &keys.public_key(), &ev) {
-            for del_id in &tok.del {
-                destroyed_ids.insert(del_id.clone());
-            }
-            decrypted_tokens.push((ev.id, tok));
-        }
-    }
+    // Remove local stale proofs whose originating 7375 event was destroyed/deleted.
+    wallet.proofs.retain(|p| {
+        !p.token_event_id
+            .as_deref()
+            .is_some_and(|id| destroyed_ids.contains(&id.to_ascii_lowercase()))
+    });
 
     let mut remote_proofs = Vec::new();
-    for (ev_id, tok) in decrypted_tokens {
-        let ev_hex = ev_id.to_hex();
+    for (ev_hex, tok) in parsed_tokens {
         if destroyed_ids.contains(&ev_hex) {
             continue;
         }
-        if let Ok(clean_mint) = normalize_mint_url(tok.mint.as_str()) {
+        if !tok.unit.as_deref().unwrap_or("sat").eq_ignore_ascii_case("sat") {
+            continue;
+        }
+        if let Ok(clean_mint) = normalize_mint_url(&tok.mint) {
             if !wallet.mints.contains(&clean_mint) {
                 wallet.mints.push(clean_mint.clone());
             }
@@ -2144,106 +2583,435 @@ pub async fn sync_nip60_wallet(
             }
         }
     }
-    merge_unique_proofs(&mut wallet, remote_proofs);
 
-    let known_history_events: HashSet<String> = wallet
-        .history
-        .iter()
-        .filter_map(|h| h.event_id.clone())
-        .collect();
-    for ev in history_events {
-        let ev_hex = ev.id.to_hex();
-        if known_history_events.contains(&ev_hex) {
-            continue;
-        }
-        if let Ok(hist) =
-            SpendingHistory::from_spending_history_event(keys.secret_key(), &keys.public_key(), &ev)
+    // Link existing unsynced local proofs if a matching remote proof was fetched.
+    for remote in &remote_proofs {
+        if let Some(existing) = wallet
+            .proofs
+            .iter_mut()
+            .find(|p| p.token_event_id.is_none() && p.mint_url == remote.mint_url && p.secret == remote.secret)
         {
-            wallet.history.push(CashuHistoryRecord {
-                id: format!("nip60-{ev_hex}"),
-                direction: hist.direction.to_string(),
-                amount_sats: hist.amount,
-                mint_url: wallet.default_mint.clone().unwrap_or_default(),
-                unit: "sat".to_owned(),
-                memo: Some("NIP-60 synced".to_owned()),
-                event_id: Some(ev_hex),
-                counterparty_pubkey: None,
-                created_at: ev.created_at.as_secs(),
-            });
+            existing.token_event_id = remote.token_event_id.clone();
         }
     }
+    merge_unique_proofs(wallet, remote_proofs);
 
-    // Check proof liveness with mints if possible, dropping spent proofs.
-    if !wallet.proofs.is_empty() {
-        if let Ok(http) = build_http_client() {
-            let mut by_mint: BTreeMap<String, Vec<String>> = BTreeMap::new();
-            for p in &wallet.proofs {
-                by_mint
-                    .entry(p.mint_url.clone())
-                    .or_default()
-                    .push(p.secret.clone());
+    if wallet.default_mint.is_none() {
+        wallet.default_mint = wallet.mints.first().cloned();
+    }
+
+    let mut known_history_events: HashSet<String> = wallet
+        .history
+        .iter()
+        .filter_map(|h| h.event_id.as_ref().map(|s| s.to_ascii_lowercase()))
+        .collect();
+    for ev in decrypted_history_events {
+        let ev_hex = ev.event_id.trim().to_ascii_lowercase();
+        if ev_hex.is_empty() || known_history_events.contains(&ev_hex) {
+            continue;
+        }
+        if let Ok(hist) = parse_nip60_history_content(&ev.decrypted_json) {
+            if let (Some(direction), Some(amount_sats)) = (hist.direction, hist.amount_sats) {
+                wallet.history.push(CashuHistoryRecord {
+                    id: format!("nip60-{ev_hex}"),
+                    direction,
+                    amount_sats,
+                    mint_url: wallet.default_mint.clone().unwrap_or_default(),
+                    unit: hist.unit,
+                    memo: Some("NIP-60 synced".to_owned()),
+                    event_id: Some(ev_hex.clone()),
+                    counterparty_pubkey: None,
+                    created_at: ev.created_at,
+                });
+                known_history_events.insert(ev_hex);
             }
-            let mut spent_secrets = HashSet::new();
-            for (mint, secrets) in by_mint {
-                if let Ok(states) = post_checkstate(&http, &mint, &secrets).await {
-                    let state_by_y: BTreeMap<String, String> = states
-                        .into_iter()
-                        .map(|s| (s.y.to_ascii_lowercase(), s.state))
-                        .collect();
-                    for secret in secrets {
-                        if let Ok(y) = hash_to_curve(secret.as_bytes()) {
-                            let y_hex = bytes_to_hex(&y.serialize());
-                            if state_by_y
-                                .get(&y_hex)
-                                .is_some_and(|st| st.eq_ignore_ascii_case("SPENT"))
-                            {
-                                spent_secrets.insert((mint.clone(), secret));
-                            }
-                        }
+        }
+    }
+}
+
+async fn check_proofs_liveness_non_fatal(wallet: &mut PersistedCashuWallet) {
+    if wallet.proofs.is_empty() {
+        return;
+    }
+    let Ok(http) = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(4))
+        .timeout(Duration::from_secs(5))
+        .build()
+    else {
+        return;
+    };
+
+    let mut by_mint: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for p in &wallet.proofs {
+        by_mint
+            .entry(p.mint_url.clone())
+            .or_default()
+            .push(p.secret.clone());
+    }
+
+    let mut tasks = tokio::task::JoinSet::new();
+    for (mint, secrets) in by_mint {
+        let http = http.clone();
+        tasks.spawn(async move {
+            let states = post_checkstate(&http, &mint, &secrets).await.ok()?;
+            Some((mint, secrets, states))
+        });
+    }
+
+    let mut spent_secrets = HashSet::new();
+    while let Some(res) = tasks.join_next().await {
+        if let Ok(Some((mint, secrets, states))) = res {
+            let state_by_y: BTreeMap<String, String> = states
+                .into_iter()
+                .map(|s| (s.y.to_ascii_lowercase(), s.state))
+                .collect();
+            for secret in secrets {
+                if let Ok(y) = hash_to_curve(secret.as_bytes()) {
+                    let y_hex = bytes_to_hex(&y.serialize());
+                    if state_by_y
+                        .get(&y_hex)
+                        .is_some_and(|st| st.eq_ignore_ascii_case("SPENT"))
+                    {
+                        spent_secrets.insert((mint.clone(), secret));
                     }
                 }
             }
-            if !spent_secrets.is_empty() {
-                wallet
-                    .proofs
-                    .retain(|p| !spent_secrets.contains(&(p.mint_url.clone(), p.secret.clone())));
-            }
         }
     }
 
-    // Publish updated kind 17375 wallet metadata if mints are configured.
-    if !wallet.mints.is_empty() {
-        if let Ok(builder) =
-            build_nip60_wallet_event(&keys, &wallet.p2pk_privkey_hex, &wallet.mints)
-        {
-            if let Ok(signed) = builder.sign_with_keys(&keys) {
-                let _ = client.send_event(&signed).await;
-            }
+    if !spent_secrets.is_empty() {
+        wallet
+            .proofs
+            .retain(|p| !spent_secrets.contains(&(p.mint_url.clone(), p.secret.clone())));
+    }
+}
+
+/// Discovers NIP-60 relays (`10002` + `10019`) and fetches the latest `kind 17375` wallet metadata
+/// event for signer-agnostic decryption (Amber NIP-55 / NIP-46 Bunker / local nsec).
+pub async fn fetch_nip60_wallet_discovery(
+    pubkey_hex: String,
+    relays: Vec<String>,
+) -> Result<Nip60WalletDiscoveryDto, String> {
+    let author_pk = NostrPublicKey::parse(pubkey_hex.trim())
+        .map_err(|e| format!("Invalid Nostr pubkey for NIP-60 wallet discovery: {e}"))?;
+    let (dto, _) = discover_nip60_wallet_events(author_pk, &relays).await?;
+    Ok(dto)
+}
+
+/// Fetches encrypted NIP-60 `kind 7375` token events, `kind 7376` history events, and NIP-09
+/// `kind 5` (`#k: ["7375"]`) deletion IDs across the provided relays.
+pub async fn fetch_nip60_data_events(
+    pubkey_hex: String,
+    relays: Vec<String>,
+) -> Result<Nip60DataFetchDto, String> {
+    let author_pk = NostrPublicKey::parse(pubkey_hex.trim())
+        .map_err(|e| format!("Invalid Nostr pubkey for NIP-60 data fetch: {e}"))?;
+    let (token_events, history_events, deleted_event_ids) =
+        fetch_nip60_data_events_internal(author_pk, &relays).await?;
+    let deleted_set: HashSet<String> = deleted_event_ids
+        .iter()
+        .map(|s| s.to_ascii_lowercase())
+        .collect();
+
+    Ok(Nip60DataFetchDto {
+        token_events: token_events
+            .iter()
+            .filter(|ev| !deleted_set.contains(&ev.id.to_hex()))
+            .map(event_to_raw_dto)
+            .collect(),
+        history_events: history_events.iter().map(event_to_raw_dto).collect(),
+        deleted_event_ids,
+    })
+}
+
+/// Extracts valid `ws://` / `wss://` relay URLs from decrypted `kind 17375` JSON.
+pub fn parse_nip60_wallet_relays_from_json(decrypted_wallet_json: String) -> Vec<String> {
+    parse_nip60_wallet_content(&decrypted_wallet_json)
+        .map(|parsed| parsed.relays)
+        .unwrap_or_default()
+}
+
+/// Applies caller-decrypted NIP-60 wallet/token/history events to local SQLite state, pruning
+/// deleted/destroyed proofs and checking NUT-07 proof liveness where mints are reachable.
+#[allow(clippy::too_many_arguments)]
+pub async fn apply_decrypted_nip60_sync(
+    database_path: String,
+    pubkey_hex: String,
+    relays: Vec<String>,
+    decrypted_wallet_json: Option<String>,
+    decrypted_token_events: Vec<DecryptedNip60EventDto>,
+    decrypted_history_events: Vec<DecryptedNip60EventDto>,
+    deleted_event_ids: Vec<String>,
+    master_key_b64: Option<String>,
+) -> Result<CashuWalletStateDto, String> {
+    let author_pk = NostrPublicKey::parse(pubkey_hex.trim())
+        .map_err(|e| format!("Invalid Nostr pubkey for NIP-60 apply sync: {e}"))?;
+    let clean_pk = author_pk.to_hex();
+
+    let store = CashuWalletStore::open(&database_path).map_err(|e| e.to_string())?;
+    let mut wallet = match store
+        .load_wallet_with_master_key(&clean_pk, master_key_b64.as_deref())
+        .map_err(|e| e.to_string())?
+    {
+        Some(existing) => existing,
+        None => default_wallet_for(&clean_pk, Vec::new(), relays.clone()),
+    };
+
+    apply_decrypted_nip60_to_wallet(
+        &mut wallet,
+        &relays,
+        decrypted_wallet_json.as_deref(),
+        &decrypted_token_events,
+        &decrypted_history_events,
+        &deleted_event_ids,
+    );
+
+    check_proofs_liveness_non_fatal(&mut wallet).await;
+    save_updated_wallet(&store, &mut wallet, master_key_b64.as_deref())
+}
+
+/// Syncs NIP-60 wallet state (`17375`, `7375`, `7376`, `5`) over the shared persistent Nostr relay pool.
+pub async fn sync_nip60_wallet(
+    database_path: String,
+    nsec_or_hex: String,
+    relays: Vec<String>,
+    master_key_b64: Option<String>,
+) -> Result<CashuWalletStateDto, String> {
+    let keys = Keys::parse(nsec_or_hex.trim())
+        .map_err(|e| format!("Invalid Nostr key for NIP-60 wallet sync: {e}"))?;
+    let author_pk = keys.public_key();
+    let pubkey_hex = author_pk.to_hex();
+
+    let store = CashuWalletStore::open(&database_path).map_err(|e| e.to_string())?;
+    let mut wallet = match store
+        .load_wallet_with_master_key(&pubkey_hex, master_key_b64.as_deref())
+        .map_err(|e| e.to_string())?
+    {
+        Some(existing) => existing,
+        None => default_wallet_for(&pubkey_hex, Vec::new(), relays.clone()),
+    };
+
+    let mut seed_relays = normalize_relays_with_fallback(&wallet.relays);
+    merge_relay_urls(&mut seed_relays, &relays);
+
+    let (discovery, latest_17375) = discover_nip60_wallet_events(author_pk, &seed_relays).await?;
+    let mut effective_relays = discovery.discovered_relays;
+
+    let decrypted_wallet_json = latest_17375.and_then(|ev| {
+        if ev.pubkey != author_pk {
+            return None;
         }
+        nip44::decrypt(keys.secret_key(), &author_pk, &ev.content).ok()
+    });
+
+    if let Some(ref wallet_json) = decrypted_wallet_json {
+        let extra = parse_nip60_wallet_relays_from_json(wallet_json.clone());
+        merge_relay_urls(&mut effective_relays, &extra);
     }
 
-    // Publish kind 7375 token events for local unspent proofs that lack a Nostr event ID.
+    let (token_events, history_events, deleted_event_ids) =
+        fetch_nip60_data_events_internal(author_pk, &effective_relays).await?;
+    let deleted_set: HashSet<String> = deleted_event_ids
+        .iter()
+        .map(|s| s.to_ascii_lowercase())
+        .collect();
+
+    let decrypted_token_events: Vec<DecryptedNip60EventDto> = token_events
+        .into_iter()
+        .filter(|ev| ev.pubkey == author_pk && !deleted_set.contains(&ev.id.to_hex()))
+        .filter_map(|ev| {
+            let decrypted_json = nip44::decrypt(keys.secret_key(), &author_pk, &ev.content).ok()?;
+            Some(DecryptedNip60EventDto {
+                event_id: ev.id.to_hex(),
+                created_at: ev.created_at.as_secs(),
+                decrypted_json,
+            })
+        })
+        .collect();
+
+    let decrypted_history_events: Vec<DecryptedNip60EventDto> = history_events
+        .into_iter()
+        .filter(|ev| ev.pubkey == author_pk)
+        .filter_map(|ev| {
+            let decrypted_json = nip44::decrypt(keys.secret_key(), &author_pk, &ev.content).ok()?;
+            Some(DecryptedNip60EventDto {
+                event_id: ev.id.to_hex(),
+                created_at: ev.created_at.as_secs(),
+                decrypted_json,
+            })
+        })
+        .collect();
+
+    apply_decrypted_nip60_to_wallet(
+        &mut wallet,
+        &effective_relays,
+        decrypted_wallet_json.as_deref(),
+        &decrypted_token_events,
+        &decrypted_history_events,
+        &deleted_event_ids,
+    );
+
+    check_proofs_liveness_non_fatal(&mut wallet).await;
+
+    // Publish kind 7375 token events only for local unspent proofs that lack a Nostr event ID.
     let mut unsynced_by_mint: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     for (idx, p) in wallet.proofs.iter().enumerate() {
         if p.token_event_id.is_none() {
             unsynced_by_mint.entry(p.mint_url.clone()).or_default().push(idx);
         }
     }
-    for (mint_url, indices) in unsynced_by_mint {
-        let group: Vec<CashuProofRecord> =
-            indices.iter().map(|&i| wallet.proofs[i].clone()).collect();
-        if let Ok(builder) = build_nip60_token_event(&keys, &mint_url, &group, &[]) {
-            if let Ok(signed) = builder.sign_with_keys(&keys) {
-                if client.send_event(&signed).await.is_ok() {
-                    let ev_hex = signed.id.to_hex();
-                    for idx in indices {
-                        wallet.proofs[idx].token_event_id = Some(ev_hex.clone());
+    if !unsynced_by_mint.is_empty() {
+        if let Ok(client) = super::relay_pool::shared_client(&effective_relays).await {
+            for (mint_url, indices) in unsynced_by_mint {
+                let group: Vec<CashuProofRecord> =
+                    indices.iter().map(|&i| wallet.proofs[i].clone()).collect();
+                if let Ok(builder) = build_nip60_token_event(&keys, &mint_url, &group, &[]) {
+                    if let Ok(signed) = builder.sign_with_keys(&keys) {
+                        if client.send_event(&signed).await.is_ok() {
+                            let ev_hex = signed.id.to_hex();
+                            for idx in indices {
+                                wallet.proofs[idx].token_event_id = Some(ev_hex.clone());
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
+    save_updated_wallet(&store, &mut wallet, master_key_b64.as_deref())
+}
+
+/// Syncs NIP-60 wallet state (`17375`, `7375`, `7376`, `5`) using a NIP-46 remote Bunker signer.
+pub async fn sync_nip60_wallet_with_bunker(
+    database_path: String,
+    bunker_uri: String,
+    client_nsec: String,
+    pubkey_hex: String,
+    relays: Vec<String>,
+    master_key_b64: Option<String>,
+) -> Result<CashuWalletStateDto, String> {
+    use nostr::signer::NostrSigner as _;
+
+    let (connect, _, _) = super::nip46::build_nostr_connect(&bunker_uri, Some(&client_nsec))?;
+    let author_pk = if pubkey_hex.trim().is_empty() {
+        match connect.get_public_key().await {
+            Ok(pk) => pk,
+            Err(e) => {
+                connect.shutdown().await;
+                return Err(format!("NIP-46 get_public_key failed: {e}"));
+            }
+        }
+    } else {
+        match NostrPublicKey::parse(pubkey_hex.trim()) {
+            Ok(pk) => pk,
+            Err(e) => {
+                connect.shutdown().await;
+                return Err(format!("Invalid Nostr pubkey for NIP-60 bunker sync: {e}"));
+            }
+        }
+    };
+    let clean_pk = author_pk.to_hex();
+
+    let store = match CashuWalletStore::open(&database_path) {
+        Ok(s) => s,
+        Err(e) => {
+            connect.shutdown().await;
+            return Err(e.to_string());
+        }
+    };
+    let mut wallet = match store.load_wallet_with_master_key(&clean_pk, master_key_b64.as_deref()) {
+        Ok(Some(existing)) => existing,
+        Ok(None) => default_wallet_for(&clean_pk, Vec::new(), relays.clone()),
+        Err(e) => {
+            connect.shutdown().await;
+            return Err(e.to_string());
+        }
+    };
+
+    let mut seed_relays = normalize_relays_with_fallback(&wallet.relays);
+    merge_relay_urls(&mut seed_relays, &relays);
+
+    let (discovery, latest_17375) = match discover_nip60_wallet_events(author_pk, &seed_relays).await {
+        Ok(res) => res,
+        Err(e) => {
+            connect.shutdown().await;
+            return Err(e);
+        }
+    };
+    let mut effective_relays = discovery.discovered_relays;
+
+    let decrypted_wallet_json = if let Some(ev) = latest_17375.filter(|e| e.pubkey == author_pk) {
+        match connect.nip44_decrypt(&author_pk, &ev.content).await {
+            Ok(plain) => Some(plain),
+            Err(e) => {
+                connect.shutdown().await;
+                return Err(format!("NIP-46 failed to decrypt wallet event: {e}"));
+            }
+        }
+    } else {
+        None
+    };
+
+    if let Some(ref wallet_json) = decrypted_wallet_json {
+        let extra = parse_nip60_wallet_relays_from_json(wallet_json.clone());
+        merge_relay_urls(&mut effective_relays, &extra);
+    }
+
+    let (token_events, history_events, deleted_event_ids) =
+        match fetch_nip60_data_events_internal(author_pk, &effective_relays).await {
+            Ok(res) => res,
+            Err(e) => {
+                connect.shutdown().await;
+                return Err(e);
+            }
+        };
+
+    let deleted_set: HashSet<String> = deleted_event_ids
+        .iter()
+        .map(|s| s.to_ascii_lowercase())
+        .collect();
+
+    let mut decrypted_token_events = Vec::new();
+    for ev in token_events {
+        if ev.pubkey != author_pk || deleted_set.contains(&ev.id.to_hex()) {
+            continue;
+        }
+        if let Ok(decrypted_json) = connect.nip44_decrypt(&author_pk, &ev.content).await {
+            decrypted_token_events.push(DecryptedNip60EventDto {
+                event_id: ev.id.to_hex(),
+                created_at: ev.created_at.as_secs(),
+                decrypted_json,
+            });
+        }
+    }
+
+    let mut decrypted_history_events = Vec::new();
+    for ev in history_events {
+        if ev.pubkey != author_pk {
+            continue;
+        }
+        if let Ok(decrypted_json) = connect.nip44_decrypt(&author_pk, &ev.content).await {
+            decrypted_history_events.push(DecryptedNip60EventDto {
+                event_id: ev.id.to_hex(),
+                created_at: ev.created_at.as_secs(),
+                decrypted_json,
+            });
+        }
+    }
+
+    connect.shutdown().await;
+
+    apply_decrypted_nip60_to_wallet(
+        &mut wallet,
+        &effective_relays,
+        decrypted_wallet_json.as_deref(),
+        &decrypted_token_events,
+        &decrypted_history_events,
+        &deleted_event_ids,
+    );
+
+    check_proofs_liveness_non_fatal(&mut wallet).await;
     save_updated_wallet(&store, &mut wallet, master_key_b64.as_deref())
 }
 
@@ -2789,19 +3557,21 @@ mod tests {
         let keys = Keys::generate();
         let p2pk_sk = "11".repeat(32);
         let mints = vec!["https://mint.earthly.city".to_owned()];
+        let relays = vec!["wss://relay.earthly.city".to_owned()];
 
-        let wallet_ev = build_nip60_wallet_event(&keys, &p2pk_sk, &mints)
+        let wallet_ev = build_nip60_wallet_event(&keys, &p2pk_sk, &mints, &relays)
             .unwrap()
             .sign_with_keys(&keys)
             .unwrap();
         assert_eq!(wallet_ev.kind, Kind::CashuWallet);
         assert!(!wallet_ev.content.contains(&p2pk_sk));
 
-        let parsed_wallet =
-            WalletEvent::from_wallet_event(keys.secret_key(), &keys.public_key(), &wallet_ev)
-                .unwrap();
-        assert_eq!(parsed_wallet.privkey, p2pk_sk);
-        assert_eq!(parsed_wallet.mints[0].as_str(), "https://mint.earthly.city/");
+        let wallet_plain =
+            nip44::decrypt(keys.secret_key(), &keys.public_key(), &wallet_ev.content).unwrap();
+        let parsed_wallet = parse_nip60_wallet_content(&wallet_plain).unwrap();
+        assert_eq!(parsed_wallet.privkey.as_deref(), Some(p2pk_sk.as_str()));
+        assert_eq!(parsed_wallet.mints, mints);
+        assert_eq!(parsed_wallet.relays, relays);
 
         let proof = CashuProofRecord {
             id: "009a1f293253e41e".to_owned(),
@@ -2818,12 +3588,15 @@ mod tests {
         assert_eq!(token_ev.kind, Kind::CashuWalletUnspentProof);
         assert!(!token_ev.content.contains("nip60-secret"));
 
-        let parsed_token =
-            TokenEvent::from_token_event(keys.secret_key(), &keys.public_key(), &token_ev)
-                .unwrap();
+        let token_plain =
+            nip44::decrypt(keys.secret_key(), &keys.public_key(), &token_ev.content).unwrap();
+        assert!(token_plain.contains(r#""C":"#));
+        let parsed_token: Nip60TokenContent = serde_json::from_str(&token_plain).unwrap();
+        assert_eq!(parsed_token.mint, "https://mint.earthly.city");
         assert_eq!(parsed_token.proofs.len(), 1);
         assert_eq!(parsed_token.proofs[0].amount, 16);
         assert_eq!(parsed_token.proofs[0].secret, "nip60-secret");
+        assert!(parsed_token.del.is_empty());
 
         let hist_ev = build_nip60_history_event(
             &keys,
@@ -2846,6 +3619,201 @@ mod tests {
         assert_eq!(parsed_hist.direction, TransactionDirection::In);
         assert_eq!(parsed_hist.amount, 16);
         assert_eq!(parsed_hist.created, vec![token_ev.id]);
+    }
+
+    #[test]
+    fn nip60_parses_standard_uppercase_c_omitted_del_and_17375_relays() {
+        // Real-world NIP-60 kind 7375 JSON uses uppercase "C", omits "del", and may include "dleq".
+        let raw_7375 = r#"{
+            "mint": "https://mint.minibits.cash/Bitcoin/",
+            "unit": "sat",
+            "proofs": [
+                {
+                    "id": "00ad268c4d1f5826",
+                    "amount": 64,
+                    "secret": "secret-a",
+                    "C": "021111111111111111111111111111111111111111111111111111111111111111",
+                    "dleq": {"e": "aa", "s": "bb", "r": "cc"}
+                },
+                {
+                    "id": "00ad268c4d1f5826",
+                    "amount": 32,
+                    "secret": "secret-b",
+                    "C": "032222222222222222222222222222222222222222222222222222222222222222",
+                    "witness": "{\"signatures\":[\"sig\"]}"
+                }
+            ]
+        }"#;
+        let parsed_tok: Nip60TokenContent = serde_json::from_str(raw_7375).unwrap();
+        assert_eq!(parsed_tok.mint, "https://mint.minibits.cash/Bitcoin/");
+        assert!(parsed_tok.del.is_empty());
+        assert_eq!(parsed_tok.proofs.len(), 2);
+        assert_eq!(parsed_tok.proofs[0].amount, 64);
+        assert_eq!(
+            parsed_tok.proofs[0].c,
+            "021111111111111111111111111111111111111111111111111111111111111111"
+        );
+        assert_eq!(
+            parsed_tok.proofs[1].witness.as_deref(),
+            Some("{\"signatures\":[\"sig\"]}")
+        );
+
+        // Kind 17375 without privkey, with multiple relays and mints.
+        let raw_17375 = r#"[
+            ["mint", "https://mint.minibits.cash/Bitcoin/"],
+            ["relay", "wss://relay.damus.io"],
+            ["relay", "wss://nos.lol"],
+            ["relay", "invalid-not-ws"]
+        ]"#;
+        let parsed_wallet = parse_nip60_wallet_content(raw_17375).unwrap();
+        assert_eq!(parsed_wallet.privkey, None);
+        assert_eq!(
+            parsed_wallet.mints,
+            vec!["https://mint.minibits.cash/Bitcoin"]
+        );
+        assert_eq!(
+            parsed_wallet.relays,
+            vec!["wss://relay.damus.io", "wss://nos.lol"]
+        );
+        assert_eq!(
+            parse_nip60_wallet_relays_from_json(raw_17375.to_owned()),
+            vec!["wss://relay.damus.io", "wss://nos.lol"]
+        );
+    }
+
+    #[tokio::test]
+    async fn apply_decrypted_nip60_sync_prunes_deleted_and_sums_multi_mint_sats() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("nip60_sync.sqlite3");
+        let db_str = db.to_string_lossy().to_string();
+        let keys = Keys::generate();
+        let pubkey = keys.public_key().to_hex();
+        let p2pk_sk = "22".repeat(32);
+
+        let mint_a = "https://127.0.0.1:19991";
+        let mint_b = "https://127.0.0.1:19992";
+
+        let ev_old = "a".repeat(64);
+        let ev_kind5_deleted = "b".repeat(64);
+        let ev_live_a = "c".repeat(64);
+        let ev_live_b = "d".repeat(64);
+        let ev_hist = "e".repeat(64);
+
+        // Pre-seed local stale proof referencing ev_kind5_deleted so we verify stale pruning.
+        {
+            let store = CashuWalletStore::open(&db_str).unwrap();
+            let mut initial = default_wallet_for(&pubkey, vec![mint_a.to_owned()], vec![]);
+            initial.proofs.push(CashuProofRecord {
+                id: "k_old".to_owned(),
+                amount: 999,
+                secret: "stale-secret".to_owned(),
+                c: "0200".to_owned(),
+                mint_url: mint_a.to_owned(),
+                token_event_id: Some(ev_kind5_deleted.clone()),
+            });
+            store.save_wallet(&initial).unwrap();
+        }
+
+        let wallet_json = serde_json::json!([
+            ["privkey", p2pk_sk],
+            ["mint", format!("{mint_a}/")],
+            ["mint", mint_b],
+            ["relay", "wss://relay.earthly.city"],
+            ["relay", "wss://relay.damus.io"]
+        ])
+        .to_string();
+
+        // ev_old is destroyed via `del` in ev_live_a; ev_kind5_deleted is deleted via kind 5.
+        let tok_old_json = serde_json::json!({
+            "mint": mint_a,
+            "proofs": [{"id": "k1", "amount": 500, "secret": "old-sec", "C": "02aa"}]
+        })
+        .to_string();
+        let tok_kind5_json = serde_json::json!({
+            "mint": mint_a,
+            "proofs": [{"id": "k1", "amount": 250, "secret": "k5-sec", "C": "02bb"}]
+        })
+        .to_string();
+        let tok_live_a_json = serde_json::json!({
+            "mint": format!("{mint_a}/"),
+            "proofs": [
+                {"id": "k1", "amount": 100, "secret": "live-a1", "C": "02cc"},
+                {"id": "k1", "amount": 25, "secret": "live-a2", "C": "02dd"}
+            ],
+            "del": [ev_old]
+        })
+        .to_string();
+        let tok_live_b_json = serde_json::json!({
+            "mint": mint_b,
+            "unit": "sat",
+            "proofs": [
+                {"id": "k2", "amount": 75, "secret": "live-b1", "C": "03ee"}
+            ]
+        })
+        .to_string();
+        let hist_json = serde_json::json!([
+            ["direction", "in"],
+            ["amount", "200"],
+            ["unit", "sat"],
+            ["e", ev_live_a, "", "created"]
+        ])
+        .to_string();
+
+        let state = apply_decrypted_nip60_sync(
+            db_str.clone(),
+            pubkey.clone(),
+            vec!["wss://relay.earthly.city".to_owned()],
+            Some(wallet_json),
+            vec![
+                DecryptedNip60EventDto {
+                    event_id: ev_old,
+                    created_at: 100,
+                    decrypted_json: tok_old_json,
+                },
+                DecryptedNip60EventDto {
+                    event_id: ev_kind5_deleted.clone(),
+                    created_at: 110,
+                    decrypted_json: tok_kind5_json,
+                },
+                DecryptedNip60EventDto {
+                    event_id: ev_live_a,
+                    created_at: 120,
+                    decrypted_json: tok_live_a_json,
+                },
+                DecryptedNip60EventDto {
+                    event_id: ev_live_b,
+                    created_at: 130,
+                    decrypted_json: tok_live_b_json,
+                },
+            ],
+            vec![DecryptedNip60EventDto {
+                event_id: ev_hist,
+                created_at: 135,
+                decrypted_json: hist_json,
+            }],
+            vec![ev_kind5_deleted],
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(state.balance_sats, 200);
+        assert_eq!(state.proof_count, 3);
+        assert_eq!(state.mints, vec![mint_a, mint_b]);
+        assert_eq!(
+            state.relays,
+            vec!["wss://relay.earthly.city", "wss://relay.damus.io"]
+        );
+        assert_eq!(state.mint_balances.len(), 2);
+        assert_eq!(state.mint_balances[0].mint_url, mint_a);
+        assert_eq!(state.mint_balances[0].balance_sats, 125);
+        assert_eq!(state.mint_balances[0].proof_count, 2);
+        assert_eq!(state.mint_balances[1].mint_url, mint_b);
+        assert_eq!(state.mint_balances[1].balance_sats, 75);
+        assert_eq!(state.mint_balances[1].proof_count, 1);
+        assert_eq!(state.history.len(), 1);
+        assert_eq!(state.history[0].direction, "in");
+        assert_eq!(state.history[0].amount_sats, 200);
     }
 
     #[test]

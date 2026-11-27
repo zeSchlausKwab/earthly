@@ -56,6 +56,7 @@ class AppSettingsDto {
   final String? storyDraftJson;
   final String? agentMessagesJson;
   final String? nwcUri;
+  final bool nip60WalletEnabled;
 
   const AppSettingsDto({
     required this.relayUrls,
@@ -85,6 +86,7 @@ class AppSettingsDto {
     this.storyDraftJson,
     this.agentMessagesJson,
     this.nwcUri,
+    required this.nip60WalletEnabled,
   });
 
   @override
@@ -115,7 +117,8 @@ class AppSettingsDto {
       satelliteOpacity.hashCode ^
       storyDraftJson.hashCode ^
       agentMessagesJson.hashCode ^
-      nwcUri.hashCode;
+      nwcUri.hashCode ^
+      nip60WalletEnabled.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -148,7 +151,8 @@ class AppSettingsDto {
           satelliteOpacity == other.satelliteOpacity &&
           storyDraftJson == other.storyDraftJson &&
           agentMessagesJson == other.agentMessagesJson &&
-          nwcUri == other.nwcUri;
+          nwcUri == other.nwcUri &&
+          nip60WalletEnabled == other.nip60WalletEnabled;
 }
 
 class MountedAtlasWorkspaceDto {
