@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -7,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 import '../nostr/nip55_signer.dart';
 import '../runtime/device_bridge.dart';
 import '../runtime/rust_bridge.dart';
+import '../src/rust/api/blossom.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/private_groups.dart';
 import '../theme/earthly_theme.dart';
@@ -14,6 +16,14 @@ import 'earthly_rich_text.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
 import 'qr_code_view.dart';
+
+enum _AttachmentSource { camera, image, file }
+
+String _formatByteSize(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+}
 
 const _prodCordnPubkey =
     'fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37';
@@ -73,6 +83,19 @@ class CirclesSheet extends StatefulWidget {
     this.initialInviteLink,
     this.isReadOnlySession = false,
     this.onEnsureExternalSigner,
+    this.blossomServerUrl = 'https://blossom.earthly.city',
+    this.onSendCircleCommentWithMedia,
+    this.onUploadBlossomBlob,
+    this.onSignUnsignedEvent,
+    this.onNip44EncryptSelf,
+    this.onNip44DecryptSelf,
+    this.onSyncWorkspaceReadonly,
+    this.onRepairSyncState,
+    this.onSetAutoApprove,
+    this.onPollAutoApprove,
+    this.onDownloadMedia,
+    this.onBackupMultiDevice,
+    this.onPullMultiDevice,
     super.key,
   });
 
@@ -82,6 +105,7 @@ class CirclesSheet extends StatefulWidget {
   final String? bunkerClientNsec;
   final String mlsDatabasePath;
   final String cordnServerPubkey;
+  final String blossomServerUrl;
   final List<String> relayUrls;
   final List<CircleWorkspaceDto> workspaces;
   final List<CirclePendingJoinDto> pendingJoins;
@@ -108,6 +132,37 @@ class CirclesSheet extends StatefulWidget {
     String text,
     bool attachDraft,
   ) onSendCircleComment;
+  final Future<CircleWorkspaceDto> Function(
+    String workspaceId,
+    String text,
+    bool attachDraft,
+    List<List<String>> imetaTags,
+  )? onSendCircleCommentWithMedia;
+  final Future<BlossomUploadDto> Function({
+    required Uint8List bytes,
+    required String mimeType,
+    required String purpose,
+    String? sha256Hex,
+    String? serverUrl,
+  })? onUploadBlossomBlob;
+  final Future<String> Function(String unsignedEventJson)? onSignUnsignedEvent;
+  final Future<String> Function(String plaintext)? onNip44EncryptSelf;
+  final Future<String> Function(String ciphertext)? onNip44DecryptSelf;
+  final Future<CircleWorkspaceDto> Function(String workspaceId)?
+      onSyncWorkspaceReadonly;
+  final Future<CircleWorkspaceDto> Function(String workspaceId)?
+      onRepairSyncState;
+  final Future<CircleWorkspaceDto> Function(String workspaceId, bool enabled)?
+      onSetAutoApprove;
+  final Future<CircleWorkspaceDto> Function(String workspaceId)?
+      onPollAutoApprove;
+  final Future<Uint8List> Function(
+    CircleWorkspaceDto ws,
+    CircleMediaAttachmentDto att,
+    BigInt? epoch,
+  )? onDownloadMedia;
+  final Future<MultiDeviceSyncSummaryDto> Function()? onBackupMultiDevice;
+  final Future<MultiDeviceSyncSummaryDto> Function()? onPullMultiDevice;
   final VoidCallback onOpenAccount;
   final VoidCallback onClose;
   final String? initialWorkspaceId;
@@ -134,17 +189,24 @@ class _CirclesSheetState extends State<CirclesSheet>
   String? _selectedWorkspaceId;
   bool _showCreateForm = false;
   bool _showCoordinatorConfig = false;
+  bool _showMultiDevicePanel = false;
   bool _attachDraftGeometry = false;
   bool _busy = false;
   String? _busyLabel;
   String? _error;
   String? _info;
+  String? _multiDeviceStatus;
+  String? _lastMultiDeviceDekHex;
   String? _generatedInviteUrl;
   String? _generatedInviteWorkspaceId;
   List<CircleJoinRequestDto> _joinRequests = const [];
   bool _joinRequestsChecked = false;
   DecodedCircleInviteDto? _decodedInvitePreview;
-  Timer? _syncTimer;
+  DecodedCordnGroupRefDto? _decodedCordnRefPreview;
+  final List<PickedBinaryFile> _stagedAttachments = <PickedBinaryFile>[];
+  final Map<String, Uint8List> _decryptedMediaCache = <String, Uint8List>{};
+  final Set<String> _decryptingMediaKeys = <String>{};
+  final Map<String, String> _mediaErrors = <String, String>{};
 
   bool get _hasDirectRustSigner =>
       (widget.localNsec != null && widget.localNsec!.isNotEmpty) ||
@@ -157,6 +219,18 @@ class _CirclesSheetState extends State<CirclesSheet>
       !widget.isReadOnlySession &&
       (_hasDirectRustSigner ||
           (widget.account != null && widget.account!.pubkey.trim().isNotEmpty));
+
+  bool _isWorkspaceAdmin(CircleWorkspaceDto ws) {
+    final myPk = widget.account?.pubkey.trim().toLowerCase();
+    final role = ws.role.trim().toLowerCase();
+    if (role == 'administrator' || role == 'admin') return true;
+    if (myPk != null &&
+        myPk.isNotEmpty &&
+        ws.administrators.any((a) => a.trim().toLowerCase() == myPk)) {
+      return true;
+    }
+    return false;
+  }
 
   CircleWorkspaceDto? get _selectedWorkspace {
     final id = _selectedWorkspaceId;
@@ -177,10 +251,11 @@ class _CirclesSheetState extends State<CirclesSheet>
       _inviteInputController.text = widget.initialInviteLink!.trim();
       unawaited(_previewInvite(widget.initialInviteLink!.trim()));
     }
-    _syncTimer = Timer.periodic(
-      const Duration(seconds: 6),
-      (_) => unawaited(_backgroundSyncSelected()),
-    );
+    if (_selectedWorkspaceId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_backgroundSyncSelected());
+      });
+    }
   }
 
   @override
@@ -189,6 +264,14 @@ class _CirclesSheetState extends State<CirclesSheet>
     if (oldWidget.cordnServerPubkey != widget.cordnServerPubkey &&
         _cordnInputController.text != widget.cordnServerPubkey) {
       _cordnInputController.text = widget.cordnServerPubkey;
+    }
+    if (widget.initialWorkspaceId != null &&
+        widget.initialWorkspaceId != oldWidget.initialWorkspaceId &&
+        widget.initialWorkspaceId != _selectedWorkspaceId) {
+      _selectedWorkspaceId = widget.initialWorkspaceId;
+      _joinRequests = const [];
+      _joinRequestsChecked = false;
+      unawaited(_backgroundSyncSelected());
     }
     if (widget.initialInviteLink != null &&
         widget.initialInviteLink != oldWidget.initialInviteLink &&
@@ -200,7 +283,6 @@ class _CirclesSheetState extends State<CirclesSheet>
 
   @override
   void dispose() {
-    _syncTimer?.cancel();
     _detailTabs.dispose();
     _nameController.dispose();
     _descController.dispose();
@@ -218,28 +300,44 @@ class _CirclesSheetState extends State<CirclesSheet>
     return _shortHex(pubkey);
   }
 
+  Future<CircleWorkspaceDto> _performReadonlySync(String workspaceId) async {
+    if (widget.onSyncWorkspaceReadonly != null) {
+      return widget.onSyncWorkspaceReadonly!(workspaceId);
+    }
+    final ownerPk = widget.account?.pubkey.trim();
+    if (ownerPk == null || ownerPk.isEmpty) {
+      throw StateError('No active account pubkey available for sync');
+    }
+    await RustBridge.ensureInitialized();
+    return syncCircleWorkspaceReadonly(
+      databasePath: widget.mlsDatabasePath,
+      ownerPubkeyHex: ownerPk,
+      workspaceId: workspaceId,
+    );
+  }
+
   Future<void> _backgroundSyncSelected() async {
     final ws = _selectedWorkspace;
     if (ws == null ||
         _busy ||
-        !_hasDirectRustSigner ||
-        ws.status != 'active') {
+        widget.isReadOnlySession ||
+        ws.status != 'active' ||
+        widget.account == null ||
+        widget.account!.pubkey.trim().isEmpty) {
       return;
     }
     try {
-      await RustBridge.ensureInitialized();
-      final updated = await syncCircleWorkspace(
-        databasePath: widget.mlsDatabasePath,
-        signerNsec: widget.localNsec,
-        bunkerUri: widget.bunkerUri,
-        bunkerClientNsec: widget.bunkerClientNsec,
-        workspaceId: ws.workspaceId,
-      );
+      final updated = await _performReadonlySync(ws.workspaceId);
       if (mounted) widget.onWorkspaceUpdated(updated);
     } catch (_) {}
   }
 
-  Future<void> _runAction(String label, Future<void> Function() action) async {
+  Future<void> _runAction(
+    String label,
+    Future<void> Function() action, {
+    bool requireRustBridge = true,
+    bool requireExternalSigner = true,
+  }) async {
     setState(() {
       _busy = true;
       _busyLabel = label;
@@ -247,8 +345,10 @@ class _CirclesSheetState extends State<CirclesSheet>
       _info = null;
     });
     try {
-      await RustBridge.ensureInitialized();
-      if (widget.onEnsureExternalSigner != null) {
+      if (requireRustBridge) {
+        await RustBridge.ensureInitialized();
+      }
+      if (requireExternalSigner && widget.onEnsureExternalSigner != null) {
         await widget.onEnsureExternalSigner!();
       }
       await action();
@@ -265,18 +365,46 @@ class _CirclesSheetState extends State<CirclesSheet>
   }
 
   Future<void> _previewInvite(String raw) async {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _decodedInvitePreview = null;
+          _decodedCordnRefPreview = null;
+        });
+      }
+      return;
+    }
     try {
       await RustBridge.ensureInitialized();
-      final decoded = await decodeCircleInviteLink(rawLink: raw);
-      if (!mounted) return;
-      setState(() {
-        _decodedInvitePreview = decoded;
-        _error = null;
-      });
+      try {
+        final decoded = await decodeCircleInviteLink(rawLink: trimmed);
+        if (!mounted) return;
+        setState(() {
+          _decodedInvitePreview = decoded;
+          _decodedCordnRefPreview = null;
+          _error = null;
+        });
+        return;
+      } catch (inviteErr) {
+        try {
+          final cordnRef = await decodeCordnGroupRefLink(rawLink: trimmed);
+          if (!mounted) return;
+          setState(() {
+            _decodedInvitePreview = null;
+            _decodedCordnRefPreview = cordnRef;
+            _error = null;
+          });
+          return;
+        } catch (_) {
+          rethrow;
+        }
+      }
     } catch (err) {
       if (!mounted) return;
       setState(() {
         _decodedInvitePreview = null;
+        _decodedCordnRefPreview = null;
         _error = err.toString();
       });
     }
@@ -370,21 +498,673 @@ class _CirclesSheetState extends State<CirclesSheet>
   Future<void> _syncSelected() async {
     final ws = _selectedWorkspace;
     if (ws == null) return;
-    await _runAction('Syncing encrypted records…', () async {
-      final updated = await syncCircleWorkspace(
+    await _runAction(
+      'Syncing encrypted records…',
+      requireRustBridge: widget.onSyncWorkspaceReadonly == null,
+      requireExternalSigner: false,
+      () async {
+        final updated = await _performReadonlySync(ws.workspaceId);
+        widget.onWorkspaceUpdated(updated);
+        if (mounted) {
+          setState(
+            () => _info =
+                'Circle current · cursor ${updated.cursor} · epoch ${updated.epoch}',
+          );
+        }
+      },
+    );
+  }
+
+  Future<void> _repairSyncState(CircleWorkspaceDto ws) async {
+    await _runAction(
+      'Repairing sync state & re-syncing…',
+      requireRustBridge: widget.onRepairSyncState == null,
+      requireExternalSigner: false,
+      () async {
+        final updated = widget.onRepairSyncState != null
+            ? await widget.onRepairSyncState!(ws.workspaceId)
+            : await repairCircleSyncState(
+                databasePath: widget.mlsDatabasePath,
+                ownerPubkeyHex: widget.account!.pubkey,
+                workspaceId: ws.workspaceId,
+              );
+        widget.onWorkspaceUpdated(updated);
+        if (mounted) {
+          setState(
+            () => _info =
+                'Repaired sync state (${updated.syncHealth}) · cursor ${updated.cursor} · epoch ${updated.epoch}',
+          );
+        }
+      },
+    );
+  }
+
+  Future<void> _toggleAutoApprove(CircleWorkspaceDto ws, bool enabled) async {
+    await _runAction(
+      enabled
+          ? 'Enabling auto-approve join requests…'
+          : 'Disabling auto-approve join requests…',
+      requireRustBridge: widget.onSetAutoApprove == null,
+      requireExternalSigner: false,
+      () async {
+        final updated = widget.onSetAutoApprove != null
+            ? await widget.onSetAutoApprove!(ws.workspaceId, enabled)
+            : await setCircleAutoApprove(
+                databasePath: widget.mlsDatabasePath,
+                ownerPubkeyHex: widget.account!.pubkey,
+                workspaceId: ws.workspaceId,
+                enabled: enabled,
+              );
+        widget.onWorkspaceUpdated(updated);
+        if (mounted) {
+          setState(
+            () => _info = enabled
+                ? 'Auto-approve enabled for incoming join requests.'
+                : 'Auto-approve disabled.',
+          );
+        }
+      },
+    );
+  }
+
+  Future<void> _pollAndAutoApprove(CircleWorkspaceDto ws) async {
+    await _runAction(
+      'Approving pending join requests…',
+      requireRustBridge: widget.onPollAutoApprove == null,
+      requireExternalSigner: widget.onPollAutoApprove == null,
+      () async {
+        final updated = widget.onPollAutoApprove != null
+            ? await widget.onPollAutoApprove!(ws.workspaceId)
+            : await pollAndAutoApproveCircleRequests(
+                databasePath: widget.mlsDatabasePath,
+                signerNsec: widget.localNsec,
+                bunkerUri: widget.bunkerUri,
+                bunkerClientNsec: widget.bunkerClientNsec,
+                workspaceId: ws.workspaceId,
+              );
+        widget.onWorkspaceUpdated(updated);
+        if (mounted) {
+          setState(() {
+            _joinRequests = const [];
+            _info =
+                'Processed pending join requests · ${updated.members.length} members · epoch ${updated.epoch}';
+          });
+        }
+      },
+    );
+  }
+
+  Future<PickedBinaryFile?> _pickMediaFile(_AttachmentSource source) async {
+    try {
+      return switch (source) {
+        _AttachmentSource.camera => await DeviceBridge.capturePhoto(),
+        _AttachmentSource.image => await DeviceBridge.pickImage(),
+        _AttachmentSource.file => await DeviceBridge.pickAnyFile(),
+      };
+    } catch (err) {
+      if (err.toString().toLowerCase().contains('cancel')) return null;
+      if (mounted) setState(() => _error = err.toString());
+      return null;
+    }
+  }
+
+  Future<void> _stageChatAttachment(_AttachmentSource source) async {
+    final picked = await _pickMediaFile(source);
+    if (picked == null || !mounted) return;
+    setState(() {
+      _stagedAttachments.add(picked);
+      _error = null;
+    });
+  }
+
+  Future<BlossomUploadDto> _uploadEncryptedBlobToBlossom({
+    required Uint8List bytes,
+    required String sha256Hex,
+    required String purpose,
+    String mimeType = 'application/octet-stream',
+    String? serverUrl,
+  }) async {
+    final uploader = widget.onUploadBlossomBlob;
+    if (uploader != null) {
+      return uploader(
+        bytes: bytes,
+        mimeType: mimeType,
+        purpose: purpose,
+        sha256Hex: sha256Hex,
+        serverUrl: serverUrl ?? widget.blossomServerUrl,
+      );
+    }
+    throw StateError(
+      'Blossom upload signer is not configured for this session.',
+    );
+  }
+
+  Future<List<String>> _encryptAndUploadAttachment({
+    required String workspaceId,
+    required PickedBinaryFile file,
+    required bool persistentForMap,
+  }) async {
+    final ownerPk = widget.account?.pubkey.trim();
+    if (ownerPk == null || ownerPk.isEmpty) {
+      throw StateError('Sign in to encrypt attachments.');
+    }
+    final prepared = await prepareCircleEncryptedMedia(
+      databasePath: widget.mlsDatabasePath,
+      ownerPubkeyHex: ownerPk,
+      workspaceId: workspaceId,
+      bytes: file.bytes,
+      mimeType: file.mimeType,
+      filename: file.name,
+      persistentForMap: persistentForMap,
+      stripMetadata: true,
+    );
+    final uploaded = await _uploadEncryptedBlobToBlossom(
+      bytes: prepared.encryptedBytes,
+      sha256Hex: prepared.encryptedSha256Hex,
+      purpose: persistentForMap
+          ? 'Upload encrypted Circle map media'
+          : 'Upload encrypted Circle attachment',
+    );
+    return buildCircleImetaTag(
+      url: uploaded.url,
+      mimeType: prepared.mimeType,
+      filename: prepared.sanitizedFilename,
+      sha256Hex: prepared.plaintextSha256Hex,
+      nonceHex: prepared.nonceHex,
+      version: prepared.version,
+      persistentKeyHex: prepared.persistentKeyHex,
+    );
+  }
+
+  String _mediaCacheKey(CircleMediaAttachmentDto att) =>
+      '${att.url}#${att.sha256Hex}';
+
+  Future<Uint8List> _fetchDecryptedMediaBytes(
+    CircleWorkspaceDto ws,
+    CircleMediaAttachmentDto att,
+    BigInt? epoch,
+  ) async {
+    final key = _mediaCacheKey(att);
+    final cached = _decryptedMediaCache[key];
+    if (cached != null) return cached;
+    final Uint8List bytes;
+    if (widget.onDownloadMedia != null) {
+      bytes = await widget.onDownloadMedia!(ws, att, epoch);
+    } else {
+      await RustBridge.ensureInitialized();
+      bytes = await downloadAndDecryptCircleMedia(
+        databasePath: widget.mlsDatabasePath,
+        ownerPubkeyHex: widget.account!.pubkey,
+        workspaceId: ws.workspaceId,
+        url: att.url,
+        mimeType: att.mimeType,
+        filename: att.filename,
+        sha256Hex: att.sha256Hex,
+        nonceHex: att.nonceHex,
+        version: att.version,
+        persistentKeyHex: att.persistentKeyHex,
+        messageEpoch: epoch,
+      );
+    }
+    _decryptedMediaCache[key] = bytes;
+    return bytes;
+  }
+
+  void _ensureImageDecrypted(
+    CircleWorkspaceDto ws,
+    CircleMediaAttachmentDto att,
+    BigInt? epoch,
+  ) {
+    final key = _mediaCacheKey(att);
+    if (_decryptedMediaCache.containsKey(key) ||
+        _decryptingMediaKeys.contains(key) ||
+        _mediaErrors.containsKey(key)) {
+      return;
+    }
+    _decryptingMediaKeys.add(key);
+    unawaited(() async {
+      try {
+        await _fetchDecryptedMediaBytes(ws, att, epoch);
+        _mediaErrors.remove(key);
+      } catch (err) {
+        _mediaErrors[key] = err.toString();
+      } finally {
+        _decryptingMediaKeys.remove(key);
+        if (mounted) setState(() {});
+      }
+    }());
+  }
+
+  void _retryDecryptImage(
+    CircleWorkspaceDto ws,
+    CircleMediaAttachmentDto att,
+    BigInt? epoch,
+  ) {
+    final key = _mediaCacheKey(att);
+    setState(() => _mediaErrors.remove(key));
+    _ensureImageDecrypted(ws, att, epoch);
+  }
+
+  Future<void> _saveDecryptedBytes(
+    CircleMediaAttachmentDto att,
+    Uint8List bytes,
+  ) async {
+    try {
+      final saved = await DeviceBridge.saveBinaryFile(
+        filename: att.filename,
+        bytes: bytes,
+        mimeType: att.mimeType,
+      );
+      if (mounted) {
+        setState(() => _info = 'Saved decrypted file: $saved');
+      }
+    } catch (err) {
+      if (err.toString().toLowerCase().contains('cancel')) return;
+      if (mounted) setState(() => _error = 'Save failed: $err');
+    }
+  }
+
+  Future<void> _decryptAndSaveFile(
+    CircleWorkspaceDto ws,
+    CircleMediaAttachmentDto att,
+    BigInt? epoch,
+  ) async {
+    final key = _mediaCacheKey(att);
+    if (_decryptingMediaKeys.contains(key)) return;
+    setState(() {
+      _decryptingMediaKeys.add(key);
+      _mediaErrors.remove(key);
+    });
+    try {
+      final bytes = await _fetchDecryptedMediaBytes(ws, att, epoch);
+      if (!mounted) return;
+      setState(() => _decryptingMediaKeys.remove(key));
+      await _saveDecryptedBytes(att, bytes);
+    } catch (err) {
+      if (mounted) {
+        setState(() {
+          _decryptingMediaKeys.remove(key);
+          _mediaErrors[key] = err.toString();
+          _error = 'Decrypt failed: $err';
+        });
+      }
+    }
+  }
+
+  Future<void> _openImageLightbox(
+    CircleMediaAttachmentDto att,
+    Uint8List bytes,
+  ) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        backgroundColor: Colors.black.withValues(alpha: 0.92),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 760, maxHeight: 760),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 8, 8),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.lock_outline,
+                      size: 16,
+                      color: EarthlyColors.measureViolet,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        att.filename,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                    EarthlyBadge(
+                      label: att.version,
+                      color: EarthlyColors.measureViolet,
+                    ),
+                    const SizedBox(width: 6),
+                    TextButton.icon(
+                      onPressed: () => unawaited(_saveDecryptedBytes(att, bytes)),
+                      icon: const Icon(
+                        Icons.download_outlined,
+                        size: 16,
+                        color: Colors.white,
+                      ),
+                      label: const Text(
+                        'Save',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close lightbox',
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      icon: const Icon(Icons.close, color: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
+              Flexible(
+                child: InteractiveViewer(
+                  minScale: 0.5,
+                  maxScale: 4.0,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Image.memory(
+                      bytes,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, _, _) => const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text(
+                          'Image decrypted — tap Save to export binary.',
+                          style: TextStyle(color: Colors.white70),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _attachPersistentMapMedia(
+    CircleWorkspaceDto ws,
+    CircleDatasetDto ds,
+  ) async {
+    final source = await showModalBottomSheet<_AttachmentSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              dense: true,
+              title: Text(
+                'Attach Encrypted Map Media (earthly-pm-v1)',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+              ),
+              subtitle: Text(
+                'Encrypted with a persistent map key so late joiners can decrypt it.',
+                style: TextStyle(fontSize: 11.5),
+              ),
+            ),
+            if (Platform.isAndroid)
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: const Text('Take Photo'),
+                onTap: () => Navigator.of(ctx).pop(_AttachmentSource.camera),
+              ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Pick Image'),
+              onTap: () => Navigator.of(ctx).pop(_AttachmentSource.image),
+            ),
+            ListTile(
+              leading: const Icon(Icons.attach_file),
+              title: const Text('Pick File'),
+              onTap: () => Navigator.of(ctx).pop(_AttachmentSource.file),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+    final picked = await _pickMediaFile(source);
+    if (picked == null || !mounted) return;
+
+    await _runAction('Encrypting & attaching map media…', () async {
+      final preservedTags = <List<String>>[];
+      for (final existing in ds.mediaAttachments) {
+        preservedTags.add(
+          await buildCircleImetaTag(
+            url: existing.url,
+            mimeType: existing.mimeType,
+            filename: existing.filename,
+            sha256Hex: existing.sha256Hex,
+            nonceHex: existing.nonceHex,
+            version: existing.version,
+            dim: existing.dim,
+            blurhash: existing.blurhash,
+            alt: existing.alt,
+            persistentKeyHex: existing.persistentKeyHex,
+          ),
+        );
+      }
+      final newTag = await _encryptAndUploadAttachment(
+        workspaceId: ws.workspaceId,
+        file: picked,
+        persistentForMap: true,
+      );
+      preservedTags.add(newTag);
+      final updated = await sendCircleDatasetWithMedia(
         databasePath: widget.mlsDatabasePath,
         signerNsec: widget.localNsec,
         bunkerUri: widget.bunkerUri,
         bunkerClientNsec: widget.bunkerClientNsec,
         workspaceId: ws.workspaceId,
+        geojsonJson: ds.geojsonJson,
+        datasetId: ds.datasetId,
+        name: ds.title,
+        imetaTags: preservedTags,
       );
       widget.onWorkspaceUpdated(updated);
       if (mounted) {
         setState(
-          () => _info = 'Circle current · cursor ${updated.cursor} · epoch ${updated.epoch}',
+          () => _info = 'Attached encrypted map media to "${ds.title}" (earthly-pm-v1).',
         );
       }
     });
+  }
+
+  Future<void> _backupMultiDevice() async {
+    await _runAction(
+      'Sealing & backing up Circles to Blossom…',
+      requireRustBridge: widget.onBackupMultiDevice == null,
+      requireExternalSigner: false,
+      () async {
+        if (widget.onBackupMultiDevice != null) {
+          final summary = await widget.onBackupMultiDevice!();
+          if (mounted) {
+            setState(() {
+              _multiDeviceStatus =
+                  'Backed up ${summary.uploadedBlobs} encrypted blob${summary.uploadedBlobs == 1 ? '' : 's'}';
+              _info = _multiDeviceStatus;
+            });
+          }
+          return;
+        }
+
+        final nsec = widget.localNsec?.trim();
+        if (nsec != null && nsec.isNotEmpty) {
+          final summary = await publishMultiDeviceSnapshotDirect(
+            databasePath: widget.mlsDatabasePath,
+            signerNsec: nsec,
+            blossomServerUrl: widget.blossomServerUrl,
+            relayUrls: widget.relayUrls,
+          );
+          _lastMultiDeviceDekHex = summary.dekHex ?? _lastMultiDeviceDekHex;
+          if (mounted) {
+            setState(() {
+              _multiDeviceStatus =
+                  'Backed up ${summary.uploadedBlobs} blob${summary.uploadedBlobs == 1 ? '' : 's'} (tip ${summary.tipEventId != null ? _shortHex(summary.tipEventId!) : 'published'}).';
+              _info = _multiDeviceStatus;
+            });
+          }
+          return;
+        }
+
+        // Android Amber (NIP-55) or NIP-46 Bunker step-by-step publish flow.
+        final ownerPk = widget.account?.pubkey.trim();
+        if (ownerPk == null || ownerPk.isEmpty) {
+          throw StateError('Sign in to back up Circles.');
+        }
+        final encryptSelf = widget.onNip44EncryptSelf;
+        final signEvent = widget.onSignUnsignedEvent;
+        if (encryptSelf == null || signEvent == null) {
+          throw StateError(
+            'Self-NIP-44 encryption and event signing callbacks are not available for this session.',
+          );
+        }
+
+        final prepared = await prepareMultiDevicePublish(
+          databasePath: widget.mlsDatabasePath,
+          ownerPubkeyHex: ownerPk,
+          blossomServerUrl: widget.blossomServerUrl,
+          existingDekHex: _lastMultiDeviceDekHex,
+        );
+        final primaryServer = prepared.blossomServers.isNotEmpty
+            ? prepared.blossomServers.first
+            : widget.blossomServerUrl.replaceAll(RegExp(r'/+$'), '');
+
+        final groupPointers = <String, Map<String, Object?>>{};
+        Map<String, Object?>? metaPointer;
+        var uploadedCount = 0;
+
+        for (final blob in prepared.blobs) {
+          final uploaded = await _uploadEncryptedBlobToBlossom(
+            bytes: blob.encryptedBytes,
+            sha256Hex: blob.xHex,
+            mimeType: 'text/plain',
+            purpose: 'Upload encrypted Circle sync snapshot',
+            serverUrl: primaryServer,
+          );
+          final canonicalUrl = '$primaryServer/${blob.xHex}';
+          final urls = <String>[
+            uploaded.url,
+            if (uploaded.url != canonicalUrl) canonicalUrl,
+          ];
+          final pointer = <String, Object?>{
+            'x': blob.xHex,
+            'urls': urls,
+            'issuedAt': blob.issuedAt.toInt(),
+          };
+          if (blob.kind == 'group' && blob.gid != null) {
+            groupPointers[blob.gid!] = pointer;
+          } else if (blob.kind == 'meta') {
+            metaPointer = pointer;
+          }
+          uploadedCount += 1;
+        }
+
+        final tipPlaintext = await buildMultiDeviceTipPlaintext(
+          dekHex: prepared.dekHex,
+          blossomServers: prepared.blossomServers,
+          groupPointersJson: jsonEncode(groupPointers),
+          metaPointerJson: metaPointer != null ? jsonEncode(metaPointer) : null,
+        );
+        final encryptedTip = await encryptSelf(tipPlaintext);
+        final unsignedTip = await prepareUnsignedMultiDeviceTipEvent(
+          ownerPubkeyHex: ownerPk,
+          encryptedTipContent: encryptedTip,
+        );
+        final signedTip = await signEvent(unsignedTip);
+        final eventId = await publishSignedMultiDeviceTipEvent(
+          signedEventJson: signedTip,
+          relayUrls: widget.relayUrls,
+        );
+
+        _lastMultiDeviceDekHex = prepared.dekHex;
+        if (mounted) {
+          setState(() {
+            _multiDeviceStatus =
+                'Backed up $uploadedCount blob${uploadedCount == 1 ? '' : 's'} (tip ${_shortHex(eventId)}).';
+            _info = _multiDeviceStatus;
+          });
+        }
+      },
+    );
+  }
+
+  Future<void> _pullMultiDevice() async {
+    await _runAction(
+      'Pulling encrypted Circles from other devices…',
+      requireRustBridge: widget.onPullMultiDevice == null,
+      requireExternalSigner: false,
+      () async {
+        MultiDeviceSyncSummaryDto summary;
+        if (widget.onPullMultiDevice != null) {
+          summary = await widget.onPullMultiDevice!();
+        } else {
+          final nsec = widget.localNsec?.trim();
+          if (nsec != null && nsec.isNotEmpty) {
+            summary = await syncMultiDeviceDirect(
+              databasePath: widget.mlsDatabasePath,
+              signerNsec: nsec,
+              relayUrls: widget.relayUrls,
+            );
+          } else {
+            final ownerPk = widget.account?.pubkey.trim();
+            if (ownerPk == null || ownerPk.isEmpty) {
+              throw StateError('Sign in to pull Circles from other devices.');
+            }
+            final decryptSelf = widget.onNip44DecryptSelf;
+            if (decryptSelf == null) {
+              throw StateError(
+                'Self-NIP-44 decryption is not available for this session.',
+              );
+            }
+            final fetched = await fetchMultiDeviceTipEvent(
+              ownerPubkeyHex: ownerPk,
+              relayUrls: widget.relayUrls,
+            );
+            if (fetched == null) {
+              if (mounted) {
+                setState(() {
+                  _multiDeviceStatus =
+                      'No multi-device backup found on relays yet.';
+                  _info = _multiDeviceStatus;
+                });
+              }
+              return;
+            }
+            final tipPlaintext = await decryptSelf(fetched.encryptedContent);
+            summary = await applyDecryptedMultiDeviceTip(
+              databasePath: widget.mlsDatabasePath,
+              ownerPubkeyHex: ownerPk,
+              tipPlaintextJson: tipPlaintext,
+            );
+          }
+        }
+
+        _lastMultiDeviceDekHex = summary.dekHex ?? _lastMultiDeviceDekHex;
+        await widget.onRefreshCircles();
+        for (final ws in summary.workspaces) {
+          widget.onWorkspaceUpdated(ws);
+        }
+        final parts = <String>[
+          '${summary.adoptedGroups} adopted',
+          '${summary.updatedGroups} updated',
+          '${summary.mergedGroups} merged',
+          if (summary.removedGroupsMarked > 0)
+            '${summary.removedGroupsMarked} removed',
+          if (summary.skippedErrors.isNotEmpty)
+            '${summary.skippedErrors.length} warning${summary.skippedErrors.length == 1 ? '' : 's'}',
+        ];
+        if (mounted) {
+          setState(() {
+            _multiDeviceStatus = summary.tipEventId == null &&
+                    summary.dekHex == null &&
+                    summary.adoptedGroups == 0 &&
+                    summary.updatedGroups == 0
+                ? 'No multi-device backup found on relays yet.'
+                : 'Pulled Circles: ${parts.join(' · ')}.';
+            _info = _multiDeviceStatus;
+          });
+        }
+      },
+    );
   }
 
   Future<void> _generateInvite({required bool copyImmediately}) async {
@@ -460,21 +1240,63 @@ class _CirclesSheetState extends State<CirclesSheet>
     final ws = _selectedWorkspace;
     if (ws == null) return;
     final text = _chatInputController.text.trim();
-    if (text.isEmpty && !(_attachDraftGeometry && widget.hasDraftGeometry)) {
+    final hasGeo = _attachDraftGeometry && widget.hasDraftGeometry;
+    final hasMedia = _stagedAttachments.isNotEmpty;
+    if (text.isEmpty && !hasGeo && !hasMedia) {
       return;
     }
-    await _runAction('Encrypting & posting to Cordn…', () async {
-      final updated = await widget.onSendCircleComment(
-        ws.workspaceId,
-        text,
-        _attachDraftGeometry && widget.hasDraftGeometry,
-      );
-      _chatInputController.clear();
-      widget.onWorkspaceUpdated(updated);
-      if (mounted) {
-        setState(() => _attachDraftGeometry = false);
-      }
-    });
+    await _runAction(
+      hasMedia
+          ? 'Encrypting attachment & posting to Cordn…'
+          : 'Encrypting & posting to Cordn…',
+      () async {
+        CircleWorkspaceDto updated;
+        if (hasMedia) {
+          final imetaTags = <List<String>>[];
+          for (final file in List<PickedBinaryFile>.from(_stagedAttachments)) {
+            final tag = await _encryptAndUploadAttachment(
+              workspaceId: ws.workspaceId,
+              file: file,
+              persistentForMap: false,
+            );
+            imetaTags.add(tag);
+          }
+          if (widget.onSendCircleCommentWithMedia != null) {
+            updated = await widget.onSendCircleCommentWithMedia!(
+              ws.workspaceId,
+              text,
+              hasGeo,
+              imetaTags,
+            );
+          } else {
+            updated = await sendCircleCommentWithMedia(
+              databasePath: widget.mlsDatabasePath,
+              signerNsec: widget.localNsec,
+              bunkerUri: widget.bunkerUri,
+              bunkerClientNsec: widget.bunkerClientNsec,
+              workspaceId: ws.workspaceId,
+              text: text,
+              geojsonJson: null,
+              imetaTags: imetaTags,
+            );
+          }
+        } else {
+          updated = await widget.onSendCircleComment(
+            ws.workspaceId,
+            text,
+            hasGeo,
+          );
+        }
+        _chatInputController.clear();
+        widget.onWorkspaceUpdated(updated);
+        if (mounted) {
+          setState(() {
+            _attachDraftGeometry = false;
+            _stagedAttachments.clear();
+          });
+        }
+      },
+    );
   }
 
   Future<void> _toggleAdmin(CircleWorkspaceDto ws, String memberPk, bool promote) async {
@@ -991,7 +1813,7 @@ class _CirclesSheetState extends State<CirclesSheet>
                 controller: _inviteInputController,
                 onSubmitted: (v) => unawaited(_previewInvite(v)),
                 decoration: const InputDecoration(
-                  hintText: 'Paste Circle invitation link…',
+                  hintText: 'Paste Circle invitation link or cordn1… ref…',
                 ),
               ),
             ),
@@ -1044,6 +1866,175 @@ class _CirclesSheetState extends State<CirclesSheet>
             ),
           ),
         ],
+
+        if (_decodedCordnRefPreview != null) ...[
+          const SizedBox(height: 10),
+          Builder(
+            builder: (_) {
+              final ref = _decodedCordnRefPreview!;
+              final existingWs = widget.workspaces
+                  .where((w) => w.groupId == ref.gid)
+                  .firstOrNull;
+              return Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: EarthlyColors.measureViolet.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: EarthlyColors.measureViolet.withValues(alpha: 0.5),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'CORDN GROUP REFERENCE (cordn1)',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.w800,
+                        color: EarthlyColors.measureViolet,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Group ID: ${_shortHex(ref.gid)}\n'
+                      'Cordn: ${ref.coordinatorPubkey != null ? _shortHex(ref.coordinatorPubkey!) : 'Default coordinator'}\n'
+                      'Relays: ${ref.relays.isNotEmpty ? ref.relays.join(", ") : 'Default relay'}',
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 10.5,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (existingWs != null)
+                      FilledButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _selectedWorkspaceId = existingWs.workspaceId;
+                            _decodedCordnRefPreview = null;
+                          });
+                          unawaited(_backgroundSyncSelected());
+                        },
+                        icon: const Icon(Icons.lock_open_outlined, size: 16),
+                        label: Text('Open "${existingWs.name}"'),
+                      )
+                    else ...[
+                      Text(
+                        'Already welcomed? Check Cordn below. New joiners need a signed 24h invitation link from a Circle admin.',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 6),
+                      OutlinedButton.icon(
+                        onPressed: _busy ? null : _checkApprovals,
+                        icon: const Icon(Icons.refresh, size: 15),
+                        label: const Text('Check Approved Welcomes'),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest
+                .withValues(alpha: 0.6),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: theme.dividerColor),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              InkWell(
+                key: const Key('circles-multi-device-tile'),
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => setState(
+                  () => _showMultiDevicePanel = !_showMultiDevicePanel,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.devices_outlined,
+                        size: 16,
+                        color: EarthlyColors.measureViolet,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Multi-Device Sync',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Icon(
+                        _showMultiDevicePanel
+                            ? Icons.expand_less
+                            : Icons.expand_more,
+                        size: 18,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (_showMultiDevicePanel)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'End-to-end encrypted MLS snapshot via Blossom + NIP-78 (cordn-md-tip-v1). Syncs Circles across Android, macOS, and Earthly Web.',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      if (_multiDeviceStatus != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          _multiDeviceStatus!,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 10.5,
+                            color: EarthlyColors.commentGreen,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton.tonalIcon(
+                              key: const Key('circles-multi-device-backup-btn'),
+                              onPressed: _busy ? null : _backupMultiDevice,
+                              icon: const Icon(Icons.cloud_upload_outlined, size: 16),
+                              label: const Text('Backup to Devices'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              key: const Key('circles-multi-device-pull-btn'),
+                              onPressed: _busy ? null : _pullMultiDevice,
+                              icon: const Icon(Icons.cloud_download_outlined, size: 16),
+                              label: const Text('Pull from Devices'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
 
         if (widget.pendingJoins.isNotEmpty) ...[
           const SizedBox(height: 12),
@@ -1118,7 +2109,7 @@ class _CirclesSheetState extends State<CirclesSheet>
               title: ws.name,
               subtitle: ws.description,
               meta:
-                  '${ws.role} · ${ws.members.length} member${ws.members.length == 1 ? '' : 's'} · ${ws.datasets.length} map${ws.datasets.length == 1 ? '' : 's'} · e${ws.epoch}',
+                  '${ws.role} · ${ws.members.length} member${ws.members.length == 1 ? '' : 's'} · ${ws.datasets.length} map${ws.datasets.length == 1 ? '' : 's'} · e${ws.epoch}${ws.syncHealth == 'behind' || ws.syncHealth == 'forked' ? ' · ⚠ ${ws.syncHealth}' : ''}',
               selected: widget.activeCircleId == ws.workspaceId,
               onTap: () {
                 setState(() {
@@ -1134,6 +2125,319 @@ class _CirclesSheetState extends State<CirclesSheet>
     );
   }
 
+  Widget _buildSyncHealthBanner(ThemeData theme, CircleWorkspaceDto ws) {
+    if (ws.syncHealth != 'behind' && ws.syncHealth != 'forked') {
+      return const SizedBox.shrink();
+    }
+    final isForked = ws.syncHealth == 'forked';
+    final accent = isForked ? EarthlyColors.destructive : EarthlyColors.amber;
+    final detail = isForked
+        ? 'MLS state diverged (${ws.consecutiveDecryptErrors} decrypt error${ws.consecutiveDecryptErrors == 1 ? '' : 's'}). Repair resets transient journals and re-syncs from Cordn.'
+        : 'Circle sync is behind (${ws.consecutiveDecryptErrors} decrypt error${ws.consecutiveDecryptErrors == 1 ? '' : 's'}). Repair & re-sync to catch up.';
+    return Container(
+      key: const Key('circle-sync-health-banner'),
+      margin: const EdgeInsets.fromLTRB(14, 8, 14, 4),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(color: accent.withValues(alpha: 0.65)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            isForked ? Icons.warning_amber_rounded : Icons.sync_problem,
+            size: 18,
+            color: accent,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isForked ? 'SYNC STATE FORKED' : 'CIRCLE SYNC BEHIND',
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                    color: accent,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(detail, style: const TextStyle(fontSize: 11.5)),
+                const SizedBox(height: 6),
+                OutlinedButton.icon(
+                  key: const Key('circle-repair-sync-btn'),
+                  onPressed: _busy ? null : () => _repairSyncState(ws),
+                  icon: const Icon(Icons.build_circle_outlined, size: 15),
+                  label: const Text('Repair & Re-sync'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMediaAttachments(
+    ThemeData theme,
+    CircleWorkspaceDto ws,
+    List<CircleMediaAttachmentDto> attachments,
+    BigInt? epoch,
+  ) {
+    if (attachments.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final att in attachments) ...[
+            Builder(
+              builder: (_) {
+                final key = _mediaCacheKey(att);
+                final isImage = att.mimeType.toLowerCase().startsWith('image/');
+                final decrypted = _decryptedMediaCache[key];
+                final loading = _decryptingMediaKeys.contains(key);
+                final err = _mediaErrors[key];
+
+                if (isImage) {
+                  if (decrypted == null && !loading && err == null) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) _ensureImageDecrypted(ws, att, epoch);
+                    });
+                  }
+                  if (decrypted != null) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: InkWell(
+                        key: Key('circle-media-thumb-${att.sha256Hex}'),
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: () => unawaited(_openImageLightbox(att, decrypted)),
+                        child: Stack(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: Image.memory(
+                                decrypted,
+                                width: 184,
+                                height: 124,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => Container(
+                                  width: 184,
+                                  height: 92,
+                                  color: EarthlyColors.measureViolet
+                                      .withValues(alpha: 0.12),
+                                  padding: const EdgeInsets.all(10),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(
+                                        Icons.image_outlined,
+                                        color: EarthlyColors.measureViolet,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        att.filename,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 11),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              left: 6,
+                              bottom: 6,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.65),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.lock,
+                                      size: 10,
+                                      color: Colors.white,
+                                    ),
+                                    const SizedBox(width: 3),
+                                    Text(
+                                      att.version,
+                                      style: const TextStyle(
+                                        fontFamily: 'monospace',
+                                        fontSize: 9,
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+                  if (err != null) {
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: EarthlyColors.destructive.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(
+                          color: EarthlyColors.destructive.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.broken_image_outlined,
+                            size: 16,
+                            color: EarthlyColors.destructive,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              '${att.filename} · decrypt failed',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 11),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => _retryDecryptImage(ws, att, epoch),
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  return Container(
+                    width: 184,
+                    height: 84,
+                    margin: const EdgeInsets.only(bottom: 6),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: theme.dividerColor),
+                    ),
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Decrypting ${att.version}…',
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 9.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                // Non-image encrypted file card.
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: EarthlyColors.measureViolet.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(9),
+                    border: Border.all(
+                      color: EarthlyColors.measureViolet.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.insert_drive_file_outlined,
+                        size: 16,
+                        color: EarthlyColors.measureViolet,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              att.filename,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Wrap(
+                              spacing: 4,
+                              runSpacing: 2,
+                              children: [
+                                EarthlyBadge(
+                                  label: att.mimeType,
+                                  color: theme.colorScheme.secondary,
+                                ),
+                                EarthlyBadge(
+                                  label: att.version,
+                                  color: EarthlyColors.measureViolet,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      loading
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : TextButton.icon(
+                              onPressed: () =>
+                                  unawaited(_decryptAndSaveFile(ws, att, epoch)),
+                              icon: const Icon(Icons.download_outlined, size: 15),
+                              label: Text(
+                                decrypted != null ? 'Save' : 'Decrypt & Save',
+                              ),
+                            ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildDetailBody(ThemeData theme, CircleWorkspaceDto ws) {
     return Column(
       children: [
@@ -1142,6 +2446,7 @@ class _CirclesSheetState extends State<CirclesSheet>
             padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
             child: _buildStatusBanners(),
           ),
+        _buildSyncHealthBanner(theme, ws),
         Expanded(
           child: TabBarView(
             controller: _detailTabs,
@@ -1211,6 +2516,13 @@ class _CirclesSheetState extends State<CirclesSheet>
                           const SizedBox(height: 4),
                           EarthlyRichText(text: msg.text, compact: true),
                         ],
+                        if (msg.mediaAttachments.isNotEmpty)
+                          _buildMediaAttachments(
+                            theme,
+                            ws,
+                            msg.mediaAttachments,
+                            msg.epoch,
+                          ),
                         if (hasGeo) ...[
                           const SizedBox(height: 6),
                           Container(
@@ -1280,8 +2592,86 @@ class _CirclesSheetState extends State<CirclesSheet>
                         setState(() => _attachDraftGeometry = v),
                   ),
                 ),
+              if (_stagedAttachments.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (var i = 0; i < _stagedAttachments.length; i++)
+                        InputChip(
+                          avatar: _stagedAttachments[i]
+                                  .mimeType
+                                  .toLowerCase()
+                                  .startsWith('image/')
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: Image.memory(
+                                    _stagedAttachments[i].bytes,
+                                    width: 22,
+                                    height: 22,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, _, _) => const Icon(
+                                      Icons.image_outlined,
+                                      size: 16,
+                                    ),
+                                  ),
+                                )
+                              : const Icon(Icons.insert_drive_file_outlined, size: 16),
+                          label: Text(
+                            '${_stagedAttachments[i].name} (${_formatByteSize(_stagedAttachments[i].bytes.length)})',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onDeleted: _busy
+                              ? null
+                              : () => setState(
+                                    () => _stagedAttachments.removeAt(i),
+                                  ),
+                        ),
+                    ],
+                  ),
+                ),
               Row(
                 children: [
+                  PopupMenuButton<_AttachmentSource>(
+                    key: const Key('circle-chat-attach-btn'),
+                    tooltip: 'Attach encrypted media (cordn-em-v1)',
+                    enabled: ws.status == 'active' && !_busy,
+                    onSelected: (source) => unawaited(_stageChatAttachment(source)),
+                    itemBuilder: (_) => [
+                      if (Platform.isAndroid)
+                        const PopupMenuItem(
+                          value: _AttachmentSource.camera,
+                          child: ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(Icons.photo_camera_outlined, size: 18),
+                            title: Text('Take Photo'),
+                          ),
+                        ),
+                      const PopupMenuItem(
+                        value: _AttachmentSource.image,
+                        child: ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.photo_library_outlined, size: 18),
+                          title: Text('Pick Image'),
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: _AttachmentSource.file,
+                        child: ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.attach_file, size: 18),
+                          title: Text('Pick File'),
+                        ),
+                      ),
+                    ],
+                    icon: const Icon(Icons.attach_file, size: 20),
+                  ),
                   Expanded(
                     child: TextField(
                       controller: _chatInputController,
@@ -1385,8 +2775,24 @@ class _CirclesSheetState extends State<CirclesSheet>
                 icon: Icons.edit_outlined,
                 onSelected: () => widget.onEditDatasetInDraft(ws, ds),
               ),
+              if (ws.status == 'active')
+                EntityRowMenuAction(
+                  label: 'Attach Encrypted Map Media',
+                  icon: Icons.attach_file,
+                  onSelected: () => unawaited(_attachPersistentMapMedia(ws, ds)),
+                ),
             ],
           ),
+          if (ds.mediaAttachments.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: _buildMediaAttachments(
+                theme,
+                ws,
+                ds.mediaAttachments,
+                ds.epoch,
+              ),
+            ),
         ],
         if (geoComments.isNotEmpty) ...[
           const Divider(height: 20),
@@ -1428,7 +2834,7 @@ class _CirclesSheetState extends State<CirclesSheet>
   }
 
   Widget _buildSettingsTab(ThemeData theme, CircleWorkspaceDto ws) {
-    final isAdmin = ws.role == 'administrator';
+    final isAdmin = _isWorkspaceAdmin(ws);
     final inviteUrl = _generatedInviteWorkspaceId == ws.workspaceId
         ? _generatedInviteUrl
         : null;
@@ -1463,6 +2869,62 @@ class _CirclesSheetState extends State<CirclesSheet>
             ],
           ],
         ),
+        if (ws.cordnGroupRef.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Container(
+            key: const Key('circle-cordn-group-ref-card'),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.65),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: theme.dividerColor),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'CORDN GROUP REF (cordn1…)',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    TextButton.icon(
+                      key: const Key('circle-copy-cordn-ref-btn'),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      onPressed: () {
+                        Clipboard.setData(
+                          ClipboardData(text: ws.cordnGroupRef),
+                        );
+                        setState(
+                          () => _info = 'Copied cordn1 group reference.',
+                        );
+                      },
+                      icon: const Icon(Icons.copy, size: 14),
+                      label: const Text('Copy cordn1…'),
+                    ),
+                  ],
+                ),
+                SelectableText(
+                  ws.cordnGroupRef,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         if (inviteUrl != null) ...[
           const SizedBox(height: 12),
           Container(
@@ -1494,6 +2956,49 @@ class _CirclesSheetState extends State<CirclesSheet>
             ),
           ),
         ],
+        if (isAdmin) ...[
+          const SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: theme.dividerColor),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Material(
+                  type: MaterialType.transparency,
+                  child: SwitchListTile(
+                    key: const Key('circle-auto-approve-switch'),
+                    dense: true,
+                    title: const Text(
+                      'Auto-approve join requests',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: const Text(
+                      'Automatically welcome invited joiners when polling requests.',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    value: ws.autoApproveJoins,
+                    onChanged: _busy
+                        ? null
+                        : (enabled) => unawaited(_toggleAutoApprove(ws, enabled)),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                  child: OutlinedButton.icon(
+                    key: const Key('circle-approve-pending-now-btn'),
+                    onPressed:
+                        _busy ? null : () => unawaited(_pollAndAutoApprove(ws)),
+                    icon: const Icon(Icons.how_to_reg_outlined, size: 16),
+                    label: const Text('Approve Pending Now'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(10),
@@ -1503,6 +3008,7 @@ class _CirclesSheetState extends State<CirclesSheet>
           ),
           child: Text(
             'ROLE: ${ws.role.toUpperCase()}  ·  EPOCH: ${ws.epoch}  ·  CURSOR: ${ws.cursor}\n'
+            'HEALTH: ${ws.syncHealth.toUpperCase()}${ws.consecutiveDecryptErrors > 0 ? ' (${ws.consecutiveDecryptErrors} err)' : ''}\n'
             'CORDN: ${_shortHex(ws.coordinatorPubkey)}\n'
             'RELAYS: ${ws.relays.join(", ")}',
             style: const TextStyle(fontFamily: 'monospace', fontSize: 10.5),

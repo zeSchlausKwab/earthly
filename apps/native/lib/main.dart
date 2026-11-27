@@ -314,10 +314,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     unawaited(_spaces.flushAndRefreshOutbox(isHeadlessTest: _isHeadlessTest));
     unawaited(_draft.syncActiveGpsTrackFromService());
     unawaited(
-      _spaces.refreshCirclesSnapshot(
-        accountPubkey: _accountWallet.account?.pubkey,
-        isHeadlessTest: _isHeadlessTest,
-      ),
+      _spaces
+          .refreshCirclesSnapshot(
+            accountPubkey: _accountWallet.account?.pubkey,
+            isHeadlessTest: _isHeadlessTest,
+          )
+          .whenComplete(() {
+        if (mounted) unawaited(_startCircleLiveStream());
+      }),
     );
     unawaited(_preloadCatalog());
     unawaited(_refreshInbox());
@@ -581,10 +585,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       ),
     );
     unawaited(
-      _spaces.refreshCirclesSnapshot(
-        accountPubkey: _accountWallet.account?.pubkey,
-        isHeadlessTest: _isHeadlessTest,
-      ),
+      _spaces
+          .refreshCirclesSnapshot(
+            accountPubkey: _accountWallet.account?.pubkey,
+            isHeadlessTest: _isHeadlessTest,
+          )
+          .whenComplete(() {
+        if (mounted) unawaited(_startCircleLiveStream());
+      }),
     );
     unawaited(_refreshInbox());
     if (_accountWallet.nip60WalletEnabled) {
@@ -593,6 +601,17 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       );
     }
   }
+
+  Future<void> _startCircleLiveStream() => _spaces.startCircleLiveStream(
+        accountPubkey: _accountWallet.account?.pubkey,
+        isReadOnlySession: _accountWallet.isReadOnlySession,
+        onWorkspaceUpdated: (ws) {
+          if (!mounted) return;
+          _handleCircleWorkspaceUpdated(ws);
+        },
+        isCirclesDrawerOpen: () => _isDrawerOpen(_ActiveDrawer.circles),
+        isHeadlessTest: _isHeadlessTest,
+      );
 
   Future<Nip55Account> _ensureAccount() =>
       _accountWallet.ensureAccount(onSessionActivated: _onSessionActivated);
@@ -684,7 +703,33 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
   void _handleIncomingDeepLink(String rawUri) {
     final trimmed = rawUri.trim();
     final lower = trimmed.toLowerCase();
+    if (lower.startsWith('earthly://circle/') &&
+        !lower.contains('private-invite=') &&
+        !lower.contains('cordn1')) {
+      final parsed = Uri.tryParse(trimmed);
+      final rawSegment = parsed != null && parsed.pathSegments.isNotEmpty
+          ? parsed.pathSegments.first
+          : trimmed
+              .substring('earthly://circle/'.length)
+              .split('?')
+              .first
+              .split('#')
+              .first;
+      String workspaceId;
+      try {
+        workspaceId = Uri.decodeComponent(rawSegment).trim();
+      } catch (_) {
+        workspaceId = rawSegment.trim();
+      }
+      if (workspaceId.isNotEmpty) {
+        _spaces.clearPendingCircleInvite();
+        _spaces.setSelectedCircleId(workspaceId);
+        _openDrawer(_ActiveDrawer.circles);
+        return;
+      }
+    }
     if (lower.contains('private-invite=') ||
+        lower.contains('cordn1') ||
         lower.contains('/circle/') ||
         lower.contains('/privategroup/') ||
         lower.contains('/private-group/')) {
@@ -2836,6 +2881,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           ),
           mlsDatabasePath: _spaces.mlsDatabasePath,
           cordnServerPubkey: _spaces.cordnServerPubkey,
+          blossomServerUrl: _catalog.blossomServerUrl,
           relayUrls: _catalog.relayUrls,
           workspaces: _spaces.circles,
           pendingJoins: _spaces.circlePendingJoins,
@@ -2855,6 +2901,55 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             accountPubkey: _accountWallet.account?.pubkey,
             isHeadlessTest: _isHeadlessTest,
           ),
+          onSyncWorkspaceReadonly: (workspaceId) async {
+            final pk = _accountWallet.account?.pubkey;
+            if (pk == null || pk.isEmpty) {
+              throw StateError('Sign in to sync Circles');
+            }
+            return _spaces.syncCircleReadonly(
+              accountPubkey: pk,
+              workspaceId: workspaceId,
+              onWorkspaceUpdated: (ws) {
+                if (mounted) _handleCircleWorkspaceUpdated(ws);
+              },
+            );
+          },
+          onUploadBlossomBlob: ({
+            required bytes,
+            required mimeType,
+            required purpose,
+            sha256Hex,
+            serverUrl,
+          }) async {
+            await RustBridge.ensureInitialized();
+            final account = await _ensureAccount();
+            final sha = (sha256Hex != null && sha256Hex.isNotEmpty)
+                ? sha256Hex
+                : await computeSha256Hex(bytes: bytes);
+            final unsignedAuth = await prepareUnsignedBlossomUploadAuth(
+              pubkeyOrNpub: account.pubkey,
+              sha256Hex: sha,
+              message: purpose,
+            );
+            final signedAuth = await _accountWallet.signUnsignedEvent(
+              account,
+              unsignedAuth,
+            );
+            return uploadBlobToBlossom(
+              serverUrl: (serverUrl != null && serverUrl.trim().isNotEmpty)
+                  ? serverUrl.trim()
+                  : _catalog.blossomServerUrl,
+              bytes: bytes,
+              mimeType: mimeType,
+              signedAuthEventJson: signedAuth,
+            );
+          },
+          onSignUnsignedEvent: (unsignedEventJson) async {
+            final account = await _ensureAccount();
+            return _accountWallet.signUnsignedEvent(account, unsignedEventJson);
+          },
+          onNip44EncryptSelf: _accountWallet.nip44EncryptForSelfExternal,
+          onNip44DecryptSelf: _accountWallet.nip44DecryptForSelfExternal,
           onWorkspaceUpdated: _handleCircleWorkspaceUpdated,
           onEnterCircleLens: _enterCircleLens,
           onLeaveCircleLens: _leaveCircleLens,
@@ -2915,6 +3010,36 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               workspaceId: workspaceId,
               text: text,
               geojsonJson: geojson,
+            );
+            _handleCircleWorkspaceUpdated(updated);
+            return updated;
+          },
+          onSendCircleCommentWithMedia: (
+            workspaceId,
+            text,
+            attachDraft,
+            imetaTags,
+          ) async {
+            await RustBridge.ensureInitialized();
+            await _accountWallet.syncExternalCircleSigner(
+              isHeadlessTest: _isHeadlessTest,
+            );
+            final mlsPath = await _spaces.ensureMlsDatabasePath();
+            final geojson = (attachDraft && _draft.features.isNotEmpty)
+                ? draftFeaturesToGeoJson(
+                    title: 'Circle attachment',
+                    features: _draft.features,
+                  )
+                : null;
+            final updated = await sendCircleCommentWithMedia(
+              databasePath: mlsPath,
+              signerNsec: _accountWallet.localNsec,
+              bunkerUri: _accountWallet.bunkerUri,
+              bunkerClientNsec: _accountWallet.bunkerClientNsec,
+              workspaceId: workspaceId,
+              text: text,
+              geojsonJson: geojson,
+              imetaTags: imetaTags,
             );
             _handleCircleWorkspaceUpdated(updated);
             return updated;

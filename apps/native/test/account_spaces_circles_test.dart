@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:earthly_native/controllers/spaces_sync_controller.dart';
 import 'package:earthly_native/nostr/nip55_signer.dart';
 import 'package:earthly_native/shell/account_session_sheet.dart';
 import 'package:earthly_native/shell/circles_sheet.dart';
@@ -8,6 +11,7 @@ import 'package:earthly_native/src/rust/api/nostr_client.dart';
 import 'package:earthly_native/src/rust/api/nwc.dart';
 import 'package:earthly_native/src/rust/api/private_groups.dart';
 import 'package:earthly_native/src/rust/api/settings.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -49,6 +53,7 @@ void main() {
           createdAt: BigInt.from(1791000000),
           geojsonJson: sampleGeo,
           featureCount: 1,
+          mediaAttachments: const [],
         ),
       ],
       messages: [
@@ -60,9 +65,14 @@ void main() {
           text: 'Check the north saddle crossing',
           geojsonJson: sampleGeo,
           geometryFeatureCount: 1,
+          mediaAttachments: const [],
         ),
       ],
       createdAtMs: BigInt.from(1791000000000),
+      syncHealth: 'healthy',
+      consecutiveDecryptErrors: 0,
+      autoApproveJoins: false,
+      cordnGroupRef: 'cordn1testalpine',
     );
 
     String? enteredLensId;
@@ -209,6 +219,448 @@ void main() {
 
     expect(find.text('Read-Only Account Active'), findsOneWidget);
     expect(find.text('Open Account & Sign In'), findsOneWidget);
+  });
+
+  testWidgets(
+      'Amber NIP-55 session syncs read-only, shows health repair banner, renders cordn-em-v1 media, toggles auto-approve, shows cordn1 ref, and multi-device controls',
+      (WidgetTester tester) async {
+    setTestViewport(tester, const Size(480, 960));
+
+    const amberPk =
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const bobPk =
+        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const sampleGeo =
+        '{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[16.37,48.20]},"properties":{"name":"Shelter"}}]}';
+    const testCordnRef =
+        'cordn1qqvx2ctjw35xc7f6v3skuatzv5khxatjwejhjtf5xgq3samnwvaz7tmjv4kxz7fwv4shyargd3ujucmfw3uszrthwden5te0dehhxtnvdakqyg8a2sc68updmgeajfu2msketcq8mdld7rx5xazs3gltr2fvp3j7xu22mhrl';
+    // Valid 1x1 transparent PNG bytes.
+    final tinyPngBytes = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+    );
+
+    final imageAtt = CircleMediaAttachmentDto(
+      url: 'https://blossom.earthly.city/img-cipher',
+      mimeType: 'image/png',
+      filename: 'ridge-photo.png',
+      sha256Hex: '1' * 64,
+      nonceHex: '2' * 24,
+      version: 'cordn-em-v1',
+    );
+    final fileAtt = CircleMediaAttachmentDto(
+      url: 'https://blossom.earthly.city/pdf-cipher',
+      mimeType: 'application/pdf',
+      filename: 'field-notes.pdf',
+      sha256Hex: '3' * 64,
+      nonceHex: '4' * 24,
+      version: 'cordn-em-v1',
+    );
+    final persistentMapAtt = CircleMediaAttachmentDto(
+      url: 'https://blossom.earthly.city/map-photo-cipher',
+      mimeType: 'image/png',
+      filename: 'trailhead.png',
+      sha256Hex: '5' * 64,
+      nonceHex: '6' * 24,
+      version: 'earthly-pm-v1',
+      persistentKeyHex: '7' * 64,
+    );
+
+    CircleWorkspaceDto makeWs({
+      String syncHealth = 'forked',
+      bool autoApproveJoins = false,
+      int decryptErrors = 3,
+    }) =>
+        CircleWorkspaceDto(
+          workspaceId: 'ws-amber-1',
+          groupId: 'grp-amber-1',
+          name: 'Amber Alpine Circle',
+          description: 'Field survey',
+          recommendedBasemap: 'OpenFreeMap Liberty',
+          role: 'administrator',
+          status: 'active',
+          cursor: BigInt.from(7),
+          epoch: BigInt.from(3),
+          coordinatorPubkey:
+              'fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37',
+          relays: const ['wss://relay.earthly.city'],
+          members: const [amberPk, bobPk],
+          administrators: const [amberPk],
+          datasets: [
+            CircleDatasetDto(
+              workspaceId: 'ws-amber-1',
+              envelopeId: 'env-ds-1',
+              datasetId: 'shelter-map',
+              title: 'Shelter Map',
+              pubkey: amberPk,
+              createdAt: BigInt.from(1791000000),
+              geojsonJson: sampleGeo,
+              featureCount: 1,
+              mediaAttachments: [persistentMapAtt],
+              epoch: BigInt.from(2),
+            ),
+          ],
+          messages: [
+            CircleMessageDto(
+              envelopeId: 'env-msg-media-1',
+              pubkey: bobPk,
+              createdAt: BigInt.from(1791000200),
+              kind: 37517,
+              text: 'Encrypted photo and report attached',
+              geojsonJson: null,
+              geometryFeatureCount: 0,
+              mediaAttachments: [imageAtt, fileAtt],
+              epoch: BigInt.from(3),
+            ),
+          ],
+          createdAtMs: BigInt.from(1791000000000),
+          syncHealth: syncHealth,
+          consecutiveDecryptErrors: decryptErrors,
+          autoApproveJoins: autoApproveJoins,
+          cordnGroupRef: testCordnRef,
+        );
+
+    var currentWs = makeWs();
+    final readonlySyncedIds = <String>[];
+    final repairedIds = <String>[];
+    final autoApproveCalls = <(String, bool)>[];
+    final downloadedUrls = <String>[];
+    var backupCalls = 0;
+    var pullCalls = 0;
+
+    late StateSetter hostSetState;
+
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setState) {
+          hostSetState = setState;
+          return wrapSheetInStack(
+            CirclesSheet(
+              account: const Nip55Account(
+                pubkey: amberPk,
+                signerPackage: 'com.greenart7c3.nostrsigner',
+              ),
+              localNsec: null,
+              bunkerUri: null,
+              bunkerClientNsec: null,
+              isReadOnlySession: false,
+              mlsDatabasePath: '/tmp/test_mls_amber_full.sqlite3',
+              cordnServerPubkey:
+                  'fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37',
+              relayUrls: const ['wss://relay.earthly.city'],
+              workspaces: [currentWs],
+              pendingJoins: const [],
+              activeCircleId: null,
+              mountedCircleDatasetKeys: const {},
+              activeCommentOverlayId: null,
+              hasDraftGeometry: false,
+              profilesByPubkey: const {},
+              onCordnPubkeyChanged: (_) {},
+              onRefreshCircles: () async {},
+              onWorkspaceUpdated: (updated) {
+                hostSetState(() => currentWs = updated);
+              },
+              onSyncWorkspaceReadonly: (wsId) async {
+                readonlySyncedIds.add(wsId);
+                return currentWs;
+              },
+              onRepairSyncState: (wsId) async {
+                repairedIds.add(wsId);
+                return makeWs(
+                  syncHealth: 'healthy',
+                  autoApproveJoins: currentWs.autoApproveJoins,
+                  decryptErrors: 0,
+                );
+              },
+              onSetAutoApprove: (wsId, enabled) async {
+                autoApproveCalls.add((wsId, enabled));
+                return makeWs(
+                  syncHealth: currentWs.syncHealth,
+                  autoApproveJoins: enabled,
+                  decryptErrors: currentWs.consecutiveDecryptErrors,
+                );
+              },
+              onDownloadMedia: (_, att, _) async {
+                downloadedUrls.add(att.url);
+                return tinyPngBytes;
+              },
+              onBackupMultiDevice: () async {
+                backupCalls += 1;
+                return MultiDeviceSyncSummaryDto(
+                  dekHex: 'd' * 64,
+                  tipEventId: 'e' * 64,
+                  tipUpdatedAt: BigInt.from(1791000500),
+                  uploadedBlobs: 2,
+                  adoptedGroups: 0,
+                  updatedGroups: 0,
+                  mergedGroups: 0,
+                  unchangedGroups: 0,
+                  removedGroupsMarked: 0,
+                  skippedErrors: const [],
+                  workspaces: [currentWs],
+                );
+              },
+              onPullMultiDevice: () async {
+                pullCalls += 1;
+                return MultiDeviceSyncSummaryDto(
+                  dekHex: 'd' * 64,
+                  tipEventId: 'e' * 64,
+                  tipUpdatedAt: BigInt.from(1791000500),
+                  uploadedBlobs: 0,
+                  adoptedGroups: 1,
+                  updatedGroups: 0,
+                  mergedGroups: 0,
+                  unchangedGroups: 0,
+                  removedGroupsMarked: 0,
+                  skippedErrors: const [],
+                  workspaces: [currentWs],
+                );
+              },
+              onEnterCircleLens: (_) {},
+              onLeaveCircleLens: () {},
+              onToggleDatasetOnMap: (_, _) {},
+              onZoomToDataset: (_, _) {},
+              onEditDatasetInDraft: (_, _) {},
+              onStartNewPrivateMap: (_) {},
+              onToggleCommentGeometry: (_) {},
+              onSendCircleComment: (_, _, _) async => currentWs,
+              onOpenAccount: () {},
+              onClose: () {},
+            ),
+          );
+        },
+      ),
+    );
+
+    // Multi-Device Sync expandable panel in list view.
+    expect(find.text('Multi-Device Sync'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('circles-multi-device-tile')));
+    await tester.pumpAndSettle();
+    expect(find.text('Backup to Devices'), findsOneWidget);
+    expect(find.text('Pull from Devices'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('circles-multi-device-backup-btn')));
+    await tester.pumpAndSettle();
+    expect(backupCalls, 1);
+
+    await tester.tap(find.byKey(const Key('circles-multi-device-pull-btn')));
+    await tester.pumpAndSettle();
+    expect(pullCalls, 1);
+
+    // Collapse Multi-Device panel and scroll to open the Circle.
+    await tester.tap(find.byKey(const Key('circles-multi-device-tile')));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Amber Alpine Circle'),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Amber Alpine Circle'));
+    await tester.pumpAndSettle();
+    expect(readonlySyncedIds, contains('ws-amber-1'));
+
+    // Forked sync health warning banner & Repair button.
+    expect(find.byKey(const Key('circle-sync-health-banner')), findsOneWidget);
+    expect(find.text('SYNC STATE FORKED'), findsOneWidget);
+    expect(find.text('Repair & Re-sync'), findsOneWidget);
+
+    // Encrypted media attachments in Chat: image thumbnail + file card.
+    expect(downloadedUrls, contains('https://blossom.earthly.city/img-cipher'));
+    expect(
+      find.byKey(Key('circle-media-thumb-${imageAtt.sha256Hex}')),
+      findsOneWidget,
+    );
+    expect(find.text('field-notes.pdf'), findsOneWidget);
+    expect(find.text('Decrypt & Save'), findsOneWidget);
+
+    // Tapping encrypted image thumbnail opens lightbox with filename, lock badge, Save.
+    await tester.tap(find.byKey(Key('circle-media-thumb-${imageAtt.sha256Hex}')));
+    await tester.pumpAndSettle();
+    expect(find.text('ridge-photo.png'), findsOneWidget);
+    expect(find.text('Save'), findsOneWidget);
+    await tester.tap(find.byTooltip('Close lightbox'));
+    await tester.pumpAndSettle();
+
+    // Tapping Repair & Re-sync repairs syncHealth to 'healthy' and hides banner.
+    await tester.tap(find.byKey(const Key('circle-repair-sync-btn')));
+    await tester.pumpAndSettle();
+    expect(repairedIds, ['ws-amber-1']);
+    expect(find.byKey(const Key('circle-sync-health-banner')), findsNothing);
+
+    // Maps tab renders persistent earthly-pm-v1 attachment.
+    await tester.tap(find.text('Maps (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('Shelter Map'), findsOneWidget);
+    expect(
+      find.byKey(Key('circle-media-thumb-${persistentMapAtt.sha256Hex}')),
+      findsOneWidget,
+    );
+
+    // Settings tab: cordn1... ref, Auto-approve switch, and Approve Pending Now.
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('circle-cordn-group-ref-card')), findsOneWidget);
+    expect(find.textContaining('cordn1qqvx2ctj'), findsOneWidget);
+
+    final settingsScrollable = find
+        .byWidgetPredicate(
+          (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+        )
+        .last;
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('circle-auto-approve-switch')),
+      120,
+      scrollable: settingsScrollable,
+    );
+    expect(find.text('Auto-approve join requests'), findsOneWidget);
+    expect(find.text('Approve Pending Now'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('circle-auto-approve-switch')));
+    await tester.pumpAndSettle();
+    expect(autoApproveCalls, [('ws-amber-1', true)]);
+  });
+
+  test(
+      'SpacesSyncController.handleStreamedCircleWorkspace notifies on incoming message when drawer is closed and skips when open or self-authored',
+      () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    const channel = MethodChannel('city.earthly/device');
+    final notifications = <Map<String, dynamic>>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'showLocalNotification') {
+        notifications.add(Map<String, dynamic>.from(call.arguments as Map));
+        return true;
+      }
+      return null;
+    });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
+    final myPk = 'a' * 64;
+    final otherPk = 'b' * 64;
+    CircleWorkspaceDto buildWs(List<CircleMessageDto> msgs) =>
+        CircleWorkspaceDto(
+          workspaceId: 'ws-live-1',
+          groupId: 'grp-live-1',
+          name: 'Live Crew',
+          role: 'member',
+          status: 'active',
+          cursor: BigInt.from(msgs.length),
+          epoch: BigInt.from(1),
+          coordinatorPubkey: 'c' * 64,
+          relays: const ['wss://relay.earthly.city'],
+          members: [myPk, otherPk],
+          administrators: [otherPk],
+          datasets: const [],
+          messages: msgs,
+          createdAtMs: BigInt.from(1791000000000),
+          syncHealth: 'healthy',
+          consecutiveDecryptErrors: 0,
+          autoApproveJoins: false,
+          cordnGroupRef: 'cordn1live',
+        );
+
+    final controller = SpacesSyncController();
+    addTearDown(controller.dispose);
+    controller.upsertCircleWorkspace(buildWs(const []));
+
+    final updatedEvents = <CircleWorkspaceDto>[];
+
+    // 1. Incoming message from other member while drawer is CLOSED -> triggers notification!
+    controller.handleStreamedCircleWorkspace(
+      buildWs([
+        CircleMessageDto(
+          envelopeId: 'env-1',
+          pubkey: otherPk,
+          createdAt: BigInt.from(1791000100),
+          kind: 37517,
+          text: 'Trail bridge is clear',
+          geometryFeatureCount: 0,
+          mediaAttachments: const [],
+        ),
+      ]),
+      normalizedAccountPubkey: myPk,
+      onWorkspaceUpdated: updatedEvents.add,
+      isCirclesDrawerOpen: () => false,
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(updatedEvents.length, 1);
+    expect(notifications.length, 1);
+    expect(notifications.first['title'], 'Live Crew');
+    expect(notifications.first['body'], 'Trail bridge is clear');
+    expect(notifications.first['channelId'], 'earthly_circles');
+    expect(notifications.first['payload'], 'earthly://circle/ws-live-1');
+
+    // 2. Self-authored message while drawer is CLOSED -> NO notification.
+    controller.handleStreamedCircleWorkspace(
+      buildWs([
+        CircleMessageDto(
+          envelopeId: 'env-1',
+          pubkey: otherPk,
+          createdAt: BigInt.from(1791000100),
+          kind: 37517,
+          text: 'Trail bridge is clear',
+          geometryFeatureCount: 0,
+          mediaAttachments: const [],
+        ),
+        CircleMessageDto(
+          envelopeId: 'env-2',
+          pubkey: myPk,
+          createdAt: BigInt.from(1791000200),
+          kind: 37517,
+          text: 'On my way',
+          geometryFeatureCount: 0,
+          mediaAttachments: const [],
+        ),
+      ]),
+      normalizedAccountPubkey: myPk,
+      onWorkspaceUpdated: updatedEvents.add,
+      isCirclesDrawerOpen: () => false,
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(notifications.length, 1);
+
+    // 3. Incoming message while drawer is OPEN -> NO notification.
+    controller.handleStreamedCircleWorkspace(
+      buildWs([
+        CircleMessageDto(
+          envelopeId: 'env-1',
+          pubkey: otherPk,
+          createdAt: BigInt.from(1791000100),
+          kind: 37517,
+          text: 'Trail bridge is clear',
+          geometryFeatureCount: 0,
+          mediaAttachments: const [],
+        ),
+        CircleMessageDto(
+          envelopeId: 'env-2',
+          pubkey: myPk,
+          createdAt: BigInt.from(1791000200),
+          kind: 37517,
+          text: 'On my way',
+          geometryFeatureCount: 0,
+          mediaAttachments: const [],
+        ),
+        CircleMessageDto(
+          envelopeId: 'env-3',
+          pubkey: otherPk,
+          createdAt: BigInt.from(1791000300),
+          kind: 37517,
+          text: 'See you at summit',
+          geometryFeatureCount: 0,
+          mediaAttachments: const [],
+        ),
+      ]),
+      normalizedAccountPubkey: myPk,
+      onWorkspaceUpdated: updatedEvents.add,
+      isCirclesDrawerOpen: () => true,
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(notifications.length, 1);
+    expect(updatedEvents.length, 3);
   });
 
   testWidgets(
@@ -744,6 +1196,10 @@ void main() {
       datasets: const [],
       messages: const [],
       createdAtMs: BigInt.from(1791000000000),
+      syncHealth: 'healthy',
+      consecutiveDecryptErrors: 0,
+      autoApproveJoins: false,
+      cordnGroupRef: 'cordn1testridge',
     );
 
     CircleWorkspaceDto? selectedCircle;

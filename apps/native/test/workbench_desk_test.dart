@@ -930,6 +930,10 @@ void main() {
         datasets: const [],
         messages: const [],
         createdAtMs: BigInt.from(1791000000000),
+        syncHealth: 'healthy',
+        consecutiveDecryptErrors: 0,
+        autoApproveJoins: false,
+        cordnGroupRef: 'cordn1testalpha',
       ),
       CircleWorkspaceDto(
         workspaceId: 'ws-beta',
@@ -948,6 +952,10 @@ void main() {
         datasets: const [],
         messages: const [],
         createdAtMs: BigInt.from(1791000000000),
+        syncHealth: 'healthy',
+        consecutiveDecryptErrors: 0,
+        autoApproveJoins: false,
+        cordnGroupRef: 'cordn1testbeta',
       ),
     ];
 

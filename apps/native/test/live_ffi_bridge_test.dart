@@ -393,5 +393,130 @@ void main() {
         await clearExternalCircleSigner();
       }
     });
+
+    test(
+        'Wave 2A/2B Circle FFI: encrypted media (cordn-em-v1 + earthly-pm-v1), cordn1 group-ref, auto-approve, and multi-device prepare',
+        () async {
+      final dbPath = '${tempDir!.path}/mls_wave2.sqlite3';
+      final kp = await generateLocalNostrKeypair();
+      final cordnPk = await defaultCordnCoordinatorPubkey();
+
+      final ws = await createCircleWorkspace(
+        databasePath: dbPath,
+        signerNsec: kp.nsec,
+        coordinatorPubkey: cordnPk,
+        relays: const ['wss://relay.earthly.city'],
+        name: 'Wave 2 Field Circle',
+      );
+      expect(ws.syncHealth, 'healthy');
+      expect(ws.autoApproveJoins, isFalse);
+      expect(ws.cordnGroupRef, startsWith('cordn1'));
+
+      // 1. decodeCordnGroupRefLink parses both bare cordn1... and URL fragment.
+      final decodedRef = await decodeCordnGroupRefLink(
+        rawLink: 'https://earthly.city/circle#${ws.cordnGroupRef}',
+      );
+      expect(decodedRef.gid, ws.groupId);
+      expect(decodedRef.coordinatorPubkey, cordnPk);
+      expect(decodedRef.relays, contains('wss://relay.earthly.city'));
+
+      // 2. prepareCircleEncryptedMedia + buildCircleImetaTag (cordn-em-v1 + earthly-pm-v1).
+      final sampleBytes = utf8.encode('secret field report bytes');
+      final chatMedia = await prepareCircleEncryptedMedia(
+        databasePath: dbPath,
+        ownerPubkeyHex: kp.pubkeyHex,
+        workspaceId: ws.workspaceId,
+        bytes: sampleBytes,
+        mimeType: 'text/plain',
+        filename: 'report.txt',
+        persistentForMap: false,
+        stripMetadata: true,
+      );
+      expect(chatMedia.version, 'cordn-em-v1');
+      expect(chatMedia.persistentKeyHex, isNull);
+      expect(chatMedia.encryptedBytes, isNotEmpty);
+      expect(chatMedia.plaintextSha256Hex.length, 64);
+      expect(chatMedia.nonceHex.length, 24);
+
+      final chatImeta = await buildCircleImetaTag(
+        url: 'https://blossom.earthly.city/${chatMedia.encryptedSha256Hex}',
+        mimeType: chatMedia.mimeType,
+        filename: chatMedia.sanitizedFilename,
+        sha256Hex: chatMedia.plaintextSha256Hex,
+        nonceHex: chatMedia.nonceHex,
+        version: chatMedia.version,
+      );
+      expect(chatImeta.first, 'imeta');
+      expect(chatImeta, contains('v cordn-em-v1'));
+      expect(chatImeta.any((e) => e.startsWith('k ')), isFalse);
+
+      final mapMedia = await prepareCircleEncryptedMedia(
+        databasePath: dbPath,
+        ownerPubkeyHex: kp.pubkeyHex,
+        workspaceId: ws.workspaceId,
+        bytes: sampleBytes,
+        mimeType: 'image/png',
+        filename: 'trail.png',
+        persistentForMap: true,
+        stripMetadata: false,
+      );
+      expect(mapMedia.version, 'earthly-pm-v1');
+      expect(mapMedia.persistentKeyHex, isNotNull);
+      expect(mapMedia.persistentKeyHex!.length, 64);
+
+      final mapImeta = await buildCircleImetaTag(
+        url: 'https://blossom.earthly.city/${mapMedia.encryptedSha256Hex}',
+        mimeType: mapMedia.mimeType,
+        filename: mapMedia.sanitizedFilename,
+        sha256Hex: mapMedia.plaintextSha256Hex,
+        nonceHex: mapMedia.nonceHex,
+        version: mapMedia.version,
+        persistentKeyHex: mapMedia.persistentKeyHex,
+      );
+      expect(mapImeta, contains('v earthly-pm-v1'));
+      expect(mapImeta, contains('k ${mapMedia.persistentKeyHex}'));
+
+      // 3. setCircleAutoApprove toggles cleanly without a signer prompt.
+      final autoOn = await setCircleAutoApprove(
+        databasePath: dbPath,
+        ownerPubkeyHex: kp.pubkeyHex,
+        workspaceId: ws.workspaceId,
+        enabled: true,
+      );
+      expect(autoOn.autoApproveJoins, isTrue);
+
+      final autoOff = await setCircleAutoApprove(
+        databasePath: dbPath,
+        ownerPubkeyHex: kp.pubkeyHex,
+        workspaceId: ws.workspaceId,
+        enabled: false,
+      );
+      expect(autoOff.autoApproveJoins, isFalse);
+
+      // 4. prepareMultiDevicePublish seals group + meta blobs and tip payload.
+      final preparedMd = await prepareMultiDevicePublish(
+        databasePath: dbPath,
+        ownerPubkeyHex: kp.pubkeyHex,
+        blossomServerUrl: 'https://blossom.earthly.city',
+      );
+      expect(preparedMd.dekHex.length, 64);
+      expect(preparedMd.blossomServers, ['https://blossom.earthly.city']);
+      expect(preparedMd.blobs.any((b) => b.kind == 'group' && b.gid == ws.groupId), isTrue);
+      expect(preparedMd.blobs.any((b) => b.kind == 'meta'), isTrue);
+      expect(preparedMd.defaultTipPlaintextJson, contains(preparedMd.dekHex));
+
+      final unsignedTip = await prepareUnsignedMultiDeviceTipEvent(
+        ownerPubkeyHex: kp.pubkeyHex,
+        encryptedTipContent: 'v2-ciphertext-placeholder',
+      );
+      final tipMap = jsonDecode(unsignedTip) as Map<String, dynamic>;
+      expect(tipMap['kind'], 30078);
+      expect(
+        (tipMap['tags'] as List).any(
+          (t) => t is List && t.length >= 2 && t[0] == 'd' && t[1] == 'cordn-md-tip-v1',
+        ),
+        isTrue,
+      );
+    });
   });
 }

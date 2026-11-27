@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../nostr/nip55_signer.dart';
+import '../runtime/device_bridge.dart';
 import '../runtime/rust_bridge.dart';
 import '../shell/desk_sheet.dart';
 import '../shell/inbox_sheet.dart';
@@ -26,6 +27,11 @@ class SpacesSyncController extends ChangeNotifier {
 
   StreamSubscription<LiveRelayEventDto>? _relayStreamSub;
   bool relayStreamLive = false;
+  StreamSubscription<CircleWorkspaceDto>? _circleStreamSub;
+  Timer? _circleStreamReconnectTimer;
+  String? _circleStreamOwnerPubkey;
+  bool circleStreamLive = false;
+  bool _disposed = false;
   Timer? _liveListenerTimer;
   Timer? _outboxFlushTimer;
 
@@ -400,6 +406,7 @@ class SpacesSyncController extends ChangeNotifier {
   }) async {
     if (isHeadlessTest) return;
     if (accountPubkey == null || accountPubkey.isEmpty) {
+      unawaited(stopCircleLiveStream());
       circles = const <CircleWorkspaceDto>[];
       circlePendingJoins = const <CirclePendingJoinDto>[];
       activeCircleLensId = null;
@@ -415,11 +422,216 @@ class SpacesSyncController extends ChangeNotifier {
         databasePath: mlsPath,
         ownerPubkeyHex: accountPubkey,
       );
+      if (_disposed) return;
       circles = snap.workspaces;
       circlePendingJoins = snap.pendingJoins;
       badgeListenable.notifyListeners();
       notifyListeners();
     } catch (_) {}
+  }
+
+  Future<void> stopCircleLiveStream() async {
+    _circleStreamReconnectTimer?.cancel();
+    _circleStreamReconnectTimer = null;
+    _circleStreamOwnerPubkey = null;
+    final sub = _circleStreamSub;
+    _circleStreamSub = null;
+    final wasLive = circleStreamLive;
+    circleStreamLive = false;
+    if (sub != null) {
+      try {
+        await sub.cancel();
+      } catch (_) {}
+    }
+    if (wasLive && !_disposed) {
+      notifyListeners();
+    }
+  }
+
+  /// Processes a newly emitted Circle workspace update from `streamCircleUpdates`:
+  /// posts a local notification when a new message from another member arrives
+  /// while the Circles drawer is closed, upserts the cached workspace, and
+  /// notifies listeners so active Circle Lens map datasets update live.
+  @visibleForTesting
+  void handleStreamedCircleWorkspace(
+    CircleWorkspaceDto ws, {
+    required String normalizedAccountPubkey,
+    required void Function(CircleWorkspaceDto) onWorkspaceUpdated,
+    required bool Function() isCirclesDrawerOpen,
+  }) {
+    CircleWorkspaceDto? prev;
+    for (final existing in circles) {
+      if (existing.workspaceId == ws.workspaceId) {
+        prev = existing;
+        break;
+      }
+    }
+
+    if (prev != null && !isCirclesDrawerOpen()) {
+      final prevMessageIds = prev.messages.map((m) => m.envelopeId).toSet();
+      final incomingFromOthers = ws.messages
+          .where(
+            (m) =>
+                !prevMessageIds.contains(m.envelopeId) &&
+                m.pubkey.trim().toLowerCase() != normalizedAccountPubkey,
+          )
+          .toList(growable: false);
+      if (incomingFromOthers.isNotEmpty) {
+        final latest = incomingFromOthers.last;
+        final trimmedText = latest.text.trim();
+        final String body;
+        if (trimmedText.isNotEmpty) {
+          body = trimmedText;
+        } else if (latest.mediaAttachments.isNotEmpty) {
+          final att = latest.mediaAttachments.first;
+          body = att.mimeType.toLowerCase().startsWith('image/')
+              ? 'Encrypted photo: ${att.filename}'
+              : 'Encrypted attachment: ${att.filename}';
+        } else if (latest.geometryFeatureCount > 0) {
+          body =
+              'Shared ${latest.geometryFeatureCount} map feature${latest.geometryFeatureCount == 1 ? '' : 's'}';
+        } else {
+          body = 'New encrypted Circle message';
+        }
+        unawaited(
+          DeviceBridge.showLocalNotification(
+            title: ws.name,
+            body: body,
+            channelId: 'earthly_circles',
+            payload: 'earthly://circle/${ws.workspaceId}',
+          ),
+        );
+      }
+    }
+
+    upsertCircleWorkspace(ws);
+    onWorkspaceUpdated(ws);
+  }
+
+  void _scheduleCircleStreamReconnect({
+    required String accountPubkey,
+    required void Function(CircleWorkspaceDto) onWorkspaceUpdated,
+    required bool Function() isCirclesDrawerOpen,
+  }) {
+    final normalized = accountPubkey.trim().toLowerCase();
+    if (_disposed || _circleStreamOwnerPubkey != normalized) return;
+    _circleStreamReconnectTimer?.cancel();
+    _circleStreamReconnectTimer = Timer(const Duration(seconds: 5), () {
+      if (_disposed ||
+          _circleStreamOwnerPubkey != normalized ||
+          _circleStreamSub != null) {
+        return;
+      }
+      unawaited(
+        startCircleLiveStream(
+          accountPubkey: accountPubkey,
+          onWorkspaceUpdated: onWorkspaceUpdated,
+          isCirclesDrawerOpen: isCirclesDrawerOpen,
+        ),
+      );
+    });
+  }
+
+  /// Starts or restarts the real-time read-only MLS Circle sync stream
+  /// (`streamCircleUpdates`) with ZERO Amber/signer prompts.
+  Future<void> startCircleLiveStream({
+    required String? accountPubkey,
+    required void Function(CircleWorkspaceDto) onWorkspaceUpdated,
+    required bool Function() isCirclesDrawerOpen,
+    bool isReadOnlySession = false,
+    bool isHeadlessTest = false,
+  }) async {
+    _circleStreamReconnectTimer?.cancel();
+    _circleStreamReconnectTimer = null;
+    if (isHeadlessTest || _disposed) return;
+
+    final trimmed = accountPubkey?.trim() ?? '';
+    if (trimmed.isEmpty || isReadOnlySession) {
+      await stopCircleLiveStream();
+      return;
+    }
+
+    final normalizedAccountPubkey = trimmed.toLowerCase();
+    if (_circleStreamSub != null &&
+        circleStreamLive &&
+        _circleStreamOwnerPubkey == normalizedAccountPubkey) {
+      return;
+    }
+
+    await _circleStreamSub?.cancel();
+    _circleStreamSub = null;
+    _circleStreamOwnerPubkey = normalizedAccountPubkey;
+
+    try {
+      await RustBridge.ensureInitialized();
+      final mlsPath = await ensureMlsDatabasePath();
+      if (_disposed || _circleStreamOwnerPubkey != normalizedAccountPubkey) {
+        return;
+      }
+      final stream = streamCircleUpdates(
+        databasePath: mlsPath,
+        ownerPubkeyHex: trimmed,
+      );
+      circleStreamLive = true;
+      if (!_disposed) notifyListeners();
+      _circleStreamSub = stream.listen(
+        (ws) {
+          if (_disposed) return;
+          handleStreamedCircleWorkspace(
+            ws,
+            normalizedAccountPubkey: normalizedAccountPubkey,
+            onWorkspaceUpdated: onWorkspaceUpdated,
+            isCirclesDrawerOpen: isCirclesDrawerOpen,
+          );
+        },
+        onError: (_) {
+          if (_disposed) return;
+          circleStreamLive = false;
+          _circleStreamSub = null;
+          notifyListeners();
+          _scheduleCircleStreamReconnect(
+            accountPubkey: trimmed,
+            onWorkspaceUpdated: onWorkspaceUpdated,
+            isCirclesDrawerOpen: isCirclesDrawerOpen,
+          );
+        },
+        onDone: () {
+          if (_disposed) return;
+          circleStreamLive = false;
+          _circleStreamSub = null;
+          notifyListeners();
+          _scheduleCircleStreamReconnect(
+            accountPubkey: trimmed,
+            onWorkspaceUpdated: onWorkspaceUpdated,
+            isCirclesDrawerOpen: isCirclesDrawerOpen,
+          );
+        },
+      );
+    } catch (_) {
+      if (_disposed) return;
+      circleStreamLive = false;
+      _circleStreamSub = null;
+      notifyListeners();
+    }
+  }
+
+  /// Performs a one-shot read-only sync for a single Circle using an ephemeral
+  /// Cordn delivery key (ZERO Amber/signer prompts).
+  Future<CircleWorkspaceDto> syncCircleReadonly({
+    required String accountPubkey,
+    required String workspaceId,
+    required void Function(CircleWorkspaceDto) onWorkspaceUpdated,
+  }) async {
+    await RustBridge.ensureInitialized();
+    final mlsPath = await ensureMlsDatabasePath();
+    final updated = await syncCircleWorkspaceReadonly(
+      databasePath: mlsPath,
+      ownerPubkeyHex: accountPubkey,
+      workspaceId: workspaceId,
+    );
+    upsertCircleWorkspace(updated);
+    onWorkspaceUpdated(updated);
+    return updated;
   }
 
   static MapSummaryDto circleDatasetToSummary(
@@ -622,6 +834,9 @@ class SpacesSyncController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    _circleStreamReconnectTimer?.cancel();
+    unawaited(_circleStreamSub?.cancel());
     unawaited(_relayStreamSub?.cancel());
     _liveListenerTimer?.cancel();
     _outboxFlushTimer?.cancel();

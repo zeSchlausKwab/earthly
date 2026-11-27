@@ -111,6 +111,96 @@ class AccountWalletController extends ChangeNotifier {
     );
   }
 
+  /// Self-encrypts [plaintext] via NIP-44 v2 using Android Amber (NIP-55) or a
+  /// connected NIP-46 Bunker (used for multi-device Circle snapshot tips).
+  Future<String> nip44EncryptForSelfExternal(String plaintext) async {
+    if (isReadOnlySession) {
+      throw StateError(
+        'Active account is a read-only watch session. Switch to a signing session in Account.',
+      );
+    }
+    final acct = account;
+    if (acct == null || acct.pubkey.trim().isEmpty) {
+      throw StateError('No active signing account.');
+    }
+    final bunker = bunkerUri?.trim();
+    final clientNsec = bunkerClientNsec?.trim();
+    if (bunker != null &&
+        bunker.isNotEmpty &&
+        clientNsec != null &&
+        clientNsec.isNotEmpty) {
+      await RustBridge.ensureInitialized();
+      try {
+        return await nip46Nip44Encrypt(
+          bunkerUri: bunker,
+          clientNsec: clientNsec,
+          thirdPartyPubkeyHex: acct.pubkey,
+          plaintext: plaintext,
+        );
+      } catch (err) {
+        throw StateError(
+          'NIP-46 remote bunker could not self-encrypt NIP-44 payload: $err',
+        );
+      }
+    }
+    if (Platform.isAndroid) {
+      return Nip55Signer.nip44Encrypt(
+        plaintext: plaintext,
+        pubkey: acct.pubkey,
+        currentUser: acct.pubkey,
+        signerPackage: acct.signerPackage,
+      );
+    }
+    throw StateError(
+      'Active session cannot self-encrypt NIP-44 payloads. Sign in with local nsec, Android Amber, or a NIP-46 bunker supporting nip44_encrypt.',
+    );
+  }
+
+  /// Self-decrypts [ciphertext] via NIP-44 v2 using Android Amber (NIP-55) or a
+  /// connected NIP-46 Bunker (used for multi-device Circle snapshot tips).
+  Future<String> nip44DecryptForSelfExternal(String ciphertext) async {
+    if (isReadOnlySession) {
+      throw StateError(
+        'Active account is a read-only watch session. Switch to a signing session in Account.',
+      );
+    }
+    final acct = account;
+    if (acct == null || acct.pubkey.trim().isEmpty) {
+      throw StateError('No active signing account.');
+    }
+    final bunker = bunkerUri?.trim();
+    final clientNsec = bunkerClientNsec?.trim();
+    if (bunker != null &&
+        bunker.isNotEmpty &&
+        clientNsec != null &&
+        clientNsec.isNotEmpty) {
+      await RustBridge.ensureInitialized();
+      try {
+        return await nip46Nip44Decrypt(
+          bunkerUri: bunker,
+          clientNsec: clientNsec,
+          thirdPartyPubkeyHex: acct.pubkey,
+          ciphertext: ciphertext,
+        );
+      } catch (err) {
+        throw StateError(
+          'NIP-46 remote bunker could not self-decrypt NIP-44 payload: $err',
+        );
+      }
+    }
+    if (Platform.isAndroid) {
+      return Nip55Signer.nip44Decrypt(
+        ciphertext: ciphertext,
+        pubkey: acct.pubkey,
+        currentUser: acct.pubkey,
+        signerPackage: acct.signerPackage,
+      );
+    }
+    throw StateError(
+      'Active session cannot self-decrypt NIP-44 payloads. Sign in with local nsec, Android Amber, or a NIP-46 bunker supporting nip44_decrypt.',
+    );
+  }
+
   SavedAccountSessionDto? get activeSavedSession =>
       savedAccounts.where((s) => s.id == activeAccountId).firstOrNull;
 
