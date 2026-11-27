@@ -13,9 +13,9 @@ interface AppLinkNavigationWindow {
 /**
  * Convert a verified public Earthly URL into a same-origin WebView route.
  *
- * The native app must never navigate its privileged WebView to the supplied
+ * The native app must never navigate its WebView to an arbitrary supplied
  * network origin. It keeps only Earthly's path/query and reloads that route
- * under the existing Tauri origin. Android's assetlinks verification decides
+ * under the local origin. Android's assetlinks verification decides
  * whether the OS launches Earthly; this remains a second validation boundary.
  */
 export function earthlyRouteFromAppLink(value: string): string | null {
@@ -77,8 +77,8 @@ export function earthlyAppLinkNavigationTarget(value: string, currentRoute: stri
 /**
  * Apply a warm Android App Link inside the existing WebView.
  *
- * A full `location.assign()` reload re-registers the Tauri deep-link plugin and
- * asks it for the Activity's retained cold-launch URL again. If that retained
+ * A full `location.assign()` reload re-runs cold-launch deep-link handling and
+ * asks for the Activity's retained cold-launch URL again. If that retained
  * URL is older than the warm link, it can win the bootstrap race and send the
  * user back to the previous screen. Updating history in place keeps the current
  * bridge subscription alive and lets the canonical router reconcile the route.

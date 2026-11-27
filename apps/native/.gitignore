@@ -47,6 +47,8 @@ app.*.map.json
 # Widget Preview related
 .widget_preview/
 
-# Compiled Rust FFI shared libraries built by scripts/build-android-rust.sh & build-macos-rust.sh
+# Compiled Rust FFI shared libraries built by scripts/build-*-rust.*
 android/app/src/main/jniLibs/
 macos/Frameworks/
+linux/lib/
+windows/lib/

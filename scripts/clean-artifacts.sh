@@ -12,9 +12,7 @@ fi
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 relative_targets=(
   target
-  src-tauri/gen/android/.gradle
-  src-tauri/gen/android/app/build
-  src-tauri/gen/android/build
+  apps/native/build
   ai-suite/artifacts
   android-suite/artifacts
   out

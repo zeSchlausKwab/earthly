@@ -11,19 +11,6 @@ afterEach(() => {
 })
 
 describe('Maplet resource grants', () => {
-	test('explains native import alternatives before fetching a nonexistent bundled backend', async () => {
-		Object.defineProperty(globalThis, 'window', {
-			configurable: true,
-			value: { __TAURI_INTERNALS__: {} },
-		})
-		const network = spyOn(globalThis, 'fetch').mockRejectedValue(
-			new Error('Network must not be reached'),
-		)
-		await expect(
-			resolveMapletResource(LIVE_MAPPER_SOURCE_URL, new AbortController().signal),
-		).rejects.toThrow('choose a JSON file, paste JSON, or follow a published collection')
-		expect(network).not.toHaveBeenCalled()
-	})
 	test.each([
 		'https://example.com/data.json',
 		`${LIVE_MAPPER_SOURCE_URL}&extra=true`,

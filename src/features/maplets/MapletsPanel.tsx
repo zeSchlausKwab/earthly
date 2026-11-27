@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useState } from 'react'
-import { isTauri } from '@tauri-apps/api/core'
+import { isTauri } from '@/config/platform'
 import type { FeatureCollection } from 'geojson'
 import { ArrowLeft, Check, ChevronRight, Layers2, LoaderCircle, RefreshCw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'

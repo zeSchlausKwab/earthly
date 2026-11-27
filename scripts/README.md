@@ -9,7 +9,7 @@ commands.
 | Area | Package command / entrypoint |
 |---|---|
 | Production build | `bun run build:production` |
-| Android install/release/E2E | `bun run tauri:android:*`, `bun run release:android:*`, `bun run e2e:android:*` |
+| Native Rust FFI & Zapstore | `bun run native:*:rust`, `bun run release:zapstore:*` |
 | Unified seed data | `bun run seed <command>` |
 | Local relay reset | `bun run relay:reset` |
 | Architecture diagrams | `bun run docs:diagrams` |

@@ -26,14 +26,4 @@ describe('NIP-07 login availability', () => {
 
 		expect(shouldOfferNip07Login()).toBe(true)
 	})
-
-	test('is hidden in Tauri apps', () => {
-		Object.defineProperty(globalThis, 'window', {
-			configurable: true,
-			value: { __TAURI_INTERNALS__: { invoke: () => undefined } },
-			writable: true,
-		})
-
-		expect(shouldOfferNip07Login()).toBe(false)
-	})
 })

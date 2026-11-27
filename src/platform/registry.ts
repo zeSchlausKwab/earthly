@@ -1,4 +1,3 @@
-import { isTauri } from '@/config/platform'
 import type {
 	AccountSessionService,
 	LocalNodeService,
@@ -9,12 +8,6 @@ import type {
 import { webLocalNodeService } from './web/localNode'
 import { webSavedRegionService } from './web/savedRegions'
 
-let localNodeServicePromise: Promise<LocalNodeService> | null = null
-let accountSessionServicePromise: Promise<AccountSessionService | null> | null = null
-let nativeDeepLinksPromise: Promise<void> | null = null
-let publishOutboxServicePromise: Promise<PublishOutboxService | null> | null = null
-let savedRegionServicePromise: Promise<SavedRegionService> | null = null
-let supportDiagnosticsServicePromise: Promise<SupportDiagnosticsService | null> | null = null
 let pendingNativeDeepLink: string | null = null
 
 export const LOCAL_BLOBS_CHANGED_EVENT = 'earthly:local-blobs-changed'
@@ -32,46 +25,27 @@ export interface NativeDeepLinkDetail {
 
 let localBlobRevision = 0
 
-/** The browser keeps its existing localStorage session; native shells add a durable mirror. */
+/** The browser keeps its localStorage session; native apps live in `apps/native/`. */
 export function getAccountSessionService(): Promise<AccountSessionService | null> {
-	accountSessionServicePromise ??= isTauri()
-		? import('./tauri/accountSessions').then(
-				({ tauriAccountSessionService }) => tauriAccountSessionService,
-			)
-		: Promise.resolve(null)
-	return accountSessionServicePromise
+	return Promise.resolve(null)
 }
 
 export function getLocalNodeService(): Promise<LocalNodeService> {
-	localNodeServicePromise ??= isTauri()
-		? import('./tauri/localNode').then(({ tauriLocalNodeService }) => tauriLocalNodeService)
-		: Promise.resolve(webLocalNodeService)
-	return localNodeServicePromise
+	return Promise.resolve(webLocalNodeService)
 }
 
 /** The browser deliberately has no durable publish outbox. */
 export function getPublishOutboxService(): Promise<PublishOutboxService | null> {
-	publishOutboxServicePromise ??= isTauri()
-		? import('./tauri/outbox').then(({ tauriPublishOutboxService }) => tauriPublishOutboxService)
-		: Promise.resolve(null)
-	return publishOutboxServicePromise
+	return Promise.resolve(null)
 }
 
 export function getSavedRegionService(): Promise<SavedRegionService> {
-	savedRegionServicePromise ??= isTauri()
-		? import('./tauri/savedRegions').then(({ tauriSavedRegionService }) => tauriSavedRegionService)
-		: Promise.resolve(webSavedRegionService)
-	return savedRegionServicePromise
+	return Promise.resolve(webSavedRegionService)
 }
 
-/** Redacted native health reports are available only where the embedded node exists. */
+/** Redacted native health reports are available only in the native Flutter/Rust apps. */
 export function getSupportDiagnosticsService(): Promise<SupportDiagnosticsService | null> {
-	supportDiagnosticsServicePromise ??= isTauri()
-		? import('./tauri/diagnostics').then(
-				({ tauriSupportDiagnosticsService }) => tauriSupportDiagnosticsService,
-			)
-		: Promise.resolve(null)
-	return supportDiagnosticsServicePromise
+	return Promise.resolve(null)
 }
 
 /** Notify mounted delivery surfaces after an enqueue or state transition. */
@@ -80,20 +54,9 @@ export function notifyPublishOutboxChanged(): void {
 	window.dispatchEvent(new Event(PUBLISH_OUTBOX_CHANGED_EVENT))
 }
 
-/** Start the OS URL bridge once; the browser build deliberately remains inert. */
+/** Browser build does not register an OS deep-link bridge. */
 export function startNativeDeepLinks(): Promise<void> {
-	if (!isTauri()) return Promise.resolve()
-	nativeDeepLinksPromise ??= import('./tauri/deepLinks')
-		.then(({ startTauriDeepLinks }) =>
-			startTauriDeepLinks((urls) => {
-				for (const url of urls) notifyNativeDeepLink(url)
-			}),
-		)
-		.catch((error) => {
-			nativeDeepLinksPromise = null
-			console.warn('Unable to start native deep-link handling', error)
-		})
-	return nativeDeepLinksPromise
+	return Promise.resolve()
 }
 
 export function getPendingNativeDeepLink(): string | null {
@@ -102,14 +65,6 @@ export function getPendingNativeDeepLink(): string | null {
 
 export function consumePendingNativeDeepLink(url: string): void {
 	if (pendingNativeDeepLink === url) pendingNativeDeepLink = null
-}
-
-function notifyNativeDeepLink(url: string): void {
-	pendingNativeDeepLink = url
-	if (typeof window === 'undefined') return
-	window.dispatchEvent(
-		new CustomEvent<NativeDeepLinkDetail>(NATIVE_DEEP_LINK_EVENT, { detail: { url } }),
-	)
 }
 
 export function getLocalBlobRevision(): number {
@@ -121,7 +76,7 @@ export function notifyLocalBlobsChanged(hashes: string[]): void {
 	if (typeof window === 'undefined') return
 	window.dispatchEvent(
 		new CustomEvent<LocalBlobsChangedDetail>(LOCAL_BLOBS_CHANGED_EVENT, {
-			detail: { hashes: [...new Set(hashes)], revision: localBlobRevision },
+			detail: { hashes, revision: localBlobRevision },
 		}),
 	)
 }

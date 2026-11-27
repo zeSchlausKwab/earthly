@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "city.earthly" "\0"
-            VALUE "FileDescription", "earthly_native" "\0"
+            VALUE "CompanyName", "Earthly" "\0"
+            VALUE "FileDescription", "Earthly" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "earthly_native" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 city.earthly. All rights reserved." "\0"
-            VALUE "OriginalFilename", "earthly_native.exe" "\0"
-            VALUE "ProductName", "earthly_native" "\0"
+            VALUE "InternalName", "earthly" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Earthly. All rights reserved." "\0"
+            VALUE "OriginalFilename", "earthly.exe" "\0"
+            VALUE "ProductName", "Earthly" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

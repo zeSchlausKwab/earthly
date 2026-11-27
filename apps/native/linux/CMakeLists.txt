@@ -4,10 +4,10 @@ project(runner LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "earthly_native")
+set(BINARY_NAME "earthly")
 # The unique GTK application identifier for this application. See:
 # https://wiki.gnome.org/HowDoI/ChooseApplicationID
-set(APPLICATION_ID "city.earthly.earthly_native")
+set(APPLICATION_ID "city.earthly")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
@@ -124,5 +124,19 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 # Install the AOT library on non-Debug builds only.
 if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    COMPONENT Runtime)
+endif()
+
+# Install the Rust FFI shared library built by scripts/build-linux-rust.sh.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/lib/libearthly_ffi.so")
+  install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/lib/libearthly_ffi.so"
+    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    COMPONENT Runtime)
+endif()
+
+# Bundle Earthly application icon alongside desktop assets.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/earthly.png")
+  install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/earthly.png"
+    DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
     COMPONENT Runtime)
 endif()

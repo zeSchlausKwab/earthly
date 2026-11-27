@@ -65,35 +65,28 @@ describe('Maplet tool directory', () => {
 		expect(document.querySelector('[role="tabpanel"]')?.textContent).toContain('aaaaaaaaaaaa…')
 		expect(document.querySelector('button[aria-label="Open <img src=x>"]')).not.toBeNull()
 	})
-	test('native users can open bundled GMapper and see unavailable downloaded tools', () => {
-		const previous = Object.getOwnPropertyDescriptor(globalThis, 'isTauri')
-		Object.defineProperty(globalThis, 'isTauri', { configurable: true, value: true })
-		try {
-			const document = render({
-				catalog: [
-					{
-						id: 'my-maps-viewer',
-						title: 'GMapper',
-						description: 'Public My Maps.',
-						source: 'bundled',
-					},
-					{
-						id: 'foreign',
-						title: 'Foreign app',
-						description: 'A published tool.',
-						source: 'nostr',
-					},
-				],
-			})
-			expect(
-				document.querySelector('button[aria-label="Open GMapper"]')?.hasAttribute('disabled'),
-			).toBe(false)
-			expect(
-				document.querySelector('button[aria-label="Open Foreign app"]')?.hasAttribute('disabled'),
-			).toBe(true)
-		} finally {
-			if (previous) Object.defineProperty(globalThis, 'isTauri', previous)
-			else Reflect.deleteProperty(globalThis, 'isTauri')
-		}
+	test('web users can open both bundled GMapper and downloaded Nostr tools', () => {
+		const document = render({
+			catalog: [
+				{
+					id: 'my-maps-viewer',
+					title: 'GMapper',
+					description: 'Public My Maps.',
+					source: 'bundled',
+				},
+				{
+					id: 'foreign',
+					title: 'Foreign app',
+					description: 'A published tool.',
+					source: 'nostr',
+				},
+			],
+		})
+		expect(
+			document.querySelector('button[aria-label="Open GMapper"]')?.hasAttribute('disabled'),
+		).toBe(false)
+		expect(
+			document.querySelector('button[aria-label="Open Foreign app"]')?.hasAttribute('disabled'),
+		).toBe(false)
 	})
 })

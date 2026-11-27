@@ -9,7 +9,6 @@ members = [
   "crates/earthly-spatial",
   "crates/earthly-storage",
   "crates/earthly-wasm",
-  "src-tauri",
 ]
 exclude = ["crates/nostr-relay-builder"]
 resolver = "2"

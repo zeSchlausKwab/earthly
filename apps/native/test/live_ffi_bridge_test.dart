@@ -24,8 +24,9 @@ String? _probeEarthlyFfiDylib() {
     candidates.addAll([
       'macos/Frameworks/libearthly_ffi.dylib',
       'apps/native/macos/Frameworks/libearthly_ffi.dylib',
+      'build/macos/Build/Products/Release/Earthly.app/Contents/Frameworks/libearthly_ffi.dylib',
+      'build/macos/Build/Products/Debug/Earthly.app/Contents/Frameworks/libearthly_ffi.dylib',
       'build/macos/Build/Products/Release/earthly_native.app/Contents/Frameworks/libearthly_ffi.dylib',
-      'build/macos/Build/Products/Debug/earthly_native.app/Contents/Frameworks/libearthly_ffi.dylib',
       '../../target/aarch64-apple-darwin/release/libearthly_ffi.dylib',
       '../../target/x86_64-apple-darwin/release/libearthly_ffi.dylib',
       '../../target/release/libearthly_ffi.dylib',

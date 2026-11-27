@@ -1,0 +1,428 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    name: Android (arm64-v8a APK & AAB)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@v4
+
+      - name: Read release version
+        run: |
+          set -euo pipefail
+          VERSION="$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')"
+          PUBSPEC_VERSION="$(python3 -c 'import re; m = re.search(r"^version:\s*([^+\s]+)\+(\d+)", open("apps/native/pubspec.yaml").read(), re.M); assert m; print(m.group(1))')"
+          test -n "$VERSION"
+          if [ "$VERSION" != "$PUBSPEC_VERSION" ]; then
+            echo "Version mismatch: package.json=$VERSION pubspec.yaml=$PUBSPEC_VERSION" >&2
+            exit 1
+          fi
+          printf 'EARTHLY_VERSION=%s\n' "$VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+
+      - name: Install Android build packages & NDK
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.50.1"
+          channel: stable
+          cache: true
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Cache Cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-ndk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      - name: Build earthly-ffi arm64-v8a shared library
+        run: |
+          set -euo pipefail
+          CARGO_INCREMENTAL=0 \
+          RUSTFLAGS="-C debuginfo=0 -C link-arg=-Wl,-z,max-page-size=16384 ${RUSTFLAGS:-}" \
+            cargo ndk -t arm64-v8a -p 26 -o apps/native/android/app/src/main/jniLibs \
+            build -p earthly-ffi --release
+          test -f apps/native/android/app/src/main/jniLibs/arm64-v8a/libearthly_ffi.so
+
+      - name: Configure Android release signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${ANDROID_KEYSTORE_BASE64:?Missing ANDROID_KEYSTORE_BASE64}"
+          : "${ANDROID_KEYSTORE_PASSWORD:?Missing ANDROID_KEYSTORE_PASSWORD}"
+          : "${ANDROID_KEY_ALIAS:?Missing ANDROID_KEY_ALIAS}"
+          : "${ANDROID_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD}"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/earthly-release.jks"
+          {
+            printf 'storeFile=%s\n' "$RUNNER_TEMP/earthly-release.jks"
+            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+          } > apps/native/android/keystore.properties
+
+      - name: Fetch Flutter dependencies
+        working-directory: apps/native
+        run: flutter pub get
+
+      - name: Build signed arm64-v8a APK & AAB
+        working-directory: apps/native
+        run: |
+          set -euo pipefail
+          flutter build apk --release --target-platform android-arm64
+          flutter build appbundle --release --target-platform android-arm64
+
+      - name: Verify arm64-v8a-only ABI, release signatures, and generate assetlinks.json
+        run: |
+          set -euo pipefail
+          APK="apps/native/build/app/outputs/flutter-apk/app-release.apk"
+          AAB="apps/native/build/app/outputs/bundle/release/app-release.aab"
+          test -f "$APK"
+          test -f "$AAB"
+
+          APK_ENTRIES="$(unzip -Z1 "$APK")"
+          printf '%s\n' "$APK_ENTRIES" | grep -qx 'lib/arm64-v8a/libearthly_ffi.so'
+          if printf '%s\n' "$APK_ENTRIES" | grep -qE '^lib/(armeabi-v7a|x86|x86_64)/'; then
+            echo "Unexpected non-arm64-v8a ABI found in APK" >&2
+            exit 1
+          fi
+
+          AAB_ENTRIES="$(unzip -Z1 "$AAB")"
+          printf '%s\n' "$AAB_ENTRIES" | grep -qx 'base/lib/arm64-v8a/libearthly_ffi.so'
+          if printf '%s\n' "$AAB_ENTRIES" | grep -qE '^base/lib/(armeabi-v7a|x86|x86_64)/'; then
+            echo "Unexpected non-arm64-v8a ABI found in AAB" >&2
+            exit 1
+          fi
+
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner | sort -V | tail -n 1)"
+          test -n "$APKSIGNER"
+          VERIFY_OUT="$("$APKSIGNER" verify --verbose --print-certs "$APK")"
+          printf '%s\n' "$VERIFY_OUT"
+          if printf '%s\n' "$VERIFY_OUT" | grep -q 'CN=Android Debug'; then
+            echo "Release APK was signed with the debug certificate instead of the release keystore" >&2
+            exit 1
+          fi
+
+          jarsigner -verify "$AAB"
+
+          mkdir -p out/release/android
+          SHA256_RAW="$(printf '%s\n' "$VERIFY_OUT" | sed -n 's/.*Signer #1 certificate SHA-256 digest: \([0-9a-fA-F]\{64\}\).*/\1/p' | head -n 1)"
+          test -n "$SHA256_RAW"
+          python3 - "$SHA256_RAW" "out/release/android/assetlinks.json" <<'PY'
+          import json, sys
+          raw = sys.argv[1].upper()
+          fp = ":".join(raw[i:i+2] for i in range(0, len(raw), 2))
+          doc = [{
+              "relation": ["delegate_permission/common.handle_all_urls"],
+              "target": {
+                  "namespace": "android_app",
+                  "package_name": "city.earthly",
+                  "sha256_cert_fingerprints": [fp],
+              },
+          }]
+          with open(sys.argv[2], "w", encoding="utf-8") as f:
+              json.dump(doc, f, indent=2)
+              f.write("\n")
+          PY
+
+          cp "$APK" "out/release/android/earthly-android-arm64-v8a.apk"
+          cp "$APK" "out/release/android/earthly-${EARTHLY_VERSION}-arm64-v8a.apk"
+          cp "$AAB" "out/release/android/earthly-${EARTHLY_VERSION}-arm64-v8a.aab"
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          path: out/release/android/
+          if-no-files-found: error
+
+  macos:
+    name: macOS (Apple Silicon DMG)
+    runs-on: macos-14
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@v4
+
+      - name: Read release version
+        run: |
+          set -euo pipefail
+          VERSION="$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')"
+          test -n "$VERSION"
+          printf 'EARTHLY_VERSION=%s\n' "$VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.50.1"
+          channel: stable
+          cache: true
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache Cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build earthly-ffi arm64 dylib
+        run: ./apps/native/scripts/build-macos-rust.sh
+
+      - name: Fetch Flutter dependencies & build Earthly.app
+        working-directory: apps/native
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter build macos --release
+
+      - name: Embed FFI dylib, ad-hoc sign, verify, and package DMG
+        run: |
+          set -euo pipefail
+          APP="apps/native/build/macos/Build/Products/Release/Earthly.app"
+          DYLIB="$APP/Contents/Frameworks/libearthly_ffi.dylib"
+          test -d "$APP"
+          mkdir -p "$APP/Contents/Frameworks"
+          cp apps/native/macos/Frameworks/libearthly_ffi.dylib "$DYLIB"
+
+          codesign --force --sign - "$DYLIB"
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict "$APP"
+          python3 -c "import ctypes, sys; ctypes.CDLL(sys.argv[1]); print('dlopen OK:', sys.argv[1])" "$DYLIB"
+
+          STAGE="$RUNNER_TEMP/dmg-stage"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE" out/release/macos
+          cp -R "$APP" "$STAGE/Earthly.app"
+          ln -s /Applications "$STAGE/Applications"
+
+          DMG="out/release/macos/earthly-macos-aarch64.dmg"
+          hdiutil create -volname "Earthly" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+          cp "$DMG" "out/release/macos/earthly-${EARTHLY_VERSION}-macos-aarch64.dmg"
+          ls -lh out/release/macos/
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: out/release/macos/
+          if-no-files-found: error
+
+  linux:
+    name: Linux (x86_64 tar.gz)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@v4
+
+      - name: Read release version
+        run: |
+          set -euo pipefail
+          VERSION="$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')"
+          test -n "$VERSION"
+          printf 'EARTHLY_VERSION=%s\n' "$VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Linux desktop & MapLibre build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libgles2-mesa-dev \
+            libcurl4-openssl-dev libuv1-dev libsqlite3-dev libssl-dev
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.50.1"
+          channel: stable
+          cache: true
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build earthly-ffi Linux shared library
+        run: ./apps/native/scripts/build-linux-rust.sh
+
+      - name: Fetch Flutter dependencies & build Linux bundle
+        working-directory: apps/native
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter build linux --release
+
+      - name: Verify bundle & archive tar.gz
+        run: |
+          set -euo pipefail
+          BUNDLE="apps/native/build/linux/x64/release/bundle"
+          test -x "$BUNDLE/earthly"
+          test -f "$BUNDLE/lib/libearthly_ffi.so"
+
+          STAGE="$RUNNER_TEMP/earthly-${EARTHLY_VERSION}-linux-x86_64"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE" out/release/linux
+          cp -a "$BUNDLE/." "$STAGE/"
+
+          tar -C "$RUNNER_TEMP" -czf "out/release/linux/earthly-linux-x86_64.tar.gz" "earthly-${EARTHLY_VERSION}-linux-x86_64"
+          cp "out/release/linux/earthly-linux-x86_64.tar.gz" "out/release/linux/earthly-${EARTHLY_VERSION}-linux-x86_64.tar.gz"
+          ls -lh out/release/linux/
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: out/release/linux/
+          if-no-files-found: error
+
+  windows:
+    name: Windows (x86_64 zip)
+    runs-on: windows-latest
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@v4
+
+      - name: Read release version
+        shell: pwsh
+        run: |
+          $pkg = Get-Content -Raw package.json | ConvertFrom-Json
+          if (-not $pkg.version) { throw "Missing version in package.json" }
+          "EARTHLY_VERSION=$($pkg.version)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.50.1"
+          channel: stable
+          cache: true
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build earthly-ffi Windows DLL
+        shell: pwsh
+        run: ./apps/native/scripts/build-windows-rust.ps1
+
+      - name: Fetch Flutter dependencies & build Windows bundle
+        working-directory: apps/native
+        shell: pwsh
+        run: |
+          flutter pub get
+          flutter build windows --release
+
+      - name: Verify bundle & archive zip
+        shell: pwsh
+        run: |
+          $ReleaseDir = "apps\native\build\windows\x64\runner\Release"
+          if (-not (Test-Path "$ReleaseDir\earthly.exe")) { throw "Missing earthly.exe" }
+          if (-not (Test-Path "$ReleaseDir\earthly_ffi.dll")) { throw "Missing earthly_ffi.dll" }
+
+          New-Item -ItemType Directory -Force -Path "out\release\windows" | Out-Null
+          $StableZip = "out\release\windows\earthly-windows-x86_64.zip"
+          $VersionZip = "out\release\windows\earthly-$($env:EARTHLY_VERSION)-windows-x86_64.zip"
+          Compress-Archive -Path "$ReleaseDir\*" -DestinationPath $StableZip -Force
+          Copy-Item -Force $StableZip $VersionZip
+          Get-ChildItem "out\release\windows" | Format-Table Name, Length
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: out/release/windows/
+          if-no-files-found: error
+
+  publish:
+    name: Checksums & GitHub Release
+    needs: [android, macos, linux, windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@v4
+
+      - name: Read release version
+        run: |
+          set -euo pipefail
+          VERSION="$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')"
+          test -n "$VERSION"
+          printf 'EARTHLY_VERSION=%s\n' "$VERSION" >> "$GITHUB_ENV"
+
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: out/release-raw
+
+      - name: Consolidate artifacts & generate SHA256SUMS.txt
+        run: |
+          set -euo pipefail
+          mkdir -p out/release
+          find out/release-raw -type f -exec cp {} out/release/ \;
+          (
+            cd out/release
+            sha256sum $(LC_ALL=C ls -1 | grep -v '^SHA256SUMS\.txt$') > SHA256SUMS.txt
+          )
+          cat out/release/SHA256SUMS.txt
+
+      - name: Upload unified release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: earthly-release-${{ env.EARTHLY_VERSION }}
+          path: out/release/
+          if-no-files-found: error
+
+      - name: Publish tagged GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            out/release/earthly-android-arm64-v8a.apk
+            out/release/earthly-${{ env.EARTHLY_VERSION }}-arm64-v8a.apk
+            out/release/earthly-${{ env.EARTHLY_VERSION }}-arm64-v8a.aab
+            out/release/earthly-macos-aarch64.dmg
+            out/release/earthly-${{ env.EARTHLY_VERSION }}-macos-aarch64.dmg
+            out/release/earthly-linux-x86_64.tar.gz
+            out/release/earthly-${{ env.EARTHLY_VERSION }}-linux-x86_64.tar.gz
+            out/release/earthly-windows-x86_64.zip
+            out/release/earthly-${{ env.EARTHLY_VERSION }}-windows-x86_64.zip
+            out/release/assetlinks.json
+            out/release/SHA256SUMS.txt

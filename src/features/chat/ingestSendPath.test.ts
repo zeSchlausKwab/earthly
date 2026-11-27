@@ -66,9 +66,10 @@ describe('composeOutboundContent — D-11 send-path invariant', () => {
 		const serialized = JSON.stringify(content)
 		// handle + summary present
 		expect(serialized).toContain(handleId)
-		// fullRows must never appear (neither the field name nor a non-sampled row)
+		// fullRows must never appear, and only a small sample of rows is serialized
 		expect(serialized).not.toContain('fullRows')
-		expect(serialized).not.toContain('row-00150-marker') // a mid-table, non-sampled row
+		const serializedRowMatches = serialized.match(/row-\d{5}-marker/g) ?? []
+		expect(serializedRowMatches.length).toBeLessThanOrEqual(20)
 	})
 
 	// CR-01: GeoJSON/json/text carry the full payload in fullRows[0]; the composed

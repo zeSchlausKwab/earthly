@@ -112,7 +112,11 @@ class MainActivity : FlutterActivity() {
         }
         val uri = intent?.dataString ?: return null
         val lower = uri.lowercase()
-        return if (lower.startsWith("earthly:") || lower.startsWith("nostr:") || lower.startsWith("geo:")) {
+        return if (lower.startsWith("earthly:") ||
+            lower.startsWith("nostr:") ||
+            lower.startsWith("geo:") ||
+            lower.startsWith("https://earthly.city/")
+        ) {
             uri
         } else {
             null

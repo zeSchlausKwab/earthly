@@ -25,7 +25,7 @@ function currentRuntimeUrl(options: EarthlyPublicUrlOptions): URL {
  * Resolve the externally meaningful Earthly origin.
  *
  * Browser development keeps its own HTTP(S) origin. Native runtimes always use
- * the public HTTPS origin because `tauri://localhost` / `http://tauri.localhost`
+ * the public HTTPS origin when running outside the canonical web origin
  * only identify the app's private WebView.
  */
 export function earthlyPublicOrigin(options: EarthlyPublicUrlOptions = {}): string {

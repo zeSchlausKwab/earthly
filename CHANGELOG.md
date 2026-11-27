@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.0] - 2026-11-27
+
+- Replaced the legacy Tauri Android shell with Earthly's new Flutter + Rust native
+  application (`city.earthly`, `versionCode 1040`) across Android (`arm64-v8a`),
+  macOS (`arm64`), Linux (`x86_64`), and Windows (`x86_64`).
+- Upgraded Private MLS Groups to Cordn v0.5 compatibility across web and native:
+  persistent streaming MLS subscriptions, encrypted Blossom media attachments,
+  `cordn1` reference links, multi-device NIP-44 session/profile sync, sync health
+  and recovery actions, and encrypted map edit proposals (`kind 37519`) with
+  owner-only in-place apply.
+- Added the shared `earthly-wasm` Rust geometry and vision engine to the web app
+  and removed legacy Tauri build/runtime shims.
+- Added GPU point clustering, a thumb-reachable Re-North compass button, a 5-tab
+  General Settings drawer (Map, Relays, Chat & AI, Wallet, Data), camera capture
+  with Android `FileProvider` support, post-publish Desk release with one-tap
+  Reopen, and context-aware New / Update / Copy / Propose publishing.
+- Added unified multi-platform GitHub Release builds and direct download links in
+  the web app for Android (Zapstore & APK), macOS, Linux, and Windows.
+
 ## [0.1.22] - 2026-10-23
 
 - Upgrade Applesauce to v7 with account-specific relay authentication, automatic

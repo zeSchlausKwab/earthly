@@ -25,7 +25,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run Cargo workspace tests
-        run: cargo test --workspace --exclude earthly-desktop
+        run: cargo test --workspace
 
       - name: Check wasm32-unknown-unknown crates
         run: >

@@ -9,7 +9,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
-        android:label="Earthly Native"
+        android:label="Earthly"
         android:name="${applicationName}"
         android:allowBackup="false"
         android:networkSecurityConfig="@xml/network_security_config"
@@ -53,6 +53,13 @@
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="geo"/>
+            </intent-filter>
+            <!-- Verified HTTPS Android App Links for earthly.city -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="earthly.city" android:pathPrefix="/"/>
             </intent-filter>
         </activity>
         <service

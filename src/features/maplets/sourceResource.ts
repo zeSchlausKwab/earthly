@@ -1,5 +1,4 @@
 import { LIVE_MAPPER_SOURCE_URL } from './liveMapper'
-import { isTauri } from '@/config/platform'
 import { fetchMyMapsKml, myMapsExportUrl } from './myMaps'
 
 /** Narrow grants: browser-only My Maps exports and the fixed Liveuamap backend feed. */
@@ -16,10 +15,6 @@ export async function resolveMapletResource(url: string, signal: AbortSignal): P
 	if (url !== LIVE_MAPPER_SOURCE_URL)
 		throw new Error(
 			'Earthly has not enabled this resource. Use a supported My Maps export or the reviewed Live Mapper feed.',
-		)
-	if (isTauri())
-		throw new Error(
-			'The source connector is available in the Earthly web app. On this device, choose a JSON file, paste JSON, or follow a published collection.',
 		)
 	const response = await fetch('/api/maplets/liveuamap-yemen', {
 		signal,
