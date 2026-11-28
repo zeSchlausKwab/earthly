@@ -1280,4 +1280,186 @@ void main() {
       'circle',
     );
   });
+
+  testWidgets(
+      'DeskSheet supports optional onBack and renders zero wrapping button rows or overflows on 360dp, 384dp, and 412dp phones',
+      (WidgetTester tester) async {
+    const features = <DrawnFeature>[
+      DrawnFeature(
+        id: 'l-1',
+        kind: DrawToolMode.line,
+        name: 'East Path',
+        vertices: [
+          Geographic(lon: 16.36, lat: 48.20),
+          Geographic(lon: 16.37, lat: 48.20),
+        ],
+      ),
+      DrawnFeature(
+        id: 'l-2',
+        kind: DrawToolMode.line,
+        name: 'West Path',
+        vertices: [
+          Geographic(lon: 16.37, lat: 48.20),
+          Geographic(lon: 16.38, lat: 48.20),
+        ],
+      ),
+      DrawnFeature(
+        id: 'p-1',
+        kind: DrawToolMode.polygon,
+        name: 'Meadow',
+        vertices: [
+          Geographic(lon: 16.36, lat: 48.20),
+          Geographic(lon: 16.37, lat: 48.20),
+          Geographic(lon: 16.37, lat: 48.21),
+        ],
+      ),
+    ];
+
+    for (final viewport in const [
+      Size(360, 780),
+      Size(384, 854),
+      Size(412, 915),
+    ]) {
+      setTestViewport(tester, viewport);
+      var backTapped = false;
+
+      await tester.pumpWidget(
+        wrapSheetInStack(
+          DeskSheet(
+            key: ValueKey('desk-narrow-${viewport.width}'),
+            activeDraftId: 'draft-narrow',
+            savedDrafts: const [],
+            relayUrls: const ['wss://relay.earthly.city'],
+            draftTitle: 'Narrow Phone Audit',
+            audience: DraftAudienceChoice.publicRelay,
+            account: null,
+            shelfMaps: const [],
+            deskStories: const [],
+            deskAtlases: const [],
+            drawnFeatures: features,
+            selectedDraftFeatureIds: const {'l-1', 'l-2', 'p-1'},
+            canUndo: true,
+            canRedo: true,
+            onUndo: () {},
+            onRedo: () {},
+            onBack: () => backTapped = true,
+            onValidateDraft: () async => const DraftValidationDto(
+              valid: true,
+              featureCount: 3,
+              message: 'Valid RFC 7946 GeoJSON (3 features)',
+            ),
+            onToggleSelectDraftFeature: (_) {},
+            onSelectAllDraftFeatures: () {},
+            onClearDraftSelection: () {},
+            onInspectDraftFeature: (_) {},
+            onDuplicateSelectedFeatures: () {},
+            onDeleteSelectedFeatures: () {},
+            onSelectDraft: (_) {},
+            onCreateNewDraft: () {},
+            onDeleteDraft: (_) {},
+            onDraftTitleChanged: (_) {},
+            onAudienceChanged: (_) {},
+            onToggleShelfVisibility: (_) {},
+            onRemoveShelfMap: (_) {},
+            onInspectShelfMap: (_) {},
+            onFlyToShelfMap: (_) {},
+            onCloneShelfMapToDraft: (_) {},
+            onOpenShelfDiscussion: (_) {},
+            onOpenDeskStory: (_) {},
+            onRemoveDeskStory: (_) {},
+            onOpenDeskAtlas: (_) {},
+            onRemoveDeskAtlas: (_) {},
+            onRunGeoAction: (_) {},
+            onPublishDraft: (_, _) async => testPublishOutcome(),
+            onComposeStory: () {},
+            onCreateAtlas: () {},
+            onImportGeoJson: () {},
+            onImportOsm: () {},
+            onOpenRouting: () {},
+            onPasteGeoJsonFromClipboard: () {},
+            onExportGeoJsonFile: () {},
+            onCopyGeoJson: () {},
+            onClearDraftFeatures: () {},
+            pendingOutboxCount: 2,
+            onOpenOutbox: () {},
+            onClose: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'Unexpected overflow at $viewport',
+      );
+
+      // 1. Optional Back button renders and fires callback
+      expect(find.byKey(const Key('desk-back-btn')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('desk-back-btn')));
+      await tester.pump();
+      expect(backTapped, isTrue);
+
+      // 2. Duplicate / Delete selected stay on a single aligned non-wrapping row
+      final verticalScrollable = find
+          .byWidgetPredicate(
+            (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+          )
+          .first;
+      final dupFinder = find.byKey(const Key('desk-duplicate-selected-btn'));
+      final delFinder = find.byKey(const Key('desk-delete-selected-btn'));
+      await tester.scrollUntilVisible(
+        dupFinder,
+        120,
+        scrollable: verticalScrollable,
+      );
+      await tester.pumpAndSettle();
+      final dupRect = tester.getRect(dupFinder);
+      final delRect = tester.getRect(delFinder);
+      expect(
+        (dupRect.top - delRect.top).abs(),
+        lessThan(1.0),
+        reason: 'Duplicate & Delete should sit on one horizontal row at $viewport',
+      );
+
+      // 3. Spatial Tools accordion uses structured 2-column grid with zero ragged wrapping
+      await scrollAndTap(
+        tester,
+        find.byKey(const Key('desk-spatial-tools-tile')),
+        delta: 180,
+      );
+      expect(find.byKey(const Key('desk-spatial-actions-grid')), findsOneWidget);
+      final rotFinder = find.byKey(const Key('workbench-rotate-selected'));
+      final scaleFinder = find.byKey(const Key('workbench-scale-selected'));
+      await tester.scrollUntilVisible(
+        rotFinder,
+        140,
+        scrollable: verticalScrollable,
+      );
+      await tester.pumpAndSettle();
+      final rotRect = tester.getRect(rotFinder);
+      final scaleRect = tester.getRect(scaleFinder);
+      expect(
+        (rotRect.top - scaleRect.top).abs(),
+        lessThan(1.0),
+        reason: 'Rotate and Scale should align cleanly in 2-col grid at $viewport',
+      );
+
+      // 4. Publish Target SegmentedButton labels stay on ONE single line (zero wrap!)
+      final mlsText = find.text('MLS Group');
+      await tester.scrollUntilVisible(
+        mlsText,
+        140,
+        scrollable: verticalScrollable,
+      );
+      await tester.pumpAndSettle();
+      final pubRect = tester.getRect(find.text('Public'));
+      final mlsRect = tester.getRect(mlsText);
+      expect(
+        (pubRect.height - mlsRect.height).abs(),
+        lessThan(2.0),
+        reason: 'MLS Group label must stay single-line like Public at $viewport',
+      );
+      expect(tester.takeException(), isNull);
+    }
+  });
 }

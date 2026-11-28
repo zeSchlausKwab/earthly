@@ -19,6 +19,65 @@ enum DrawToolMode {
   measure,
 }
 
+/// Top-level contextual toolbar group for a [DrawToolMode].
+enum DrawToolGroup {
+  select,
+  draw,
+  shapesSpatial,
+}
+
+extension DrawToolModeMeta on DrawToolMode {
+  /// Returns the contextual toolbar group for this mode, or `null` for [browse].
+  DrawToolGroup? get toolGroup => switch (this) {
+        DrawToolMode.browse => null,
+        DrawToolMode.select ||
+        DrawToolMode.editVertices ||
+        DrawToolMode.boxSelect =>
+          DrawToolGroup.select,
+        DrawToolMode.point ||
+        DrawToolMode.line ||
+        DrawToolMode.polygon ||
+        DrawToolMode.freehand ||
+        DrawToolMode.arrow ||
+        DrawToolMode.annotation =>
+          DrawToolGroup.draw,
+        DrawToolMode.shape ||
+        DrawToolMode.splitByLine ||
+        DrawToolMode.measure =>
+          DrawToolGroup.shapesSpatial,
+      };
+
+  /// Whether this tool accepts center-reticle vertex drops in Crosshair mode.
+  bool get supportsCrosshairDrop => switch (this) {
+        DrawToolMode.point ||
+        DrawToolMode.line ||
+        DrawToolMode.polygon ||
+        DrawToolMode.arrow ||
+        DrawToolMode.annotation ||
+        DrawToolMode.splitByLine ||
+        DrawToolMode.measure =>
+          true,
+        DrawToolMode.browse ||
+        DrawToolMode.select ||
+        DrawToolMode.editVertices ||
+        DrawToolMode.boxSelect ||
+        DrawToolMode.freehand ||
+        DrawToolMode.shape =>
+          false,
+      };
+
+  /// Whether this tool accumulates multiple draft vertices in a stroke.
+  bool get isMultiPointStrokeTool => switch (this) {
+        DrawToolMode.line ||
+        DrawToolMode.polygon ||
+        DrawToolMode.arrow ||
+        DrawToolMode.splitByLine ||
+        DrawToolMode.measure =>
+          true,
+        _ => false,
+      };
+}
+
 enum PrimitiveShapeKind {
   circle,
   square,

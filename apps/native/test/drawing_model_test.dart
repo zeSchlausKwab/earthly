@@ -995,4 +995,64 @@ void main() {
       expect(project(ctrl.features.first.vertices[0]).dy, closeTo(150, 0.5));
     });
   });
+
+  group('DrawToolModeMeta contextual grouping', () {
+    test('maps every DrawToolMode to its expected toolbar group and flags', () {
+      expect(DrawToolMode.browse.toolGroup, isNull);
+      expect(DrawToolMode.browse.supportsCrosshairDrop, isFalse);
+      expect(DrawToolMode.browse.isMultiPointStrokeTool, isFalse);
+
+      for (final mode in const [
+        DrawToolMode.select,
+        DrawToolMode.editVertices,
+        DrawToolMode.boxSelect,
+      ]) {
+        expect(mode.toolGroup, DrawToolGroup.select);
+        expect(mode.supportsCrosshairDrop, isFalse);
+        expect(mode.isMultiPointStrokeTool, isFalse);
+      }
+
+      for (final mode in const [
+        DrawToolMode.point,
+        DrawToolMode.line,
+        DrawToolMode.polygon,
+        DrawToolMode.freehand,
+        DrawToolMode.arrow,
+        DrawToolMode.annotation,
+      ]) {
+        expect(mode.toolGroup, DrawToolGroup.draw);
+      }
+
+      expect(DrawToolMode.freehand.supportsCrosshairDrop, isFalse);
+      expect(DrawToolMode.point.supportsCrosshairDrop, isTrue);
+      expect(DrawToolMode.line.supportsCrosshairDrop, isTrue);
+      expect(DrawToolMode.polygon.supportsCrosshairDrop, isTrue);
+      expect(DrawToolMode.arrow.supportsCrosshairDrop, isTrue);
+      expect(DrawToolMode.annotation.supportsCrosshairDrop, isTrue);
+
+      for (final mode in const [
+        DrawToolMode.shape,
+        DrawToolMode.splitByLine,
+        DrawToolMode.measure,
+      ]) {
+        expect(mode.toolGroup, DrawToolGroup.shapesSpatial);
+      }
+      expect(DrawToolMode.shape.supportsCrosshairDrop, isFalse);
+      expect(DrawToolMode.splitByLine.supportsCrosshairDrop, isTrue);
+      expect(DrawToolMode.measure.supportsCrosshairDrop, isTrue);
+
+      for (final mode in const [
+        DrawToolMode.line,
+        DrawToolMode.polygon,
+        DrawToolMode.arrow,
+        DrawToolMode.splitByLine,
+        DrawToolMode.measure,
+      ]) {
+        expect(mode.isMultiPointStrokeTool, isTrue);
+      }
+      expect(DrawToolMode.point.isMultiPointStrokeTool, isFalse);
+      expect(DrawToolMode.annotation.isMultiPointStrokeTool, isFalse);
+      expect(DrawToolMode.shape.isMultiPointStrokeTool, isFalse);
+    });
+  });
 }
