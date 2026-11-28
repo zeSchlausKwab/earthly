@@ -66,6 +66,7 @@ pub struct PersistedMlsState {
     pub signer_sk_b64: String,
     pub signer_pk_b64: String,
     pub state_b64: String,
+    #[serde(default)]
     pub epochs: Vec<PersistedEpochRecord>,
 }
 
@@ -79,6 +80,7 @@ pub struct GeneratedKeyPackage {
     pub kp_data_b64: String,
     pub signer_sk_b64: String,
     pub signer_pk_b64: String,
+    #[serde(default)]
     pub last_resort: bool,
 }
 

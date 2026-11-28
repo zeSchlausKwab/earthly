@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:earthly_native/controllers/spaces_sync_controller.dart';
 import 'package:earthly_native/nostr/nip55_signer.dart';
+import 'package:earthly_native/runtime/camera_capture.dart';
+import 'package:earthly_native/runtime/device_bridge.dart';
 import 'package:earthly_native/shell/account_session_sheet.dart';
 import 'package:earthly_native/shell/circles_sheet.dart';
 import 'package:earthly_native/shell/desk_sheet.dart';
@@ -1305,5 +1307,280 @@ void main() {
     await tester.tap(diagnosticsTile);
     await tester.pumpAndSettle();
     expect(find.text('Open Rust Core & Outbox Diagnostics'), findsOneWidget);
+  });
+
+  testWidgets(
+      'CameraCapture handles cancellation, temporary denial retry, permanent denial App Settings & Gallery fallback, and no_camera',
+      (WidgetTester tester) async {
+    final fakeCameraFile = PickedBinaryFile(
+      bytes: Uint8List.fromList(const [1, 2, 3, 4]),
+      name: 'camera_photo.jpg',
+      mimeType: 'image/jpeg',
+    );
+    final fakeGalleryFile = PickedBinaryFile(
+      bytes: Uint8List.fromList(const [5, 6, 7, 8]),
+      name: 'gallery_photo.jpg',
+      mimeType: 'image/jpeg',
+    );
+
+    late BuildContext capturedCtx;
+    await tester.pumpWidget(
+      wrapInScaffold(
+        Builder(
+          builder: (ctx) {
+            capturedCtx = ctx;
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+
+    // 1. User cancellation returns null silently with no dialog.
+    final cancelled = await CameraCapture.capturePhoto(
+      capturedCtx,
+      captureOverride: () async =>
+          throw PlatformException(code: 'cancelled', message: 'Cancelled'),
+    );
+    expect(cancelled, isNull);
+    expect(find.byKey(const Key('camera-permission-dialog')), findsNothing);
+
+    // 2. Temporary denial -> dialog offers Try Again -> retry succeeds.
+    var attempts = 0;
+    final retryFuture = CameraCapture.capturePhoto(
+      capturedCtx,
+      captureOverride: () async {
+        attempts += 1;
+        if (attempts == 1) {
+          throw PlatformException(
+            code: 'camera_denied',
+            message: 'Camera permission is required.',
+            details: const {'permanentlyDenied': false},
+          );
+        }
+        return fakeCameraFile;
+      },
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('camera-permission-dialog')), findsOneWidget);
+    expect(find.text('Try Again'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('camera-permission-retry-btn')));
+    await tester.pumpAndSettle();
+    expect((await retryFuture)?.name, 'camera_photo.jpg');
+    expect(attempts, 2);
+
+    // 3. Permanent denial -> dialog offers Open App Settings -> calls openAppSettings.
+    var openedSettings = false;
+    final permSettingsFuture = CameraCapture.capturePhoto(
+      capturedCtx,
+      captureOverride: () async => throw PlatformException(
+        code: 'camera_permanently_denied',
+        message: 'Camera permission was permanently denied.',
+        details: const {'permanentlyDenied': true},
+      ),
+      openSettingsOverride: () async {
+        openedSettings = true;
+        return true;
+      },
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('camera-permission-dialog')), findsOneWidget);
+    expect(find.text('Open App Settings'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('camera-permission-settings-btn')));
+    await tester.pumpAndSettle();
+    expect(await permSettingsFuture, isNull);
+    expect(openedSettings, isTrue);
+
+    // 4. Permanent denial -> Gallery fallback returns gallery image.
+    final permGalleryFuture = CameraCapture.capturePhoto(
+      capturedCtx,
+      captureOverride: () async => throw PlatformException(
+        code: 'camera_permanently_denied',
+        message: 'Camera permission was permanently denied.',
+      ),
+      pickGalleryOverride: () async => fakeGalleryFile,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('camera-permission-gallery-btn')));
+    await tester.pumpAndSettle();
+    expect((await permGalleryFuture)?.name, 'gallery_photo.jpg');
+
+    // 5. No camera available -> Camera Unavailable dialog -> Choose from Gallery.
+    final noCamFuture = CameraCapture.capturePhoto(
+      capturedCtx,
+      captureOverride: () async => throw PlatformException(
+        code: 'no_camera',
+        message: 'No camera app available.',
+      ),
+      pickGalleryOverride: () async => fakeGalleryFile,
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('camera-unavailable-dialog')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('camera-unavailable-gallery-btn')));
+    await tester.pumpAndSettle();
+    expect((await noCamFuture)?.name, 'gallery_photo.jpg');
+  });
+
+  testWidgets(
+      'CirclesSheet auto-recovers groups when empty and renders Recover Groups from Relays CTA',
+      (WidgetTester tester) async {
+    setTestViewport(tester, const Size(440, 900));
+
+    const amberPk =
+        'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd';
+    final recoveredWs = CircleWorkspaceDto(
+      workspaceId: 'ws-recovered-1',
+      groupId: 'grp-recovered-1',
+      name: 'Recovered Ridge Crew',
+      description: 'Restored after app update',
+      recommendedBasemap: 'OpenFreeMap Liberty',
+      role: 'administrator',
+      status: 'active',
+      cursor: BigInt.from(3),
+      epoch: BigInt.from(1),
+      coordinatorPubkey:
+          'fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37',
+      relays: const ['wss://relay.earthly.city'],
+      members: const [amberPk],
+      administrators: const [amberPk],
+      datasets: const [],
+      messages: const [],
+      proposals: const [],
+      createdAtMs: BigInt.from(1791000000000),
+      syncHealth: 'healthy',
+      consecutiveDecryptErrors: 0,
+      autoApproveJoins: false,
+      cordnGroupRef: 'cordn1recovered',
+    );
+
+    // 1. When empty and backup exists, CirclesSheet automatically recovers groups once.
+    var autoPullCalls = 0;
+    var refreshCalls = 0;
+    await tester.pumpWidget(
+      wrapSheetInStack(
+        CirclesSheet(
+          account: const Nip55Account(
+            pubkey: amberPk,
+            signerPackage: 'com.greenart7c3.nostrsigner',
+          ),
+          localNsec: null,
+          bunkerUri: null,
+          bunkerClientNsec: null,
+          mlsDatabasePath: '/tmp/test_mls_auto_recover.sqlite3',
+          cordnServerPubkey:
+              'fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37',
+          relayUrls: const ['wss://relay.earthly.city'],
+          workspaces: const [],
+          pendingJoins: const [],
+          activeCircleId: null,
+          mountedCircleDatasetKeys: const {},
+          activeCommentOverlayId: null,
+          hasDraftGeometry: false,
+          profilesByPubkey: const {},
+          onCordnPubkeyChanged: (_) {},
+          onRefreshCircles: () async => refreshCalls += 1,
+          onPullMultiDevice: () async {
+            autoPullCalls += 1;
+            return MultiDeviceSyncSummaryDto(
+              dekHex: 'a' * 64,
+              tipEventId: 'b' * 64,
+              tipUpdatedAt: BigInt.from(1791000500),
+              uploadedBlobs: 0,
+              adoptedGroups: 1,
+              updatedGroups: 0,
+              mergedGroups: 0,
+              unchangedGroups: 0,
+              removedGroupsMarked: 0,
+              skippedErrors: const [],
+              workspaces: [recoveredWs],
+            );
+          },
+          onWorkspaceUpdated: (_) {},
+          onEnterCircleLens: (_) {},
+          onLeaveCircleLens: () {},
+          onToggleDatasetOnMap: (_, _) {},
+          onZoomToDataset: (_, _) {},
+          onEditDatasetInDraft: (_, _) {},
+          onStartNewPrivateMap: (_) {},
+          onToggleCommentGeometry: (_) {},
+          onSendCircleComment: (_, _, _) async => recoveredWs,
+          onOpenAccount: () {},
+          onClose: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(autoPullCalls, 1);
+    expect(refreshCalls, 1);
+    expect(
+      find.textContaining('Recovered Circles from relays: 1 adopted'),
+      findsOneWidget,
+    );
+
+    // 2. When empty and no backup was found automatically, manual "Recover Groups from Relays" CTA is visible and works.
+    var manualPullCalls = 0;
+    await tester.pumpWidget(
+      wrapSheetInStack(
+        CirclesSheet(
+          key: const Key('circles-empty-manual-test'),
+          account: const Nip55Account(pubkey: amberPk),
+          localNsec: 'nsec1testmanualrecover',
+          bunkerUri: null,
+          bunkerClientNsec: null,
+          mlsDatabasePath: '/tmp/test_mls_manual_recover.sqlite3',
+          cordnServerPubkey:
+              'fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37',
+          relayUrls: const ['wss://relay.earthly.city'],
+          workspaces: const [],
+          pendingJoins: const [],
+          activeCircleId: null,
+          mountedCircleDatasetKeys: const {},
+          activeCommentOverlayId: null,
+          hasDraftGeometry: false,
+          profilesByPubkey: const {},
+          onCordnPubkeyChanged: (_) {},
+          onRefreshCircles: () async {},
+          onPullMultiDevice: () async {
+            manualPullCalls += 1;
+            return const MultiDeviceSyncSummaryDto(
+              dekHex: null,
+              tipEventId: null,
+              tipUpdatedAt: null,
+              uploadedBlobs: 0,
+              adoptedGroups: 0,
+              updatedGroups: 0,
+              mergedGroups: 0,
+              unchangedGroups: 0,
+              removedGroupsMarked: 0,
+              skippedErrors: [],
+              workspaces: [],
+            );
+          },
+          onWorkspaceUpdated: (_) {},
+          onEnterCircleLens: (_) {},
+          onLeaveCircleLens: () {},
+          onToggleDatasetOnMap: (_, _) {},
+          onZoomToDataset: (_, _) {},
+          onEditDatasetInDraft: (_, _) {},
+          onStartNewPrivateMap: (_) {},
+          onToggleCommentGeometry: (_) {},
+          onSendCircleComment: (_, _, _) async => recoveredWs,
+          onOpenAccount: () {},
+          onClose: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(manualPullCalls, 1); // automatic attempt on empty state
+
+    expect(find.byKey(const Key('circles-header-recover-btn')), findsOneWidget);
+    final emptyRecoverBtn = find.byKey(const Key('circles-empty-recover-btn'));
+    expect(emptyRecoverBtn, findsOneWidget);
+    expect(find.text('Recover Groups from Relays'), findsOneWidget);
+
+    await tester.ensureVisible(emptyRecoverBtn);
+    await tester.tap(emptyRecoverBtn);
+    await tester.pumpAndSettle();
+    expect(manualPullCalls, 2);
   });
 }

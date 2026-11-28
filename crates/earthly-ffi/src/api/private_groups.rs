@@ -21,16 +21,17 @@ use earthly_mls::media::{
 };
 use earthly_mls::multi_device::{
     build_group_document_from_workspace, build_signed_tip_event, build_tip_event_template,
-    generate_multi_device_dek, reconcile_remote_group_document_locked, seal_group_document,
-    seal_meta_document, unseal_group_document, unseal_meta_document, unseal_tip_payload_for_self,
-    validate_tip_payload, MultiDeviceDocPointer, MultiDeviceMetaDocument, MultiDeviceRemovedGroup,
-    MultiDeviceTipPayload, ReconcileOutcome, MULTI_DEVICE_DOC_TYPE_META,
-    MULTI_DEVICE_SCHEMA_VERSION, MULTI_DEVICE_TIP_D_TAG, MULTI_DEVICE_TIP_KIND,
+    decode_last_resort_key_package, encode_last_resort_key_package, generate_multi_device_dek,
+    reconcile_remote_group_document_locked, seal_group_document, seal_meta_document,
+    unseal_group_document, unseal_meta_document, unseal_tip_payload_for_self, validate_tip_payload,
+    MultiDeviceDocPointer, MultiDeviceMetaDocument, MultiDeviceRemovedGroup, MultiDeviceTipPayload,
+    ReconcileOutcome, MULTI_DEVICE_DOC_TYPE_META, MULTI_DEVICE_SCHEMA_VERSION,
+    MULTI_DEVICE_TIP_D_TAG, MULTI_DEVICE_TIP_KIND,
 };
 use earthly_mls::service::{PrivateWorkspaceService, MAX_AUTO_APPROVE_BATCH};
 use earthly_mls::storage::{
-    workspace_mutex, SqlitePrivateWorkspaceStore, StoredWorkspace, WorkspaceMetadata,
-    SYNC_HEALTH_REMOVED,
+    workspace_mutex, SqlitePrivateWorkspaceStore, StoredMultiDeviceState, StoredRemovedGroup,
+    StoredWorkspace, WorkspaceMetadata, SYNC_HEALTH_REMOVED,
 };
 use earthly_mls::DEFAULT_CORDN_SERVER_PUBKEY;
 use flutter_rust_bridge::DartFnFuture;
@@ -121,12 +122,28 @@ fn normalize_http_base_url(raw: &str, default_url: &str, label: &str) -> Result<
 }
 
 fn normalize_relay_urls(relay_urls: Vec<String>) -> Vec<String> {
-    let mut out: Vec<String> = relay_urls
-        .into_iter()
-        .map(|r| r.trim().to_owned())
-        .filter(|r| !r.is_empty())
-        .collect();
+    let mut out: Vec<String> = Vec::new();
+    for raw in relay_urls {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() && !out.iter().any(|r| r == trimmed) {
+            out.push(trimmed.to_owned());
+        }
+    }
     if out.is_empty() {
+        out.push(DEFAULT_CIRCLE_RELAY.to_owned());
+    }
+    out
+}
+
+/// Normalizes relay URLs for multi-device `kind 30078` backup/recovery and ensures
+/// `DEFAULT_CIRCLE_RELAY` is always included alongside custom non-loopback relays so
+/// encrypted backups survive relay configuration changes across app updates.
+fn normalize_multi_device_relay_urls(relay_urls: Vec<String>) -> Vec<String> {
+    let mut out = normalize_relay_urls(relay_urls);
+    let is_loopback_only = out
+        .iter()
+        .all(|r| r.starts_with("ws://127.0.0.1") || r.starts_with("ws://localhost"));
+    if !is_loopback_only && !out.iter().any(|r| r == DEFAULT_CIRCLE_RELAY) {
         out.push(DEFAULT_CIRCLE_RELAY.to_owned());
     }
     out
@@ -899,6 +916,19 @@ async fn fetch_sealed_multi_device_blob(
             }
         }
     }
+    let has_loopback = candidates
+        .iter()
+        .any(|u| u.starts_with("http://127.0.0.1") || u.starts_with("http://localhost"));
+    if !has_loopback {
+        let default_url = format!(
+            "{}/{}",
+            DEFAULT_BLOSSOM_SERVER_URL.trim_end_matches('/'),
+            pointer.x
+        );
+        if !candidates.iter().any(|u| u == &default_url) {
+            candidates.push(default_url);
+        }
+    }
     if candidates.is_empty() {
         return Err(format!(
             "No Blossom download URL available for multi-device blob {}",
@@ -1568,6 +1598,9 @@ pub async fn repair_circle_sync_state(
 
 /// Seals every active Circle Group document + Meta document with a 32-byte DEK via NIP-44 v2,
 /// returning blobs ready for Blossom upload plus a pre-built tip JSON payload.
+/// Reuses any persisted per-identity DEK and `prev` document hashes from SQLite `multi_device_state`,
+/// includes removal tombstones, and embeds the latest last-resort KeyPackage bundle so upgraded
+/// or secondary devices can also decrypt pending Cordn Welcomes.
 pub fn prepare_multi_device_publish(
     database_path: String,
     owner_pubkey_hex: String,
@@ -1577,34 +1610,50 @@ pub fn prepare_multi_device_publish(
     let normalized_owner = normalize_pubkey_hex(&owner_pubkey_hex)?;
     let blossom_base =
         normalize_http_base_url(&blossom_server_url, DEFAULT_BLOSSOM_SERVER_URL, "Blossom")?;
+
+    let store = SqlitePrivateWorkspaceStore::open(database_path)?;
+    let saved_state = store
+        .get_multi_device_state(&normalized_owner)?
+        .unwrap_or_else(|| StoredMultiDeviceState {
+            owner_pubkey: normalized_owner.clone(),
+            ..StoredMultiDeviceState::default()
+        });
+
     let dek = match existing_dek_hex
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-    {
+        .or_else(|| {
+            saved_state
+                .dek_hex
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        }) {
         Some(hex_str) => decode_hex_32(hex_str, "existing_dek_hex")?,
         None => generate_multi_device_dek(),
     };
     let dek_hex = encode_hex_lower(&dek);
 
-    let store = SqlitePrivateWorkspaceStore::open(database_path)?;
     let workspaces = store.list_workspaces(&normalized_owner)?;
     let issued_at = now_secs();
 
     let mut blobs = Vec::new();
     let mut groups_map: BTreeMap<String, MultiDeviceDocPointer> = BTreeMap::new();
-    let mut removed: Vec<MultiDeviceRemovedGroup> = Vec::new();
+    let mut removed_by_gid: BTreeMap<String, u64> = BTreeMap::new();
+    let mut active_gids: HashSet<String> = HashSet::new();
+    let mut next_group_hashes = saved_state.group_doc_hashes.clone();
 
     for ws in &workspaces {
         if ws.status == "removed" {
-            removed.push(MultiDeviceRemovedGroup {
-                gid: ws.group_id.clone(),
-                removed_at: issued_at,
-            });
+            removed_by_gid.insert(ws.group_id.clone(), issued_at);
             continue;
         }
-        let doc = build_group_document_from_workspace(ws, None, issued_at, true)?;
+        active_gids.insert(ws.group_id.clone());
+        let prev_hash = saved_state.group_doc_hashes.get(&ws.group_id).cloned();
+        let doc = build_group_document_from_workspace(ws, prev_hash, issued_at, true)?;
         let (sealed_b64, x_hex) = seal_group_document(&doc, &dek)?;
+        next_group_hashes.insert(ws.group_id.clone(), x_hex.clone());
         groups_map.insert(
             ws.group_id.clone(),
             MultiDeviceDocPointer {
@@ -1622,12 +1671,34 @@ pub fn prepare_multi_device_publish(
         });
     }
 
+    for entry in &saved_state.removed_groups {
+        if !active_gids.contains(&entry.gid) {
+            removed_by_gid
+                .entry(entry.gid.clone())
+                .and_modify(|ts| *ts = (*ts).max(entry.removed_at))
+                .or_insert(entry.removed_at);
+        }
+    }
+    let removed: Vec<MultiDeviceRemovedGroup> = removed_by_gid
+        .iter()
+        .map(|(gid, &removed_at)| MultiDeviceRemovedGroup {
+            gid: gid.clone(),
+            removed_at,
+        })
+        .collect();
+
+    let last_resort_key_package = store
+        .list_key_packages(&normalized_owner)?
+        .into_iter()
+        .find(|kp| kp.bundle.last_resort)
+        .and_then(|kp| encode_last_resort_key_package(&kp).ok());
+
     let meta_doc = MultiDeviceMetaDocument {
         schema_version: MULTI_DEVICE_SCHEMA_VERSION,
         doc_type: MULTI_DEVICE_DOC_TYPE_META.to_owned(),
         issued_at,
         removed,
-        last_resort_key_package: None,
+        last_resort_key_package,
     };
     let (sealed_meta, meta_x) = seal_meta_document(&meta_doc, &dek)?;
     let meta_pointer = MultiDeviceDocPointer {
@@ -1638,15 +1709,23 @@ pub fn prepare_multi_device_publish(
     blobs.push(MultiDeviceUploadBlobDto {
         kind: "meta".to_owned(),
         gid: None,
-        x_hex: meta_x,
+        x_hex: meta_x.clone(),
         encrypted_bytes: sealed_meta.into_bytes(),
         issued_at,
     });
 
+    let mut blossom_servers = vec![blossom_base.clone()];
+    for srv in &saved_state.blossom_servers {
+        let cleaned = srv.trim().trim_end_matches('/');
+        if !cleaned.is_empty() && !blossom_servers.iter().any(|s| s == cleaned) {
+            blossom_servers.push(cleaned.to_owned());
+        }
+    }
+
     let tip = MultiDeviceTipPayload {
         schema_version: MULTI_DEVICE_SCHEMA_VERSION,
         dek_hex: dek_hex.clone(),
-        blossom_servers: vec![blossom_base.clone()],
+        blossom_servers: blossom_servers.clone(),
         groups: groups_map,
         meta: Some(meta_pointer),
         updated_at: issued_at,
@@ -1655,9 +1734,27 @@ pub fn prepare_multi_device_publish(
     let default_tip_plaintext_json = serde_json::to_string(&tip)
         .map_err(|e| format!("Failed to encode multi-device tip JSON: {e}"))?;
 
+    // Persist chosen DEK & prepared document hashes so Amber/Bunker and local flows
+    // consistently reuse the same DEK and `prev` chain across future publishes.
+    let updated_state = StoredMultiDeviceState {
+        owner_pubkey: normalized_owner,
+        dek_hex: Some(dek_hex.clone()),
+        last_tip_event_id: saved_state.last_tip_event_id,
+        last_tip_updated_at: saved_state.last_tip_updated_at,
+        blossom_servers: blossom_servers.clone(),
+        group_doc_hashes: next_group_hashes,
+        meta_doc_hash: Some(meta_x),
+        removed_groups: removed_by_gid
+            .into_iter()
+            .map(|(gid, removed_at)| StoredRemovedGroup { gid, removed_at })
+            .collect(),
+        updated_at_ms: now_secs().saturating_mul(1000),
+    };
+    let _ = store.put_multi_device_state(&updated_state);
+
     Ok(PreparedMultiDevicePublishDto {
         dek_hex,
-        blossom_servers: vec![blossom_base],
+        blossom_servers,
         blobs,
         default_tip_plaintext_json,
     })
@@ -1749,13 +1846,14 @@ pub async fn publish_signed_multi_device_tip_event(
     if !has_d {
         return Err("Signed tip event is missing d-tag `cordn-md-tip-v1`".to_owned());
     }
-    let relays = normalize_relay_urls(relay_urls);
+    let relays = normalize_multi_device_relay_urls(relay_urls);
     publish_event_to_relays(&event, &relays).await?;
     Ok(event.id.to_hex())
 }
 
 /// One-shot end-to-end multi-device snapshot publish for local `nsec` users:
 /// seals all Circles + Meta with a per-identity DEK, uploads blobs to Blossom with BUD-02 auth,
+/// merges any non-tombstoned remote group pointers so other devices' groups are never overwritten,
 /// self-encrypts the tip via NIP-44 v2, signs `kind 30078`, and publishes to relays.
 pub async fn publish_multi_device_snapshot_direct(
     database_path: String,
@@ -1768,22 +1866,22 @@ pub async fn publish_multi_device_snapshot_direct(
     let owner_pubkey = signer.pubkey_hex();
     let blossom_base =
         normalize_http_base_url(&blossom_server_url, DEFAULT_BLOSSOM_SERVER_URL, "Blossom")?;
-    let relays = normalize_relay_urls(relay_urls);
+    let relays = normalize_multi_device_relay_urls(relay_urls);
 
-    // Best-effort reuse of an existing per-identity DEK if a prior tip is already accessible.
-    let existing_dek_hex = match tokio::time::timeout(
+    // Best-effort fetch of any existing remote tip so we reuse its per-identity DEK and preserve
+    // group pointers published by another device that haven't been pulled locally yet.
+    let remote_tip = match tokio::time::timeout(
         Duration::from_secs(4),
         fetch_multi_device_tip_event(owner_pubkey.clone(), relays.clone()),
     )
     .await
     {
         Ok(Ok(Some(fetched))) => {
-            unseal_tip_payload_for_self(keys.secret_key(), &fetched.encrypted_content)
-                .ok()
-                .map(|tip| tip.dek_hex)
+            unseal_tip_payload_for_self(keys.secret_key(), &fetched.encrypted_content).ok()
         }
         _ => None,
     };
+    let existing_dek_hex = remote_tip.as_ref().map(|t| t.dek_hex.clone());
 
     let prepared = prepare_multi_device_publish(
         database_path.clone(),
@@ -1829,19 +1927,61 @@ pub async fn publish_multi_device_snapshot_direct(
         uploaded_blobs = uploaded_blobs.saturating_add(1);
     }
 
+    let store = SqlitePrivateWorkspaceStore::open(database_path)?;
+    let local_state = store.get_multi_device_state(&owner_pubkey)?;
+    let tombstoned_gids: HashSet<String> = local_state
+        .as_ref()
+        .map(|st| st.removed_groups.iter().map(|r| r.gid.clone()).collect())
+        .unwrap_or_default();
+
+    let mut blossom_servers = prepared.blossom_servers.clone();
+    if let Some(ref prior) = remote_tip {
+        if prior.dek_hex == prepared.dek_hex {
+            for (gid, ptr) in &prior.groups {
+                if !groups_map.contains_key(gid) && !tombstoned_gids.contains(gid) {
+                    groups_map.insert(gid.clone(), ptr.clone());
+                }
+            }
+            for srv in &prior.blossom_servers {
+                let cleaned = srv.trim().trim_end_matches('/');
+                if !cleaned.is_empty() && !blossom_servers.iter().any(|s| s == cleaned) {
+                    blossom_servers.push(cleaned.to_owned());
+                }
+            }
+        }
+    }
+
     let updated_at = now_secs();
     let tip = MultiDeviceTipPayload {
         schema_version: MULTI_DEVICE_SCHEMA_VERSION,
         dek_hex: prepared.dek_hex.clone(),
-        blossom_servers: vec![blossom_base],
-        groups: groups_map,
-        meta: meta_ptr,
+        blossom_servers: blossom_servers.clone(),
+        groups: groups_map.clone(),
+        meta: meta_ptr.clone(),
         updated_at,
     };
     let tip_event = build_signed_tip_event(&keys, &tip, updated_at)?;
     publish_event_to_relays(&tip_event, &relays).await?;
 
-    let store = SqlitePrivateWorkspaceStore::open(database_path)?;
+    let mut persisted_state = local_state.unwrap_or_else(|| StoredMultiDeviceState {
+        owner_pubkey: owner_pubkey.clone(),
+        ..StoredMultiDeviceState::default()
+    });
+    persisted_state.dek_hex = Some(prepared.dek_hex.clone());
+    persisted_state.last_tip_event_id = Some(tip_event.id.to_hex());
+    persisted_state.last_tip_updated_at = updated_at;
+    persisted_state.blossom_servers = blossom_servers;
+    for (gid, ptr) in &groups_map {
+        persisted_state
+            .group_doc_hashes
+            .insert(gid.clone(), ptr.x.clone());
+    }
+    if let Some(m) = &meta_ptr {
+        persisted_state.meta_doc_hash = Some(m.x.clone());
+    }
+    persisted_state.updated_at_ms = updated_at.saturating_mul(1000);
+    let _ = store.put_multi_device_state(&persisted_state);
+
     let workspaces = store
         .list_workspaces(&owner_pubkey)?
         .iter()
@@ -1872,7 +2012,7 @@ pub async fn fetch_multi_device_tip_event(
     let normalized_owner = normalize_pubkey_hex(&owner_pubkey_hex)?;
     let pk = PublicKey::from_hex(&normalized_owner)
         .map_err(|e| format!("Invalid owner pubkey hex: {e}"))?;
-    let relays = normalize_relay_urls(relay_urls);
+    let relays = normalize_multi_device_relay_urls(relay_urls);
     let client = crate::api::relay_pool::shared_client(&relays).await?;
 
     let filter = Filter::new()
@@ -1957,17 +2097,45 @@ pub async fn apply_decrypted_multi_device_tip(
     let mut removed_groups_marked: u32 = 0;
     let mut skipped_errors: Vec<String> = Vec::new();
     let mut removed_gids: HashSet<String> = HashSet::new();
+    let mut remote_removed_entries: Vec<StoredRemovedGroup> = Vec::new();
 
     if let Some(meta_ptr) = &tip.meta {
         match fetch_sealed_multi_device_blob(&http, meta_ptr, &tip.blossom_servers).await {
             Ok(sealed_meta) => match unseal_meta_document(&sealed_meta, &dek) {
                 Ok(meta_doc) => {
+                    // Restore backed-up last-resort KeyPackage bundle into SQLite so this device
+                    // can also decrypt pending or historical Cordn Welcomes addressed to it.
+                    if let Some(ref lr_kp) = meta_doc.last_resort_key_package {
+                        match decode_last_resort_key_package(lr_kp, &normalized_owner) {
+                            Ok(Some(restored_kp)) => {
+                                if store
+                                    .get_key_package(&normalized_owner, &restored_kp.kp_ref)
+                                    .ok()
+                                    .flatten()
+                                    .is_none()
+                                {
+                                    let _ = store.put_key_package(&restored_kp);
+                                }
+                            }
+                            Ok(None) => {}
+                            Err(err) => {
+                                skipped_errors
+                                    .push(format!("last-resort KeyPackage restore failed: {err}"));
+                            }
+                        }
+                    }
+
                     for entry in meta_doc.removed {
                         removed_gids.insert(entry.gid.clone());
+                        remote_removed_entries.push(StoredRemovedGroup {
+                            gid: entry.gid.clone(),
+                            removed_at: entry.removed_at,
+                        });
                         if let Ok(Some(existing)) =
                             store.get_workspace_by_group_id(&normalized_owner, &entry.gid)
                         {
-                            if existing.status != "removed" {
+                            let created_secs = existing.created_at_ms / 1000;
+                            if existing.status != "removed" && entry.removed_at >= created_secs {
                                 let lock = workspace_mutex(&normalized_owner, &existing.workspace_id);
                                 let _guard = lock.lock().await;
                                 if let Ok(Some(mut ws)) = store
@@ -2038,6 +2206,37 @@ pub async fn apply_decrypted_multi_device_tip(
         }
     }
 
+    // Persist recovered DEK & document hashes so future auto-backups reuse the same DEK & `prev` chain.
+    let mut persisted_state = store
+        .get_multi_device_state(&normalized_owner)?
+        .unwrap_or_else(|| StoredMultiDeviceState {
+            owner_pubkey: normalized_owner.clone(),
+            ..StoredMultiDeviceState::default()
+        });
+    persisted_state.dek_hex = Some(tip.dek_hex.clone());
+    persisted_state.last_tip_updated_at = persisted_state.last_tip_updated_at.max(tip.updated_at);
+    for srv in &tip.blossom_servers {
+        let cleaned = srv.trim().trim_end_matches('/');
+        if !cleaned.is_empty() && !persisted_state.blossom_servers.iter().any(|s| s == cleaned) {
+            persisted_state.blossom_servers.push(cleaned.to_owned());
+        }
+    }
+    for (gid, ptr) in &tip.groups {
+        persisted_state
+            .group_doc_hashes
+            .insert(gid.clone(), ptr.x.clone());
+    }
+    if let Some(meta_ptr) = &tip.meta {
+        persisted_state.meta_doc_hash = Some(meta_ptr.x.clone());
+    }
+    for rem in remote_removed_entries {
+        if !persisted_state.removed_groups.iter().any(|r| r.gid == rem.gid) {
+            persisted_state.removed_groups.push(rem);
+        }
+    }
+    persisted_state.updated_at_ms = now_secs().saturating_mul(1000);
+    let _ = store.put_multi_device_state(&persisted_state);
+
     let workspaces = store
         .list_workspaces(&normalized_owner)?
         .iter()
@@ -2059,47 +2258,88 @@ pub async fn apply_decrypted_multi_device_tip(
     })
 }
 
-/// One-shot multi-device sync for local `nsec` users: fetches the latest `kind 30078` tip event,
-/// decrypts it with NIP-44 v2, downloads sealed Blossom blobs, unseals with the DEK, and
-/// reconciles all Group & Meta documents into SQLite.
+/// One-shot multi-device recovery & sync for local `nsec` users:
+/// 1. Fetches and decrypts the latest `kind 30078` (`d: "cordn-md-tip-v1"`) tip event.
+/// 2. Downloads sealed Blossom blobs, unseals with the DEK, restores any backed-up last-resort
+///    KeyPackage, and reconciles all Group & Meta documents into SQLite.
+/// 3. Scans Cordn `welcome_take` against any stored KeyPackages / pending joins to adopt
+///    approved Welcomes that were not yet in the snapshot.
 pub async fn sync_multi_device_direct(
     database_path: String,
     signer_nsec: String,
     relay_urls: Vec<String>,
 ) -> Result<MultiDeviceSyncSummaryDto, String> {
-    let signer = LocalKeysSigner::from_nsec_or_hex(&signer_nsec)?;
+    let signer = Arc::new(LocalKeysSigner::from_nsec_or_hex(&signer_nsec)?);
     let keys = signer.keys().clone();
     let owner_pubkey = signer.pubkey_hex();
+    let relays = normalize_multi_device_relay_urls(relay_urls);
 
-    let Some(fetched) = fetch_multi_device_tip_event(owner_pubkey.clone(), relay_urls).await?
-    else {
-        let store = SqlitePrivateWorkspaceStore::open(database_path)?;
-        let workspaces = store
-            .list_workspaces(&owner_pubkey)?
-            .iter()
-            .map(workspace_to_dto)
-            .collect();
-        return Ok(MultiDeviceSyncSummaryDto {
-            dek_hex: None,
-            tip_event_id: None,
-            tip_updated_at: None,
-            uploaded_blobs: 0,
-            adopted_groups: 0,
-            updated_groups: 0,
-            merged_groups: 0,
-            unchanged_groups: 0,
-            removed_groups_marked: 0,
-            skipped_errors: Vec::new(),
-            workspaces,
-        });
+    let mut summary = match fetch_multi_device_tip_event(owner_pubkey.clone(), relays.clone()).await?
+    {
+        Some(fetched) => {
+            let tip = unseal_tip_payload_for_self(keys.secret_key(), &fetched.encrypted_content)?;
+            let tip_json = serde_json::to_string(&tip)
+                .map_err(|e| format!("Failed to encode decrypted tip payload: {e}"))?;
+            let mut applied =
+                apply_decrypted_multi_device_tip(database_path.clone(), owner_pubkey.clone(), tip_json)
+                    .await?;
+            applied.tip_event_id = Some(fetched.event_id);
+            applied
+        }
+        None => {
+            let store = SqlitePrivateWorkspaceStore::open(&database_path)?;
+            let workspaces = store
+                .list_workspaces(&owner_pubkey)?
+                .iter()
+                .map(workspace_to_dto)
+                .collect();
+            MultiDeviceSyncSummaryDto {
+                dek_hex: None,
+                tip_event_id: None,
+                tip_updated_at: None,
+                uploaded_blobs: 0,
+                adopted_groups: 0,
+                updated_groups: 0,
+                merged_groups: 0,
+                unchanged_groups: 0,
+                removed_groups_marked: 0,
+                skipped_errors: Vec::new(),
+                workspaces,
+            }
+        }
     };
 
-    let tip = unseal_tip_payload_for_self(keys.secret_key(), &fetched.encrypted_content)?;
-    let tip_json = serde_json::to_string(&tip)
-        .map_err(|e| format!("Failed to encode decrypted tip payload: {e}"))?;
-    let mut summary =
-        apply_decrypted_multi_device_tip(database_path, owner_pubkey, tip_json).await?;
-    summary.tip_event_id = Some(fetched.event_id);
+    // Best-effort scan for pending or historical Cordn Welcomes matching any local or newly
+    // restored KeyPackage material.
+    let store = Arc::new(SqlitePrivateWorkspaceStore::open(&database_path)?);
+    let has_kp_or_pending = !store.list_pending_joins(&owner_pubkey)?.is_empty()
+        || !store.list_key_packages(&owner_pubkey)?.is_empty();
+    if has_kp_or_pending {
+        let svc = PrivateWorkspaceService::new(
+            signer,
+            Arc::clone(&store),
+            DEFAULT_CORDN_SERVER_PUBKEY.to_owned(),
+            relays,
+        );
+        if let Ok(Ok(welcomed)) = tokio::time::timeout(
+            Duration::from_secs(8),
+            svc.accept_pending_welcomes(),
+        )
+        .await
+        {
+            if !welcomed.is_empty() {
+                summary.adopted_groups = summary
+                    .adopted_groups
+                    .saturating_add(welcomed.len() as u32);
+                summary.workspaces = store
+                    .list_workspaces(&owner_pubkey)?
+                    .iter()
+                    .map(workspace_to_dto)
+                    .collect();
+            }
+        }
+    }
+
     Ok(summary)
 }
 
@@ -2502,6 +2742,9 @@ pub fn delete_circle_workspace(
     let normalized_owner =
         normalize_pubkey_hex(&owner_pubkey_hex).unwrap_or_else(|_| owner_pubkey_hex.trim().to_owned());
     let store = SqlitePrivateWorkspaceStore::open(database_path)?;
+    if let Ok(Some(ws)) = store.get_workspace(&normalized_owner, &workspace_id) {
+        let _ = store.record_removed_group_tombstone(&normalized_owner, &ws.group_id, now_secs());
+    }
     store.delete_workspace(&normalized_owner, &workspace_id)
 }
 
@@ -3071,5 +3314,171 @@ mod tests {
             .expect("idempotent re-apply on Device B");
         assert_eq!(summary2.adopted_groups, 0);
         assert_eq!(summary2.unchanged_groups, 1);
+    }
+
+    #[tokio::test]
+    async fn multi_device_persists_dek_prev_chain_last_resort_kp_and_delete_tombstone() {
+        let keys = Keys::generate();
+        let nsec = keys.secret_key().to_bech32().unwrap();
+        let npub = keys.public_key().to_bech32().unwrap();
+        let hex_pk = keys.public_key().to_hex();
+
+        let dir_a = tempfile::tempdir().unwrap();
+        let db_a = dir_a
+            .path()
+            .join("dev_a.sqlite3")
+            .to_string_lossy()
+            .to_string();
+        let dir_b = tempfile::tempdir().unwrap();
+        let db_b = dir_b
+            .path()
+            .join("dev_b.sqlite3")
+            .to_string_lossy()
+            .to_string();
+
+        let ws = create_circle_workspace(
+            db_a.clone(),
+            Some(nsec),
+            None,
+            None,
+            DEFAULT_CORDN_SERVER_PUBKEY.to_owned(),
+            vec!["wss://relay.earthly.city".to_owned()],
+            "Persistent Circle".to_owned(),
+            None,
+            None,
+        )
+        .await
+        .expect("create workspace");
+
+        // Store a last-resort KeyPackage on Device A so it gets backed up into the meta doc.
+        let kp = earthly_mls::mls::generate_mls_key_package(&hex_pk, true).unwrap();
+        let kp_ref = kp.kp_ref.clone();
+        {
+            let store_a = SqlitePrivateWorkspaceStore::open(&db_a).unwrap();
+            store_a
+                .put_key_package(&earthly_mls::storage::StoredKeyPackage {
+                    kp_ref: kp_ref.clone(),
+                    owner_pubkey: hex_pk.clone(),
+                    bundle: kp,
+                    published: true,
+                    created_at_ms: now_secs().saturating_mul(1000),
+                })
+                .unwrap();
+        }
+
+        // First publish creates and persists DEK + group doc hash.
+        let prep1 = prepare_multi_device_publish(
+            db_a.clone(),
+            npub.clone(),
+            "https://blossom.earthly.city".to_owned(),
+            None,
+        )
+        .expect("first prepare");
+        let grp_blob_1 = prep1.blobs.iter().find(|b| b.kind == "group").unwrap();
+
+        // Second publish with `existing_dek_hex = None` reuses the persisted DEK and links `prev`.
+        let prep2 = prepare_multi_device_publish(
+            db_a.clone(),
+            npub.clone(),
+            "https://blossom.earthly.city".to_owned(),
+            None,
+        )
+        .expect("second prepare");
+        assert_eq!(prep2.dek_hex, prep1.dek_hex);
+
+        let mut dek = [0u8; 32];
+        for (idx, slot) in dek.iter_mut().enumerate() {
+            *slot = u8::from_str_radix(&prep2.dek_hex[idx * 2..idx * 2 + 2], 16).unwrap();
+        }
+        let grp_blob_2 = prep2.blobs.iter().find(|b| b.kind == "group").unwrap();
+        let unsealed_grp_2 = unseal_group_document(
+            std::str::from_utf8(&grp_blob_2.encrypted_bytes).unwrap(),
+            &dek,
+        )
+        .unwrap();
+        assert_eq!(unsealed_grp_2.prev.as_deref(), Some(grp_blob_1.x_hex.as_str()));
+
+        // Serve prep2 blobs and apply onto Device B -> restores BOTH workspace AND last-resort KeyPackage.
+        let mut routes = HashMap::new();
+        for blob in &prep2.blobs {
+            routes.insert(format!("/{}", blob.x_hex), blob.encrypted_bytes.clone());
+        }
+        let server_url = spawn_loopback_http_server(routes);
+        let mut group_ptrs: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+        let mut meta_ptr_json: Option<String> = None;
+        for blob in &prep2.blobs {
+            let ptr = serde_json::json!({
+                "x": blob.x_hex,
+                "urls": [format!("{server_url}/{}", blob.x_hex)],
+                "issuedAt": blob.issued_at,
+            });
+            if blob.kind == "group" {
+                group_ptrs.insert(blob.gid.clone().unwrap(), ptr);
+            } else {
+                meta_ptr_json = Some(ptr.to_string());
+            }
+        }
+        let tip2 = build_multi_device_tip_plaintext(
+            prep2.dek_hex.clone(),
+            vec![server_url],
+            serde_json::to_string(&group_ptrs).unwrap(),
+            meta_ptr_json,
+        )
+        .unwrap();
+
+        let applied_b = apply_decrypted_multi_device_tip(db_b.clone(), npub.clone(), tip2)
+            .await
+            .expect("apply on device B");
+        assert_eq!(applied_b.adopted_groups, 1);
+        let store_b = SqlitePrivateWorkspaceStore::open(&db_b).unwrap();
+        let restored_kp = store_b.get_key_package(&hex_pk, &kp_ref).unwrap();
+        assert!(
+            restored_kp.is_some(),
+            "last-resort KeyPackage must be restored onto Device B"
+        );
+        assert_eq!(
+            store_b
+                .get_multi_device_state(&hex_pk)
+                .unwrap()
+                .and_then(|s| s.dek_hex),
+            Some(prep2.dek_hex.clone())
+        );
+
+        // Delete workspace on Device A -> records removal tombstone & propagates to Device B.
+        delete_circle_workspace(db_a.clone(), npub.clone(), ws.workspace_id.clone())
+            .expect("delete on device A");
+        let prep3 = prepare_multi_device_publish(
+            db_a,
+            npub.clone(),
+            "https://blossom.earthly.city".to_owned(),
+            None,
+        )
+        .expect("prepare after delete");
+        assert_eq!(prep3.blobs.len(), 1); // meta doc only
+        let meta_blob_3 = &prep3.blobs[0];
+        let mut routes3 = HashMap::new();
+        routes3.insert(
+            format!("/{}", meta_blob_3.x_hex),
+            meta_blob_3.encrypted_bytes.clone(),
+        );
+        let server_url_3 = spawn_loopback_http_server(routes3);
+        let meta_ptr_3 = serde_json::json!({
+            "x": meta_blob_3.x_hex,
+            "urls": [format!("{server_url_3}/{}", meta_blob_3.x_hex)],
+            "issuedAt": meta_blob_3.issued_at,
+        });
+        let tip3 = build_multi_device_tip_plaintext(
+            prep3.dek_hex,
+            vec![server_url_3],
+            "{}".to_owned(),
+            Some(meta_ptr_3.to_string()),
+        )
+        .unwrap();
+
+        let after_delete_b = apply_decrypted_multi_device_tip(db_b, npub, tip3)
+            .await
+            .expect("apply tombstone tip on device B");
+        assert_eq!(after_delete_b.removed_groups_marked, 1);
+        assert_eq!(after_delete_b.workspaces[0].status, "removed");
     }
 }
