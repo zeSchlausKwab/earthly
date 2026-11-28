@@ -4,12 +4,13 @@
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
 import '../frb_generated.dart';
+import 'nostr_client/profiles_relays.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `blossom_cache_lock`, `blossom_data_dir_lock`, `build_lmdb_client`, `build_memory_client`, `cache_file_name`, `ensure_disk_hydrated`, `ensure_relays_connected`, `new`, `persist_disk_index`, `read_cached_blossom_blob`, `read`, `relay_pool_lock`, `remove_disk_entry`, `set_cache_dir`, `shared_client`, `touch_disk_entry`, `touch_mem_entry`, `update_blossom_cache_dir`, `write_cached_blossom_blob`, `write`
+// These functions are ignored because they are not marked as `pub`: `blossom_cache_lock`, `blossom_data_dir_lock`, `build_lmdb_client`, `build_memory_client`, `cache_file_name`, `connected_relay_urls`, `ensure_disk_hydrated`, `ensure_relays_connected`, `is_all_local_relays`, `is_local_or_private_relay_url`, `is_private_mls_event_kind`, `is_profile_directory_relay`, `merge_user_nip65_relays`, `new`, `persist_disk_index`, `push_unique_relay`, `read_cached_blossom_blob`, `read`, `record_nip66_relay_source`, `record_relay_quality_reports`, `relay_manager_lock`, `relay_pool_lock`, `remove_disk_entry`, `resolve_profile_discovery_relays`, `resolve_read_relays`, `resolve_wallet_relays`, `resolve_write_relays`, `resolve_zap_read_relays`, `set_cache_dir`, `set_relay_manager_public_enabled`, `shared_client`, `snapshot_relay_manager_state`, `sync_configured_relays`, `touch_disk_entry`, `touch_mem_entry`, `update_blossom_cache_dir`, `write_cached_blossom_blob`, `write`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `BlossomBlobCache`, `SharedRelayPool`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `fmt`, `fmt`
 
 /// Initializes the process-wide persistent Nostr relay pool backed by
 /// `NostrLMDB` at `<data_dir>/nostr-cache.lmdb` and configures the disk-backed
@@ -23,3 +24,45 @@ Future<void> initRelayPool({
   dataDir: dataDir,
   relayUrls: relayUrls,
 );
+
+class RelayManagerState {
+  final bool publicRelaysEnabled;
+  final List<String> configuredRelays;
+  final String? activeUserPubkey;
+  final List<RelayListEntryDto> nip65Entries;
+  final Map<String, String> relaySources;
+  final Map<String, RelayQualityReportDto> qualityCache;
+
+  const RelayManagerState({
+    required this.publicRelaysEnabled,
+    required this.configuredRelays,
+    this.activeUserPubkey,
+    required this.nip65Entries,
+    required this.relaySources,
+    required this.qualityCache,
+  });
+
+  static Future<RelayManagerState> default_() =>
+      EarthlyRustLib.instance.api.crateApiRelayPoolRelayManagerStateDefault();
+
+  @override
+  int get hashCode =>
+      publicRelaysEnabled.hashCode ^
+      configuredRelays.hashCode ^
+      activeUserPubkey.hashCode ^
+      nip65Entries.hashCode ^
+      relaySources.hashCode ^
+      qualityCache.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RelayManagerState &&
+          runtimeType == other.runtimeType &&
+          publicRelaysEnabled == other.publicRelaysEnabled &&
+          configuredRelays == other.configuredRelays &&
+          activeUserPubkey == other.activeUserPubkey &&
+          nip65Entries == other.nip65Entries &&
+          relaySources == other.relaySources &&
+          qualityCache == other.qualityCache;
+}

@@ -1127,14 +1127,7 @@ pub fn prepare_unsigned_zap_request_event(
         .unwrap_or_default()
         .as_secs();
 
-    let mut clean_relays: Vec<String> = relay_urls
-        .into_iter()
-        .map(|r| r.trim().to_owned())
-        .filter(|r| !r.is_empty())
-        .collect();
-    if clean_relays.is_empty() {
-        clean_relays.push(crate::api::nostr_client::DEFAULT_EARTHLY_RELAY.to_owned());
-    }
+    let clean_relays = crate::api::relay_pool::resolve_write_relays(&relay_urls, Some(9735));
     let mut relays_tag = Vec::with_capacity(1 + clean_relays.len());
     relays_tag.push("relays".to_owned());
     relays_tag.extend(clean_relays);

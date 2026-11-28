@@ -5,6 +5,10 @@
 
 use std::sync::{OnceLock, RwLock};
 
+use earthly_storage::settings::{
+    CURRENT_RELAY_MIGRATION_VERSION, DEFAULT_PUBLIC_RELAYS, PRIMARY_EARTHLY_RELAY,
+    default_production_relay_urls,
+};
 use earthly_storage::{
     decode_master_key, AppSettingsStore, MountedAtlasWorkspaceRecord, PersistedAppSettings,
     SavedAccountSessionRecord, SavedOfflinePackRecord,
@@ -106,6 +110,7 @@ pub struct AppSettingsDto {
     pub agent_provider_type: Option<String>,
     pub agent_auto_pay_cashu: bool,
     pub agent_cashu_max_sats: u32,
+    pub public_relays_enabled: Option<bool>,
 }
 
 pub fn load_app_settings(database_path: String) -> Result<AppSettingsDto, String> {
@@ -114,6 +119,8 @@ pub fn load_app_settings(database_path: String) -> Result<AppSettingsDto, String
     let loaded = store
         .load_with_master_key(master_key.as_deref())
         .map_err(|e| e.to_string())?;
+    crate::api::relay_pool::set_relay_manager_public_enabled(loaded.public_relays_enabled);
+    crate::api::relay_pool::sync_configured_relays(&loaded.relay_urls);
     Ok(from_record(loaded))
 }
 
@@ -123,11 +130,66 @@ pub fn save_app_settings(
 ) -> Result<AppSettingsDto, String> {
     let master_key = current_master_key()?;
     let store = AppSettingsStore::open(database_path).map_err(|e| e.to_string())?;
-    let record = to_record(settings);
+    let existing_public_enabled = if settings.public_relays_enabled.is_some() {
+        settings.public_relays_enabled.unwrap_or(true)
+    } else {
+        store
+            .load_with_master_key(master_key.as_deref())
+            .map(|s| s.public_relays_enabled)
+            .unwrap_or(true)
+    };
+    let record = to_record(settings, existing_public_enabled);
     let saved = store
         .save_with_master_key(&record, master_key.as_deref())
         .map_err(|e| e.to_string())?;
+    crate::api::relay_pool::set_relay_manager_public_enabled(saved.public_relays_enabled);
+    crate::api::relay_pool::sync_configured_relays(&saved.relay_urls);
     Ok(from_record(saved))
+}
+
+/// Toggles the production `public_relays_enabled` policy cleanly in SQLite and updates
+/// the live Relay Manager, merging or removing default public relays while preserving
+/// the primary Earthly relay and any user custom relays.
+pub fn set_public_relays_enabled(
+    database_path: String,
+    enabled: bool,
+) -> Result<AppSettingsDto, String> {
+    let master_key = current_master_key()?;
+    let store = AppSettingsStore::open(database_path).map_err(|e| e.to_string())?;
+    let mut current = store
+        .load_with_master_key(master_key.as_deref())
+        .map_err(|e| e.to_string())?;
+    current.public_relays_enabled = enabled;
+    current.relay_migration_version = CURRENT_RELAY_MIGRATION_VERSION;
+    if enabled {
+        if !current.relay_urls.iter().any(|u| u == PRIMARY_EARTHLY_RELAY) {
+            current.relay_urls.insert(0, PRIMARY_EARTHLY_RELAY.to_owned());
+        }
+        for pub_relay in DEFAULT_PUBLIC_RELAYS {
+            let owned = (*pub_relay).to_owned();
+            if !current.relay_urls.contains(&owned) {
+                current.relay_urls.push(owned);
+            }
+        }
+    } else {
+        current
+            .relay_urls
+            .retain(|u| !DEFAULT_PUBLIC_RELAYS.contains(&u.as_str()));
+        if current.relay_urls.is_empty() {
+            current.relay_urls.push(PRIMARY_EARTHLY_RELAY.to_owned());
+        }
+    }
+    let saved = store
+        .save_with_master_key(&current, master_key.as_deref())
+        .map_err(|e| e.to_string())?;
+    crate::api::relay_pool::set_relay_manager_public_enabled(saved.public_relays_enabled);
+    crate::api::relay_pool::sync_configured_relays(&saved.relay_urls);
+    Ok(from_record(saved))
+}
+
+/// Returns the canonical production default relay list (`relay.earthly.city` + public relays).
+pub fn default_public_relay_urls() -> Vec<String> {
+    default_production_relay_urls()
 }
 
 fn from_record(r: PersistedAppSettings) -> AppSettingsDto {
@@ -207,10 +269,11 @@ fn from_record(r: PersistedAppSettings) -> AppSettingsDto {
         agent_provider_type: r.agent_provider_type,
         agent_auto_pay_cashu: r.agent_auto_pay_cashu,
         agent_cashu_max_sats: r.agent_cashu_max_sats,
+        public_relays_enabled: Some(r.public_relays_enabled),
     }
 }
 
-fn to_record(d: AppSettingsDto) -> PersistedAppSettings {
+fn to_record(d: AppSettingsDto, resolved_public_relays_enabled: bool) -> PersistedAppSettings {
     PersistedAppSettings {
         relay_urls: d.relay_urls,
         local_pubkey_hex: d.local_pubkey_hex,
@@ -287,6 +350,10 @@ fn to_record(d: AppSettingsDto) -> PersistedAppSettings {
         agent_provider_type: d.agent_provider_type,
         agent_auto_pay_cashu: d.agent_auto_pay_cashu,
         agent_cashu_max_sats: d.agent_cashu_max_sats,
+        public_relays_enabled: d
+            .public_relays_enabled
+            .unwrap_or(resolved_public_relays_enabled),
+        relay_migration_version: CURRENT_RELAY_MIGRATION_VERSION,
     }
 }
 
@@ -302,6 +369,7 @@ mod tests {
 
     struct MasterKeyTestGuard {
         _lock: MutexGuard<'static, ()>,
+        prev_relay_state: crate::api::relay_pool::RelayManagerState,
     }
 
     impl MasterKeyTestGuard {
@@ -310,7 +378,11 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
             *master_key_lock().write().unwrap() = None;
-            Self { _lock: lock }
+            let prev_relay_state = crate::api::relay_pool::snapshot_relay_manager_state();
+            Self {
+                _lock: lock,
+                prev_relay_state,
+            }
         }
     }
 
@@ -318,6 +390,9 @@ mod tests {
         fn drop(&mut self) {
             if let Ok(mut guard) = master_key_lock().write() {
                 *guard = None;
+            }
+            if let Ok(mut guard) = crate::api::relay_pool::relay_manager_lock().write() {
+                *guard = self.prev_relay_state.clone();
             }
         }
     }
@@ -477,5 +552,42 @@ mod tests {
             load_app_settings(db).unwrap().local_nsec.as_deref(),
             Some("nsec1ffilocalnsec")
         );
+    }
+
+    #[test]
+    fn set_public_relays_enabled_and_optional_save_preserve_policy() {
+        let _guard = MasterKeyTestGuard::acquire();
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("public-relays-ffi.sqlite3").display().to_string();
+
+        let fresh = load_app_settings(db.clone()).unwrap();
+        assert_eq!(fresh.public_relays_enabled, Some(true));
+        assert_eq!(fresh.relay_urls, default_public_relay_urls());
+
+        // Add a custom relay and toggle public relays OFF.
+        let mut with_custom = fresh;
+        with_custom.relay_urls.push("wss://field.custom.example".to_owned());
+        save_app_settings(db.clone(), with_custom).unwrap();
+
+        let disabled = set_public_relays_enabled(db.clone(), false).unwrap();
+        assert_eq!(disabled.public_relays_enabled, Some(false));
+        assert!(disabled.relay_urls.contains(&PRIMARY_EARTHLY_RELAY.to_owned()));
+        assert!(disabled.relay_urls.contains(&"wss://field.custom.example".to_owned()));
+        assert!(!disabled.relay_urls.contains(&"wss://relay.damus.io".to_owned()));
+
+        // Saving with `public_relays_enabled: None` (backward-compatible caller) preserves `false`.
+        let mut compat_save = disabled;
+        compat_save.public_relays_enabled = None;
+        let saved = save_app_settings(db.clone(), compat_save).unwrap();
+        assert_eq!(saved.public_relays_enabled, Some(false));
+
+        // Toggling public relays back ON merges default public relays while preserving custom relay.
+        let reenabled = set_public_relays_enabled(db, true).unwrap();
+        assert_eq!(reenabled.public_relays_enabled, Some(true));
+        assert!(reenabled.relay_urls.contains(&PRIMARY_EARTHLY_RELAY.to_owned()));
+        assert!(reenabled.relay_urls.contains(&"wss://field.custom.example".to_owned()));
+        assert!(reenabled.relay_urls.contains(&"wss://relay.damus.io".to_owned()));
+        assert!(reenabled.relay_urls.contains(&"wss://nos.lol".to_owned()));
+        assert!(reenabled.relay_urls.contains(&"wss://relay.primal.net".to_owned()));
     }
 }

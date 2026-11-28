@@ -55,6 +55,13 @@ abstract class EarthlyRustLibApiImplPlatform
   Object dco_decode_DartOpaque(dynamic raw);
 
   @protected
+  Map<String, String> dco_decode_Map_String_String_None(dynamic raw);
+
+  @protected
+  Map<String, RelayQualityReportDto>
+  dco_decode_Map_String_relay_quality_report_dto_None(dynamic raw);
+
+  @protected
   RustStreamSink<AgentStreamEventDto>
   dco_decode_StreamSink_agent_stream_event_dto_Sse(dynamic raw);
 
@@ -168,6 +175,14 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   ProfileMetadataDto dco_decode_box_autoadd_profile_metadata_dto(dynamic raw);
+
+  @protected
+  RelayNip11InfoDto dco_decode_box_autoadd_relay_nip_11_info_dto(dynamic raw);
+
+  @protected
+  RelayQualityReportDto dco_decode_box_autoadd_relay_quality_report_dto(
+    dynamic raw,
+  );
 
   @protected
   SightingSummaryDto dco_decode_box_autoadd_sighting_summary_dto(dynamic raw);
@@ -368,6 +383,11 @@ abstract class EarthlyRustLibApiImplPlatform
   List<LonLatPoint> dco_decode_list_lon_lat_point(dynamic raw);
 
   @protected
+  List<ManagedRelayStatusDto> dco_decode_list_managed_relay_status_dto(
+    dynamic raw,
+  );
+
+  @protected
   List<MapSummaryDto> dco_decode_list_map_summary_dto(dynamic raw);
 
   @protected
@@ -388,6 +408,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   List<Nip60RawEventDto> dco_decode_list_nip_60_raw_event_dto(dynamic raw);
+
+  @protected
+  List<Nip66RelayCandidateDto> dco_decode_list_nip_66_relay_candidate_dto(
+    dynamic raw,
+  );
 
   @protected
   List<OutboxItemDto> dco_decode_list_outbox_item_dto(dynamic raw);
@@ -424,6 +449,13 @@ abstract class EarthlyRustLibApiImplPlatform
   List<ProfileMetadataDto> dco_decode_list_profile_metadata_dto(dynamic raw);
 
   @protected
+  List<(String, RelayQualityReportDto)>
+  dco_decode_list_record_string_relay_quality_report_dto(dynamic raw);
+
+  @protected
+  List<(String, String)> dco_decode_list_record_string_string(dynamic raw);
+
+  @protected
   List<RelayDeliveryStatusDto> dco_decode_list_relay_delivery_status_dto(
     dynamic raw,
   );
@@ -433,6 +465,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   List<RelayListEntryDto> dco_decode_list_relay_list_entry_dto(dynamic raw);
+
+  @protected
+  List<RelayQualityReportDto> dco_decode_list_relay_quality_report_dto(
+    dynamic raw,
+  );
 
   @protected
   List<RemotePeerDto> dco_decode_list_remote_peer_dto(dynamic raw);
@@ -477,6 +514,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   LonLatPoint dco_decode_lon_lat_point(dynamic raw);
+
+  @protected
+  ManagedRelayStatusDto dco_decode_managed_relay_status_dto(dynamic raw);
 
   @protected
   MapSummaryDto dco_decode_map_summary_dto(dynamic raw);
@@ -524,6 +564,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   Nip60WalletDiscoveryDto dco_decode_nip_60_wallet_discovery_dto(dynamic raw);
+
+  @protected
+  Nip66RelayCandidateDto dco_decode_nip_66_relay_candidate_dto(dynamic raw);
 
   @protected
   NutzapClaimResultDto dco_decode_nutzap_claim_result_dto(dynamic raw);
@@ -607,6 +650,16 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  RelayNip11InfoDto? dco_decode_opt_box_autoadd_relay_nip_11_info_dto(
+    dynamic raw,
+  );
+
+  @protected
+  RelayQualityReportDto? dco_decode_opt_box_autoadd_relay_quality_report_dto(
+    dynamic raw,
+  );
+
+  @protected
   SightingSummaryDto? dco_decode_opt_box_autoadd_sighting_summary_dto(
     dynamic raw,
   );
@@ -622,6 +675,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
+
+  @protected
+  List<String>? dco_decode_opt_list_String(dynamic raw);
 
   @protected
   OsmImportResultDto dco_decode_osm_import_result_dto(dynamic raw);
@@ -665,6 +721,13 @@ abstract class EarthlyRustLibApiImplPlatform
   PublishOutcomeDto dco_decode_publish_outcome_dto(dynamic raw);
 
   @protected
+  (String, RelayQualityReportDto)
+  dco_decode_record_string_relay_quality_report_dto(dynamic raw);
+
+  @protected
+  (String, String) dco_decode_record_string_string(dynamic raw);
+
+  @protected
   RelayDeliveryStatusDto dco_decode_relay_delivery_status_dto(dynamic raw);
 
   @protected
@@ -672,6 +735,18 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   RelayListEntryDto dco_decode_relay_list_entry_dto(dynamic raw);
+
+  @protected
+  RelayManagerSnapshotDto dco_decode_relay_manager_snapshot_dto(dynamic raw);
+
+  @protected
+  RelayManagerState dco_decode_relay_manager_state(dynamic raw);
+
+  @protected
+  RelayNip11InfoDto dco_decode_relay_nip_11_info_dto(dynamic raw);
+
+  @protected
+  RelayQualityReportDto dco_decode_relay_quality_report_dto(dynamic raw);
 
   @protected
   RemotePeerDto dco_decode_remote_peer_dto(dynamic raw);
@@ -752,6 +827,17 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   Object sse_decode_DartOpaque(SseDeserializer deserializer);
+
+  @protected
+  Map<String, String> sse_decode_Map_String_String_None(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  Map<String, RelayQualityReportDto>
+  sse_decode_Map_String_relay_quality_report_dto_None(
+    SseDeserializer deserializer,
+  );
 
   @protected
   RustStreamSink<AgentStreamEventDto>
@@ -909,6 +995,16 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   ProfileMetadataDto sse_decode_box_autoadd_profile_metadata_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RelayNip11InfoDto sse_decode_box_autoadd_relay_nip_11_info_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RelayQualityReportDto sse_decode_box_autoadd_relay_quality_report_dto(
     SseDeserializer deserializer,
   );
 
@@ -1191,6 +1287,11 @@ abstract class EarthlyRustLibApiImplPlatform
   List<LonLatPoint> sse_decode_list_lon_lat_point(SseDeserializer deserializer);
 
   @protected
+  List<ManagedRelayStatusDto> sse_decode_list_managed_relay_status_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<MapSummaryDto> sse_decode_list_map_summary_dto(
     SseDeserializer deserializer,
   );
@@ -1217,6 +1318,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   List<Nip60RawEventDto> sse_decode_list_nip_60_raw_event_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<Nip66RelayCandidateDto> sse_decode_list_nip_66_relay_candidate_dto(
     SseDeserializer deserializer,
   );
 
@@ -1263,6 +1369,17 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  List<(String, RelayQualityReportDto)>
+  sse_decode_list_record_string_relay_quality_report_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<(String, String)> sse_decode_list_record_string_string(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<RelayDeliveryStatusDto> sse_decode_list_relay_delivery_status_dto(
     SseDeserializer deserializer,
   );
@@ -1274,6 +1391,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   List<RelayListEntryDto> sse_decode_list_relay_list_entry_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<RelayQualityReportDto> sse_decode_list_relay_quality_report_dto(
     SseDeserializer deserializer,
   );
 
@@ -1338,6 +1460,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   LonLatPoint sse_decode_lon_lat_point(SseDeserializer deserializer);
+
+  @protected
+  ManagedRelayStatusDto sse_decode_managed_relay_status_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   MapSummaryDto sse_decode_map_summary_dto(SseDeserializer deserializer);
@@ -1405,6 +1532,11 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   Nip60WalletDiscoveryDto sse_decode_nip_60_wallet_discovery_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  Nip66RelayCandidateDto sse_decode_nip_66_relay_candidate_dto(
     SseDeserializer deserializer,
   );
 
@@ -1512,6 +1644,16 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  RelayNip11InfoDto? sse_decode_opt_box_autoadd_relay_nip_11_info_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RelayQualityReportDto? sse_decode_opt_box_autoadd_relay_quality_report_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   SightingSummaryDto? sse_decode_opt_box_autoadd_sighting_summary_dto(
     SseDeserializer deserializer,
   );
@@ -1529,6 +1671,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
+
+  @protected
+  List<String>? sse_decode_opt_list_String(SseDeserializer deserializer);
 
   @protected
   OsmImportResultDto sse_decode_osm_import_result_dto(
@@ -1592,6 +1737,17 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  (String, RelayQualityReportDto)
+  sse_decode_record_string_relay_quality_report_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  (String, String) sse_decode_record_string_string(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   RelayDeliveryStatusDto sse_decode_relay_delivery_status_dto(
     SseDeserializer deserializer,
   );
@@ -1601,6 +1757,26 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   RelayListEntryDto sse_decode_relay_list_entry_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RelayManagerSnapshotDto sse_decode_relay_manager_snapshot_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RelayManagerState sse_decode_relay_manager_state(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RelayNip11InfoDto sse_decode_relay_nip_11_info_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RelayQualityReportDto sse_decode_relay_quality_report_dto(
     SseDeserializer deserializer,
   );
 
@@ -1713,6 +1889,18 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   void sse_encode_DartOpaque(Object self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_Map_String_String_None(
+    Map<String, String> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_Map_String_relay_quality_report_dto_None(
+    Map<String, RelayQualityReportDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_StreamSink_agent_stream_event_dto_Sse(
@@ -1912,6 +2100,18 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_box_autoadd_profile_metadata_dto(
     ProfileMetadataDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_relay_nip_11_info_dto(
+    RelayNip11InfoDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_relay_quality_report_dto(
+    RelayQualityReportDto self,
     SseSerializer serializer,
   );
 
@@ -2264,6 +2464,12 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_managed_relay_status_dto(
+    List<ManagedRelayStatusDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_map_summary_dto(
     List<MapSummaryDto> self,
     SseSerializer serializer,
@@ -2296,6 +2502,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_list_nip_60_raw_event_dto(
     List<Nip60RawEventDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_nip_66_relay_candidate_dto(
+    List<Nip66RelayCandidateDto> self,
     SseSerializer serializer,
   );
 
@@ -2357,6 +2569,18 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_list_record_string_relay_quality_report_dto(
+    List<(String, RelayQualityReportDto)> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_record_string_string(
+    List<(String, String)> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_relay_delivery_status_dto(
     List<RelayDeliveryStatusDto> self,
     SseSerializer serializer,
@@ -2371,6 +2595,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_list_relay_list_entry_dto(
     List<RelayListEntryDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_relay_quality_report_dto(
+    List<RelayQualityReportDto> self,
     SseSerializer serializer,
   );
 
@@ -2448,6 +2678,12 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   void sse_encode_lon_lat_point(LonLatPoint self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_managed_relay_status_dto(
+    ManagedRelayStatusDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_map_summary_dto(MapSummaryDto self, SseSerializer serializer);
@@ -2533,6 +2769,12 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_nip_60_wallet_discovery_dto(
     Nip60WalletDiscoveryDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_nip_66_relay_candidate_dto(
+    Nip66RelayCandidateDto self,
     SseSerializer serializer,
   );
 
@@ -2657,6 +2899,18 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_relay_nip_11_info_dto(
+    RelayNip11InfoDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_relay_quality_report_dto(
+    RelayQualityReportDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_sighting_summary_dto(
     SightingSummaryDto? self,
     SseSerializer serializer,
@@ -2676,6 +2930,9 @@ abstract class EarthlyRustLibApiImplPlatform
 
   @protected
   void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_list_String(List<String>? self, SseSerializer serializer);
 
   @protected
   void sse_encode_osm_import_result_dto(
@@ -2753,6 +3010,18 @@ abstract class EarthlyRustLibApiImplPlatform
   );
 
   @protected
+  void sse_encode_record_string_relay_quality_report_dto(
+    (String, RelayQualityReportDto) self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_record_string_string(
+    (String, String) self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_relay_delivery_status_dto(
     RelayDeliveryStatusDto self,
     SseSerializer serializer,
@@ -2767,6 +3036,30 @@ abstract class EarthlyRustLibApiImplPlatform
   @protected
   void sse_encode_relay_list_entry_dto(
     RelayListEntryDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_relay_manager_snapshot_dto(
+    RelayManagerSnapshotDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_relay_manager_state(
+    RelayManagerState self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_relay_nip_11_info_dto(
+    RelayNip11InfoDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_relay_quality_report_dto(
+    RelayQualityReportDto self,
     SseSerializer serializer,
   );
 

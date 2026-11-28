@@ -156,25 +156,42 @@ async fn deliver_event_to_relays(
         }
     };
 
-    for relay_url in relay_urls {
-        let attempt = async {
-            let output = tokio::time::timeout(
-                Duration::from_secs(8),
-                client.send_event_to([relay_url.as_str()], event),
-            )
-            .await
-            .map_err(|_| "relay publish timed out".to_owned())?
-            .map_err(|e| e.to_string())?;
-            if !output.success.is_empty() {
-                Ok("accepted".to_owned())
-            } else if let Some((_, reason)) = output.failed.into_iter().next() {
-                Err(reason)
-            } else {
-                Err("relay did not acknowledge event".to_owned())
+    // Deliver to all target relays concurrently while preserving input relay order.
+    let mut join_set = tokio::task::JoinSet::new();
+    for (idx, relay_url) in relay_urls.iter().cloned().enumerate() {
+        let client_clone = client.clone();
+        let event_clone = event.clone();
+        join_set.spawn(async move {
+            let attempt = async {
+                let output = tokio::time::timeout(
+                    Duration::from_secs(8),
+                    client_clone.send_event_to([relay_url.as_str()], &event_clone),
+                )
+                .await
+                .map_err(|_| "relay publish timed out".to_owned())?
+                .map_err(|e| e.to_string())?;
+                if !output.success.is_empty() {
+                    Ok("accepted".to_owned())
+                } else if let Some((_, reason)) = output.failed.into_iter().next() {
+                    Err(reason)
+                } else {
+                    Err("relay did not acknowledge event".to_owned())
+                }
             }
-        }
-        .await;
+            .await;
+            (idx, relay_url, attempt)
+        });
+    }
 
+    let mut indexed = Vec::with_capacity(relay_urls.len());
+    while let Some(joined) = join_set.join_next().await {
+        if let Ok(row) = joined {
+            indexed.push(row);
+        }
+    }
+    indexed.sort_by_key(|(idx, _, _)| *idx);
+
+    for (_, relay_url, attempt) in indexed {
         match attempt {
             Ok(msg) => {
                 results.push(OutboxRelayResultInput {
@@ -183,7 +200,7 @@ async fn deliver_event_to_relays(
                     message: Some(msg.clone()),
                 });
                 ui_statuses.push(RelayDeliveryStatusDto {
-                    relay_url: relay_url.clone(),
+                    relay_url,
                     ok: true,
                     message: Some(msg),
                 });
@@ -195,7 +212,7 @@ async fn deliver_event_to_relays(
                     message: Some(err.clone()),
                 });
                 ui_statuses.push(RelayDeliveryStatusDto {
-                    relay_url: relay_url.clone(),
+                    relay_url,
                     ok: false,
                     message: Some(err),
                 });
@@ -207,25 +224,28 @@ async fn deliver_event_to_relays(
 }
 
 /// Persists an already-signed Nostr event into the crash-safe SQLite outbox
-/// BEFORE network transmission, delivers it to each target relay via the shared
-/// `nostr-sdk` relay pool, records per-relay acknowledgements, and returns the
-/// live outcome.
+/// BEFORE network transmission, fans out delivery across the Earthly relay AND
+/// all active public/write relays via the shared `nostr-sdk` relay pool (never
+/// leaking private MLS kinds or loopback-only publishes), records per-relay
+/// acknowledgements, and returns the live outcome.
 pub async fn publish_signed_event_via_outbox(
     database_path: String,
     signed_event_json: String,
     relay_urls: Vec<String>,
 ) -> Result<PublishOutcomeDto, String> {
-    let urls = if relay_urls.is_empty() {
-        vec!["wss://relay.earthly.city".to_owned()]
-    } else {
-        relay_urls
-    };
-
     let event =
         Event::from_json(&signed_event_json).map_err(|err| format!("invalid signed event: {err}"))?;
     event
         .verify()
         .map_err(|err| format!("signed event signature verification failed: {err}"))?;
+
+    let urls =
+        crate::api::relay_pool::resolve_write_relays(&relay_urls, Some(event.kind.as_u16()));
+    let required_relay = urls
+        .iter()
+        .find(|u| u.as_str() == earthly_storage::settings::PRIMARY_EARTHLY_RELAY)
+        .cloned()
+        .unwrap_or_else(|| urls[0].clone());
 
     let store = OutboxStore::open(&database_path).map_err(|e| e.to_string())?;
     let queued = store
@@ -235,7 +255,7 @@ pub async fn publish_signed_event_via_outbox(
             routing: OutboxRouting::Configured,
             target_pubkey: None,
             relay_urls: urls.clone(),
-            required_relay_urls: vec![urls[0].clone()],
+            required_relay_urls: vec![required_relay],
         })
         .map_err(|e| e.to_string())?;
 

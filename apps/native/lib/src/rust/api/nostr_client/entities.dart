@@ -83,7 +83,8 @@ Future<EntityDiscussionSnapshot> fetchEntityDiscussion({
     );
 
 /// Fetches NIP-25 reaction (`kind 7`) counts, whether `current_user_pubkey` has
-/// reacted, and NIP-57 zap (`kind 9735`) count & satoshi total for an Earthly entity.
+/// reacted, and NIP-57 zap (`kind 9735`) count & satoshi total for an Earthly entity,
+/// fanning out across Earthly relay, public relays, and user NIP-65 read relays.
 Future<EntitySocialCountsDto> fetchEntitySocialCounts({
   required List<String> relayUrls,
   required String targetAddress,
@@ -97,8 +98,9 @@ Future<EntitySocialCountsDto> fetchEntitySocialCounts({
       currentUserPubkey: currentUserPubkey,
     );
 
-/// Fetches a single author's `kind 0` profile and all published Earthly Maps (`37515`),
-/// Stories (`37520`), and Atlases (`37518`) from the configured Nostr relays.
+/// Fetches a single author's `kind 0` profile (across profile discovery + public
+/// relays) and all published Earthly Maps (`37515`), Stories (`37520`), and Atlases
+/// (`37518`) across Earthly + public/read relays.
 Future<AuthorPortfolioDto> fetchAuthorPortfolio({
   required List<String> relayUrls,
   required String pubkeyOrNpub,

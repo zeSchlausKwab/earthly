@@ -7,10 +7,13 @@ import '../../frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `parse_nip65_tags`, `resolve_lud16_to_lnurlp_url`, `shoutbox_filter_tag`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `aggregate_nip66_candidates`, `compute_relay_quality`, `fetch_nip11_info`, `is_clearnet_public_wss_url`, `nip66_candidate_rank_key`, `parse_nip11_json`, `parse_nip65_tags`, `parse_nip66_event`, `parse_nip66_rtt_ms`, `probe_single_relay_quality`, `resolve_lud16_to_lnurlp_url`, `shoutbox_filter_tag`, `ws_url_to_nip11_http_url`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `ParsedNip66Observation`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
-/// Fetches Nostr `kind 0` author metadata profiles for the requested hex pubkeys.
+/// Fetches Nostr `kind 0` author metadata profiles for the requested hex pubkeys,
+/// fanning out across `purplepag.es`, major public relays, user NIP-65 read relays,
+/// and `relay.earthly.city` (unless loopback-only test relays are passed).
 Future<List<ProfileMetadataDto>> fetchProfiles({
   required List<String> relayUrls,
   required List<String> pubkeys,
@@ -21,7 +24,7 @@ Future<List<ProfileMetadataDto>> fetchProfiles({
     );
 
 /// Fetches a user's NIP-65 (`kind 10002`) relay list metadata across configured
-/// relays (falling back to `wss://purplepag.es` if needed).
+/// relays, `wss://purplepag.es`, and major public discovery relays.
 Future<List<RelayListEntryDto>> fetchUserRelayList({
   required List<String> relayUrls,
   required String pubkeyOrNpub,
@@ -31,11 +34,60 @@ Future<List<RelayListEntryDto>> fetchUserRelayList({
       pubkeyOrNpub: pubkeyOrNpub,
     );
 
-/// Probes WebSocket reachability and handshake latency (ms) for each relay URL.
+/// Fetches the signed-in user's NIP-65 (`kind 10002`) relay list and merges it
+/// (respecting read/write markers) directly into the active Rust Relay Manager
+/// and shared relay pool.
+Future<List<RelayListEntryDto>> syncUserNip65Relays({
+  required String pubkeyOrNpub,
+  required List<String> seedRelays,
+}) => EarthlyRustLib.instance.api
+    .crateApiNostrClientProfilesRelaysSyncUserNip65Relays(
+      pubkeyOrNpub: pubkeyOrNpub,
+      seedRelays: seedRelays,
+    );
+
+/// Marks a relay URL added from NIP-66 discovery so the Relay Manager tags its source.
+Future<void> markNip66RelayAdded({required String url}) => EarthlyRustLib
+    .instance
+    .api
+    .crateApiNostrClientProfilesRelaysMarkNip66RelayAdded(url: url);
+
+/// Returns the current Relay Manager state including live pool connectivity,
+/// cached quality/NIP-11 probe metrics, read/write roles, and NIP-65 entries.
+Future<RelayManagerSnapshotDto> getRelayManagerSnapshot({
+  required List<String> configuredRelays,
+}) => EarthlyRustLib.instance.api
+    .crateApiNostrClientProfilesRelaysGetRelayManagerSnapshot(
+      configuredRelays: configuredRelays,
+    );
+
+/// Probes live WebSocket handshake RTT, NIP-11 metadata (`Accept: application/nostr+json`),
+/// auth/payment restrictions, and composite quality score/status concurrently for every relay.
+Future<List<RelayQualityReportDto>> probeRelaysQuality({
+  required List<String> relayUrls,
+}) => EarthlyRustLib.instance.api
+    .crateApiNostrClientProfilesRelaysProbeRelaysQuality(relayUrls: relayUrls);
+
+/// Probes WebSocket reachability and handshake latency (ms) concurrently for each relay URL.
 Future<List<RelayHealthDto>> probeRelaysHealth({
   required List<String> relayUrls,
 }) => EarthlyRustLib.instance.api
     .crateApiNostrClientProfilesRelaysProbeRelaysHealth(relayUrls: relayUrls);
+
+/// Queries NIP-66 (`kind 30166`) relay discovery events from `nostr.watch`
+/// monitors (`wss://relay.nostr.watch`, `wss://history.nostr.watch`), parses
+/// clearnet public relay metadata, and optionally live-probes the top candidates
+/// for real-time WebSocket RTT & NIP-11 capabilities.
+Future<List<Nip66RelayCandidateDto>> discoverPublicRelaysNip66({
+  List<String>? monitorRelays,
+  required int limit,
+  required bool probeCandidates,
+}) => EarthlyRustLib.instance.api
+    .crateApiNostrClientProfilesRelaysDiscoverPublicRelaysNip66(
+      monitorRelays: monitorRelays,
+      limit: limit,
+      probeCandidates: probeCandidates,
+    );
 
 /// Encodes a 64-char hex pubkey (or normalizes an existing `npub1...`) to canonical `npub1...`.
 Future<String> pubkeyToNpub({required String pubkeyOrNpub}) => EarthlyRustLib
@@ -84,6 +136,121 @@ Future<List<ShoutboxPostDto>> fetchShoutboxPosts({
       category: category,
       limit: limit,
     );
+
+/// Status row for a single relay managed by the production Relay Manager.
+class ManagedRelayStatusDto {
+  final String url;
+  final bool read;
+  final bool write;
+
+  /// `"earthly"` | `"public_default"` | `"nip65"` | `"nip66"` | `"custom"` | `"profile_discovery"`
+  final String source;
+  final bool connected;
+  final RelayQualityReportDto? quality;
+
+  const ManagedRelayStatusDto({
+    required this.url,
+    required this.read,
+    required this.write,
+    required this.source,
+    required this.connected,
+    this.quality,
+  });
+
+  @override
+  int get hashCode =>
+      url.hashCode ^
+      read.hashCode ^
+      write.hashCode ^
+      source.hashCode ^
+      connected.hashCode ^
+      quality.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ManagedRelayStatusDto &&
+          runtimeType == other.runtimeType &&
+          url == other.url &&
+          read == other.read &&
+          write == other.write &&
+          source == other.source &&
+          connected == other.connected &&
+          quality == other.quality;
+}
+
+/// NIP-66 (`kind 30166` / `nostr.watch`) discovered public relay candidate with
+/// optional live probe verification.
+class Nip66RelayCandidateDto {
+  final String url;
+  final String network;
+  final int? rttOpenMs;
+  final int? rttReadMs;
+  final int? rttWriteMs;
+  final Uint32List supportedNips;
+  final bool authRequired;
+  final bool paymentRequired;
+  final bool writesRestricted;
+  final String? software;
+  final String? countryCode;
+  final int monitorCount;
+  final BigInt lastSeenAt;
+  final RelayQualityReportDto? liveProbe;
+
+  const Nip66RelayCandidateDto({
+    required this.url,
+    required this.network,
+    this.rttOpenMs,
+    this.rttReadMs,
+    this.rttWriteMs,
+    required this.supportedNips,
+    required this.authRequired,
+    required this.paymentRequired,
+    required this.writesRestricted,
+    this.software,
+    this.countryCode,
+    required this.monitorCount,
+    required this.lastSeenAt,
+    this.liveProbe,
+  });
+
+  @override
+  int get hashCode =>
+      url.hashCode ^
+      network.hashCode ^
+      rttOpenMs.hashCode ^
+      rttReadMs.hashCode ^
+      rttWriteMs.hashCode ^
+      supportedNips.hashCode ^
+      authRequired.hashCode ^
+      paymentRequired.hashCode ^
+      writesRestricted.hashCode ^
+      software.hashCode ^
+      countryCode.hashCode ^
+      monitorCount.hashCode ^
+      lastSeenAt.hashCode ^
+      liveProbe.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Nip66RelayCandidateDto &&
+          runtimeType == other.runtimeType &&
+          url == other.url &&
+          network == other.network &&
+          rttOpenMs == other.rttOpenMs &&
+          rttReadMs == other.rttReadMs &&
+          rttWriteMs == other.rttWriteMs &&
+          supportedNips == other.supportedNips &&
+          authRequired == other.authRequired &&
+          paymentRequired == other.paymentRequired &&
+          writesRestricted == other.writesRestricted &&
+          software == other.software &&
+          countryCode == other.countryCode &&
+          monitorCount == other.monitorCount &&
+          lastSeenAt == other.lastSeenAt &&
+          liveProbe == other.liveProbe;
+}
 
 class ProfileMetadataDto {
   final String pubkey;
@@ -186,6 +353,166 @@ class RelayListEntryDto {
           url == other.url &&
           read == other.read &&
           write == other.write;
+}
+
+/// Full Relay Manager snapshot exposed to Settings UI (configured relays, roles,
+/// live quality metrics, NIP-65 merged list, and public relay policy).
+class RelayManagerSnapshotDto {
+  final bool publicRelaysEnabled;
+  final String primaryEarthlyRelay;
+  final List<String> defaultPublicRelays;
+  final List<String> profileDiscoveryRelays;
+  final String? activeUserPubkey;
+  final List<ManagedRelayStatusDto> configuredRelays;
+  final List<RelayListEntryDto> nip65Relays;
+
+  const RelayManagerSnapshotDto({
+    required this.publicRelaysEnabled,
+    required this.primaryEarthlyRelay,
+    required this.defaultPublicRelays,
+    required this.profileDiscoveryRelays,
+    this.activeUserPubkey,
+    required this.configuredRelays,
+    required this.nip65Relays,
+  });
+
+  @override
+  int get hashCode =>
+      publicRelaysEnabled.hashCode ^
+      primaryEarthlyRelay.hashCode ^
+      defaultPublicRelays.hashCode ^
+      profileDiscoveryRelays.hashCode ^
+      activeUserPubkey.hashCode ^
+      configuredRelays.hashCode ^
+      nip65Relays.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RelayManagerSnapshotDto &&
+          runtimeType == other.runtimeType &&
+          publicRelaysEnabled == other.publicRelaysEnabled &&
+          primaryEarthlyRelay == other.primaryEarthlyRelay &&
+          defaultPublicRelays == other.defaultPublicRelays &&
+          profileDiscoveryRelays == other.profileDiscoveryRelays &&
+          activeUserPubkey == other.activeUserPubkey &&
+          configuredRelays == other.configuredRelays &&
+          nip65Relays == other.nip65Relays;
+}
+
+/// Parsed NIP-11 relay information document (`Accept: application/nostr+json`).
+class RelayNip11InfoDto {
+  final String? name;
+  final String? description;
+  final String? software;
+  final String? version;
+  final Uint32List supportedNips;
+  final bool authRequired;
+  final bool paymentRequired;
+  final bool restrictedWrites;
+  final BigInt? maxMessageLength;
+
+  const RelayNip11InfoDto({
+    this.name,
+    this.description,
+    this.software,
+    this.version,
+    required this.supportedNips,
+    required this.authRequired,
+    required this.paymentRequired,
+    required this.restrictedWrites,
+    this.maxMessageLength,
+  });
+
+  static Future<RelayNip11InfoDto> default_() => EarthlyRustLib.instance.api
+      .crateApiNostrClientProfilesRelaysRelayNip11InfoDtoDefault();
+
+  @override
+  int get hashCode =>
+      name.hashCode ^
+      description.hashCode ^
+      software.hashCode ^
+      version.hashCode ^
+      supportedNips.hashCode ^
+      authRequired.hashCode ^
+      paymentRequired.hashCode ^
+      restrictedWrites.hashCode ^
+      maxMessageLength.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RelayNip11InfoDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          description == other.description &&
+          software == other.software &&
+          version == other.version &&
+          supportedNips == other.supportedNips &&
+          authRequired == other.authRequired &&
+          paymentRequired == other.paymentRequired &&
+          restrictedWrites == other.restrictedWrites &&
+          maxMessageLength == other.maxMessageLength;
+}
+
+/// Live relay connectivity, RTT, NIP-11 capability, and composite quality probe report.
+class RelayQualityReportDto {
+  final String url;
+  final bool reachable;
+  final int rttMs;
+
+  /// `"healthy"` | `"slow"` | `"offline"` | `"auth_required"`
+  final String status;
+
+  /// Composite quality score (`0..=100`).
+  final int qualityScore;
+  final bool authRequired;
+  final bool paymentRequired;
+  final RelayNip11InfoDto? nip11;
+  final String? error;
+  final BigInt probedAt;
+
+  const RelayQualityReportDto({
+    required this.url,
+    required this.reachable,
+    required this.rttMs,
+    required this.status,
+    required this.qualityScore,
+    required this.authRequired,
+    required this.paymentRequired,
+    this.nip11,
+    this.error,
+    required this.probedAt,
+  });
+
+  @override
+  int get hashCode =>
+      url.hashCode ^
+      reachable.hashCode ^
+      rttMs.hashCode ^
+      status.hashCode ^
+      qualityScore.hashCode ^
+      authRequired.hashCode ^
+      paymentRequired.hashCode ^
+      nip11.hashCode ^
+      error.hashCode ^
+      probedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RelayQualityReportDto &&
+          runtimeType == other.runtimeType &&
+          url == other.url &&
+          reachable == other.reachable &&
+          rttMs == other.rttMs &&
+          status == other.status &&
+          qualityScore == other.qualityScore &&
+          authRequired == other.authRequired &&
+          paymentRequired == other.paymentRequired &&
+          nip11 == other.nip11 &&
+          error == other.error &&
+          probedAt == other.probedAt;
 }
 
 class ShoutboxPostDto {

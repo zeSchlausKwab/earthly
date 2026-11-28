@@ -28,6 +28,21 @@ Future<AppSettingsDto> saveAppSettings({
   settings: settings,
 );
 
+/// Toggles the production `public_relays_enabled` policy cleanly in SQLite and updates
+/// the live Relay Manager, merging or removing default public relays while preserving
+/// the primary Earthly relay and any user custom relays.
+Future<AppSettingsDto> setPublicRelaysEnabled({
+  required String databasePath,
+  required bool enabled,
+}) => EarthlyRustLib.instance.api.crateApiSettingsSetPublicRelaysEnabled(
+  databasePath: databasePath,
+  enabled: enabled,
+);
+
+/// Returns the canonical production default relay list (`relay.earthly.city` + public relays).
+Future<List<String>> defaultPublicRelayUrls() =>
+    EarthlyRustLib.instance.api.crateApiSettingsDefaultPublicRelayUrls();
+
 class AppSettingsDto {
   final List<String> relayUrls;
   final String? localPubkeyHex;
@@ -63,6 +78,7 @@ class AppSettingsDto {
   final String? agentProviderType;
   final bool agentAutoPayCashu;
   final int agentCashuMaxSats;
+  final bool? publicRelaysEnabled;
 
   const AppSettingsDto({
     required this.relayUrls,
@@ -99,6 +115,7 @@ class AppSettingsDto {
     this.agentProviderType,
     required this.agentAutoPayCashu,
     required this.agentCashuMaxSats,
+    this.publicRelaysEnabled,
   });
 
   @override
@@ -136,7 +153,8 @@ class AppSettingsDto {
       pointClusterMaxZoom.hashCode ^
       agentProviderType.hashCode ^
       agentAutoPayCashu.hashCode ^
-      agentCashuMaxSats.hashCode;
+      agentCashuMaxSats.hashCode ^
+      publicRelaysEnabled.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -176,7 +194,8 @@ class AppSettingsDto {
           pointClusterMaxZoom == other.pointClusterMaxZoom &&
           agentProviderType == other.agentProviderType &&
           agentAutoPayCashu == other.agentAutoPayCashu &&
-          agentCashuMaxSats == other.agentCashuMaxSats;
+          agentCashuMaxSats == other.agentCashuMaxSats &&
+          publicRelaysEnabled == other.publicRelaysEnabled;
 }
 
 class MountedAtlasWorkspaceDto {

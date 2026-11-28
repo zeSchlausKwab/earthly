@@ -15,6 +15,7 @@ use nostr::nips::nip01::Coordinate;
 use nostr::nips::nip19::{FromBech32, Nip19Coordinate, ToBech32};
 use nostr::{Alphabet, Event, Filter, Kind, PublicKey, RelayUrl, SingleLetterTag};
 
+#[cfg(test)]
 use super::DEFAULT_EARTHLY_RELAY;
 use super::blob_media::BlobRefDto;
 use super::catalog::LiveRelayEventDto;
@@ -283,24 +284,32 @@ pub async fn fetch_entity_by_address(
     let pk = PublicKey::from_hex(pk_hex)
         .map_err(|err| format!("invalid address pubkey: {err}"))?;
 
-    let urls = if relay_urls.is_empty() {
-        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
-    } else {
-        relay_urls
-    };
-
+    let urls = crate::api::relay_pool::resolve_read_relays(&relay_urls);
     let client = crate::api::relay_pool::shared_client(&urls).await?;
 
     let filter = Filter::new()
         .kind(Kind::Custom(kind_num))
         .author(pk)
         .identifier(d_tag)
-        .limit(3);
+        .limit(5);
 
-    let events = client
-        .fetch_events_from(&urls, filter, Duration::from_secs(8))
-        .await
-        .map_err(|err| format!("failed to fetch entity: {err}"))?;
+    let relay_res = client
+        .fetch_events_from(&urls, filter.clone(), Duration::from_secs(8))
+        .await;
+    let mut events: Vec<Event> = match &relay_res {
+        Ok(set) => set.iter().cloned().collect(),
+        Err(_) => Vec::new(),
+    };
+    if events.is_empty() {
+        if let Ok(cached) = client.database().query(filter).await {
+            events.extend(cached.into_iter());
+        }
+    }
+    if events.is_empty() {
+        if let Err(err) = relay_res {
+            return Err(format!("failed to fetch entity: {err}"));
+        }
+    }
 
     let mut newest: Option<RawNostrEvent> = None;
     for ev in events.into_iter() {
@@ -310,7 +319,10 @@ pub async fn fetch_entity_by_address(
         }
         let replace = newest
             .as_ref()
-            .map(|cur| raw.created_at > cur.created_at)
+            .map(|cur| {
+                raw.created_at > cur.created_at
+                    || (raw.created_at == cur.created_at && raw.id < cur.id)
+            })
             .unwrap_or(true);
         if replace {
             newest = Some(raw);
@@ -360,12 +372,7 @@ pub async fn fetch_maps_by_addresses(
         return Ok(Vec::new());
     }
 
-    let urls = if relay_urls.is_empty() {
-        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
-    } else {
-        relay_urls
-    };
-
+    let urls = crate::api::relay_pool::resolve_read_relays(&relay_urls);
     let client = crate::api::relay_pool::shared_client(&urls).await?;
 
     let authors: Vec<PublicKey> = parsed_targets.iter().map(|(pk, _, _)| *pk).collect();
@@ -376,10 +383,23 @@ pub async fn fetch_maps_by_addresses(
         .identifiers(identifiers)
         .limit(parsed_targets.len().max(1) * 3);
 
-    let events = client
-        .fetch_events_from(&urls, filter, Duration::from_secs(8))
-        .await
-        .map_err(|err| format!("failed to fetch referenced maps: {err}"))?;
+    let relay_res = client
+        .fetch_events_from(&urls, filter.clone(), Duration::from_secs(8))
+        .await;
+    let mut events: Vec<Event> = match &relay_res {
+        Ok(set) => set.iter().cloned().collect(),
+        Err(_) => Vec::new(),
+    };
+    if relay_res.is_err() || events.len() < parsed_targets.len() {
+        if let Ok(cached) = client.database().query(filter).await {
+            events.extend(cached.into_iter());
+        }
+    }
+    if events.is_empty() {
+        if let Err(err) = relay_res {
+            return Err(format!("failed to fetch referenced maps: {err}"));
+        }
+    }
 
     let mut latest_by_addr: BTreeMap<String, RawNostrEvent> = BTreeMap::new();
     for event in events.into_iter() {
@@ -423,11 +443,7 @@ pub async fn fetch_entity_discussion(
     base_geojson: Option<String>,
     base_markdown: Option<String>,
 ) -> Result<EntityDiscussionSnapshot, String> {
-    let urls = if relay_urls.is_empty() {
-        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
-    } else {
-        relay_urls
-    };
+    let urls = crate::api::relay_pool::resolve_read_relays(&relay_urls);
     let client = crate::api::relay_pool::shared_client(&urls).await?;
 
     let comments_filter_upper = Filter::new()
@@ -630,18 +646,15 @@ fn compute_markdown_line_diff_counts(base: &str, proposed: &str) -> (u32, u32) {
 }
 
 /// Fetches NIP-25 reaction (`kind 7`) counts, whether `current_user_pubkey` has
-/// reacted, and NIP-57 zap (`kind 9735`) count & satoshi total for an Earthly entity.
+/// reacted, and NIP-57 zap (`kind 9735`) count & satoshi total for an Earthly entity,
+/// fanning out across Earthly relay, public relays, and user NIP-65 read relays.
 pub async fn fetch_entity_social_counts(
     relay_urls: Vec<String>,
     target_address: String,
     target_event_id: Option<String>,
     current_user_pubkey: Option<String>,
 ) -> Result<EntitySocialCountsDto, String> {
-    let urls = if relay_urls.is_empty() {
-        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
-    } else {
-        relay_urls
-    };
+    let urls = crate::api::relay_pool::resolve_zap_read_relays(&relay_urls);
     let client = crate::api::relay_pool::shared_client(&urls).await?;
 
     let reactions_filter = Filter::new()
@@ -652,23 +665,38 @@ pub async fn fetch_entity_social_counts(
         .kind(Kind::Custom(9735))
         .custom_tag(SingleLetterTag::lowercase(Alphabet::A), target_address.clone())
         .limit(100);
-    let reactions_e_filter = target_event_id
+    let parsed_eid = target_event_id
         .as_deref()
-        .and_then(|id| nostr::EventId::from_hex(id).ok())
-        .map(|eid| Filter::new().kind(Kind::Reaction).event(eid).limit(200));
+        .and_then(|id| nostr::EventId::from_hex(id).ok());
+    let reactions_e_filter =
+        parsed_eid.map(|eid| Filter::new().kind(Kind::Reaction).event(eid).limit(200));
+    let zaps_e_filter =
+        parsed_eid.map(|eid| Filter::new().kind(Kind::Custom(9735)).event(eid).limit(100));
 
-    let (r_a, z_a) = tokio::join!(
+    let (r_a, z_a, r_e, z_e) = tokio::join!(
         client.fetch_events_from(&urls, reactions_filter, Duration::from_secs(5)),
         client.fetch_events_from(&urls, zaps_filter, Duration::from_secs(5)),
+        async {
+            if let Some(f) = reactions_e_filter {
+                client
+                    .fetch_events_from(&urls, f, Duration::from_secs(4))
+                    .await
+                    .ok()
+            } else {
+                None
+            }
+        },
+        async {
+            if let Some(f) = zaps_e_filter {
+                client
+                    .fetch_events_from(&urls, f, Duration::from_secs(4))
+                    .await
+                    .ok()
+            } else {
+                None
+            }
+        },
     );
-    let r_e = if let Some(f) = reactions_e_filter {
-        client
-            .fetch_events_from(&urls, f, Duration::from_secs(4))
-            .await
-            .ok()
-    } else {
-        None
-    };
 
     let me = current_user_pubkey
         .as_deref()
@@ -688,8 +716,8 @@ pub async fn fetch_entity_social_counts(
 
     let mut zap_count = 0u32;
     let mut zap_sats = 0u64;
-    if let Ok(zaps) = z_a {
-        let mut seen_zaps = HashSet::new();
+    let mut seen_zaps = HashSet::new();
+    for zaps in [z_a.ok(), z_e].into_iter().flatten() {
         for ev in zaps.into_iter() {
             if !seen_zaps.insert(ev.id.to_hex()) {
                 continue;
@@ -960,8 +988,9 @@ pub(super) fn parse_live_relay_event(
     }
 }
 
-/// Fetches a single author's `kind 0` profile and all published Earthly Maps (`37515`),
-/// Stories (`37520`), and Atlases (`37518`) from the configured Nostr relays.
+/// Fetches a single author's `kind 0` profile (across profile discovery + public
+/// relays) and all published Earthly Maps (`37515`), Stories (`37520`), and Atlases
+/// (`37518`) across Earthly + public/read relays.
 pub async fn fetch_author_portfolio(
     relay_urls: Vec<String>,
     pubkey_or_npub: String,
@@ -973,28 +1002,55 @@ pub async fn fetch_author_portfolio(
         .to_bech32()
         .map_err(|err| format!("failed to encode npub: {err}"))?;
 
-    let urls = if relay_urls.is_empty() {
-        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
-    } else {
-        relay_urls
-    };
+    let entity_urls = crate::api::relay_pool::resolve_read_relays(&relay_urls);
+    let profile_urls = crate::api::relay_pool::resolve_profile_discovery_relays(&relay_urls);
+    let mut union_urls = entity_urls.clone();
+    for u in &profile_urls {
+        if !union_urls.contains(u) {
+            union_urls.push(u.clone());
+        }
+    }
 
-    let client = crate::api::relay_pool::shared_client(&urls).await?;
+    let client = crate::api::relay_pool::shared_client(&union_urls).await?;
 
+    let filter_profile = Filter::new().author(pk).kind(Kind::Metadata).limit(5);
     let filter_entities = Filter::new()
         .author(pk)
         .kinds([
-            Kind::Metadata,
             Kind::Custom(GEO_EVENT_KIND),
             Kind::Custom(ARTICLE_KIND),
             Kind::Custom(MAP_CONTEXT_KIND),
         ])
         .limit(120);
 
-    let events = client
-        .fetch_events_from(&urls, filter_entities, Duration::from_secs(7))
-        .await
-        .map_err(|err| format!("failed to fetch author portfolio: {err}"))?;
+    let (profile_res, entities_res) = tokio::join!(
+        client.fetch_events_from(&profile_urls, filter_profile.clone(), Duration::from_secs(6)),
+        client.fetch_events_from(&entity_urls, filter_entities.clone(), Duration::from_secs(7)),
+    );
+
+    let mut events: Vec<Event> = Vec::new();
+    let mut last_err: Option<String> = None;
+    match profile_res {
+        Ok(set) => events.extend(set.into_iter()),
+        Err(e) => last_err = Some(e.to_string()),
+    }
+    match entities_res {
+        Ok(set) => events.extend(set.into_iter()),
+        Err(e) => last_err = Some(e.to_string()),
+    }
+    if events.is_empty() {
+        if let Ok(cached_p) = client.database().query(filter_profile).await {
+            events.extend(cached_p.into_iter());
+        }
+        if let Ok(cached_e) = client.database().query(filter_entities).await {
+            events.extend(cached_e.into_iter());
+        }
+    }
+    if events.is_empty() {
+        if let Some(err) = last_err {
+            return Err(format!("failed to fetch author portfolio: {err}"));
+        }
+    }
 
     let mut latest_profile: Option<(u64, ProfileMetadataDto)> = None;
     let mut latest_by_addr: BTreeMap<String, RawNostrEvent> = BTreeMap::new();
@@ -1102,12 +1158,7 @@ pub async fn fetch_inbox_items(
         .map_err(|err| format!("invalid user public key: {err}"))?;
     let user_hex = pk.to_hex();
 
-    let urls = if relay_urls.is_empty() {
-        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
-    } else {
-        relay_urls
-    };
-
+    let urls = crate::api::relay_pool::resolve_read_relays(&relay_urls);
     let client = crate::api::relay_pool::shared_client(&urls).await?;
 
     let mut all_raw: BTreeMap<String, RawNostrEvent> = BTreeMap::new();
