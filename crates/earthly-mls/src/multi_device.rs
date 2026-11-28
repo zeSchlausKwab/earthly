@@ -29,11 +29,14 @@ use sha2::{Digest, Sha256};
 
 use crate::envelope::{assert_private_envelope_authorization, PrivateWorkspaceEnvelope};
 use crate::is_valid_hex_pubkey;
-use crate::mls::{derive_encrypted_media_key_with_epoch, inspect_group_summary, PersistedMlsState};
+use crate::mls::{
+    derive_encrypted_media_key_with_epoch, inspect_group_summary, GeneratedKeyPackage,
+    PersistedMlsState,
+};
 use crate::policy::reduce_administrator_policy;
 use crate::storage::{
-    SqlitePrivateWorkspaceStore, StoredWorkspace, WorkspaceMetadata, SYNC_HEALTH_HEALTHY,
-    SYNC_HEALTH_REMOVED,
+    SqlitePrivateWorkspaceStore, StoredKeyPackage, StoredWorkspace, WorkspaceMetadata,
+    SYNC_HEALTH_HEALTHY, SYNC_HEALTH_REMOVED,
 };
 
 pub const MULTI_DEVICE_SCHEMA_VERSION: u8 = 1;
@@ -72,6 +75,8 @@ pub struct MultiDeviceGroupDocument {
     pub epoch_media_keys: BTreeMap<u64, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub envelope_epochs: BTreeMap<String, u64>,
+    #[serde(default)]
+    pub auto_approve_joins: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -185,6 +190,54 @@ pub fn decode_rust_client_state(client_state: &str) -> Result<PersistedMlsState,
         .map_err(|e| format!("clientState is not a Rust earthly-mls-rs PersistedMlsState: {e}"))
 }
 
+/// Encodes a local Rust last-resort `StoredKeyPackage` for `MultiDeviceMetaDocument` so an
+/// upgraded or secondary device can restore its private KeyPackage material and decrypt pending
+/// Cordn Welcomes without losing access.
+pub fn encode_last_resort_key_package(
+    kp: &StoredKeyPackage,
+) -> Result<MultiDeviceLastResortKeyPackage, String> {
+    let bundle_json = serde_json::to_vec(&kp.bundle)
+        .map_err(|e| format!("Failed to serialize last-resort KeyPackage bundle: {e}"))?;
+    Ok(MultiDeviceLastResortKeyPackage {
+        kp_ref: kp.kp_ref.clone(),
+        kp_64: kp.bundle.kp_64.clone(),
+        private_kp_64: None,
+        rust_bundle_b64: Some(BASE64.encode(bundle_json)),
+        created_at: kp.created_at_ms / 1000,
+    })
+}
+
+/// Restores a Rust `StoredKeyPackage` from a `MultiDeviceMetaDocument`'s `last_resort_key_package`
+/// when `rust_bundle_b64` is present and matches `owner_pubkey`.
+pub fn decode_last_resort_key_package(
+    entry: &MultiDeviceLastResortKeyPackage,
+    owner_pubkey: &str,
+) -> Result<Option<StoredKeyPackage>, String> {
+    let Some(b64) = entry
+        .rust_bundle_b64
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    else {
+        return Ok(None);
+    };
+    let raw = BASE64
+        .decode(b64)
+        .map_err(|_| "Invalid base64 in multi-device lastResortKeyPackage rustBundleB64".to_owned())?;
+    let bundle: GeneratedKeyPackage = serde_json::from_slice(&raw)
+        .map_err(|e| format!("Invalid lastResortKeyPackage rustBundleB64 JSON: {e}"))?;
+    if bundle.owner_pubkey != owner_pubkey || bundle.kp_ref != entry.kp_ref {
+        return Err("Multi-device lastResortKeyPackage identity or kpRef mismatch".to_owned());
+    }
+    Ok(Some(StoredKeyPackage {
+        owner_pubkey: owner_pubkey.to_owned(),
+        kp_ref: bundle.kp_ref.clone(),
+        bundle,
+        published: true,
+        created_at_ms: entry.created_at.saturating_mul(1000),
+    }))
+}
+
 /// Builds a `MultiDeviceGroupDocument` snapshot from a local `StoredWorkspace`.
 pub fn build_group_document_from_workspace(
     ws: &StoredWorkspace,
@@ -223,6 +276,7 @@ pub fn build_group_document_from_workspace(
         } else {
             BTreeMap::new()
         },
+        auto_approve_joins: ws.auto_approve_joins,
     };
     validate_group_document(&doc)?;
     Ok(doc)
@@ -590,6 +644,10 @@ pub fn reconcile_remote_group_document(
             ws.metadata = doc.metadata.clone();
             changed = true;
         }
+        if doc.auto_approve_joins && !ws.auto_approve_joins {
+            ws.auto_approve_joins = true;
+            changed = true;
+        }
 
         if changed {
             if let Ok(policy) = reduce_administrator_policy(&ws.admin_pubkey, &ws.envelopes) {
@@ -617,8 +675,16 @@ pub fn reconcile_remote_group_document(
 
     // Adopting a brand-new workspace onto this device requires a valid Rust PersistedMlsState.
     let remote_state = parsed_remote_state.ok_or_else(|| {
-        "Remote group document clientState is not compatible with Rust mls-rs state format"
-            .to_owned()
+        let label = doc
+            .metadata
+            .as_ref()
+            .map(|m| m.name.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or(doc.gid.as_str());
+        format!(
+            "Group \"{label}\" ({}) uses a legacy Web ts-mls clientState format; ask a group admin for a fresh invite link to re-join on native MLS",
+            doc.gid
+        )
     })?;
     if remote_state.group_id != doc.gid {
         return Err("Remote clientState group_id does not match document gid".to_owned());
@@ -686,7 +752,7 @@ pub fn reconcile_remote_group_document(
         } else {
             SYNC_HEALTH_REMOVED.to_owned()
         },
-        auto_approve_joins: false,
+        auto_approve_joins: doc.auto_approve_joins,
         envelope_epochs: doc.envelope_epochs.clone(),
         epoch_media_keys,
         created_at_ms: now_ms(),
@@ -749,6 +815,7 @@ mod tests {
             envelopes: Vec::new(),
             epoch_media_keys: BTreeMap::new(),
             envelope_epochs: BTreeMap::new(),
+            auto_approve_joins: false,
         };
 
         // Verify `"prev": null` is explicitly emitted on wire (required by Cordn spec & Web).
@@ -894,6 +961,7 @@ mod tests {
             envelopes: Vec::new(),
             epoch_media_keys: BTreeMap::new(),
             envelope_epochs: BTreeMap::new(),
+            auto_approve_joins: false,
         };
 
         let adopted = reconcile_remote_group_document(&store, &owner_pk, &doc1).unwrap();
@@ -918,5 +986,90 @@ mod tests {
             inspect_group_summary(&upgraded.workspace.mls_state).unwrap().0,
             1
         );
+    }
+
+    #[test]
+    fn last_resort_kp_roundtrip_auto_approve_and_legacy_ts_mls_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SqlitePrivateWorkspaceStore::open(dir.path().join("lr.sqlite3")).unwrap();
+        let owner_pk = Keys::generate().public_key().to_hex();
+        let coord_pk = Keys::generate().public_key().to_hex();
+
+        // 1. Last-resort KeyPackage roundtrip (Rust bundle + Web-only None fallback).
+        let generated = generate_mls_key_package(&owner_pk, true).unwrap();
+        let stored_kp = crate::storage::StoredKeyPackage {
+            kp_ref: generated.kp_ref.clone(),
+            owner_pubkey: owner_pk.clone(),
+            bundle: generated.clone(),
+            published: true,
+            created_at_ms: 1_760_000_123_000,
+        };
+        let encoded = encode_last_resort_key_package(&stored_kp).unwrap();
+        assert!(encoded.rust_bundle_b64.is_some());
+        assert_eq!(encoded.kp_ref, stored_kp.kp_ref);
+        assert_eq!(encoded.created_at, 1_760_000_123);
+
+        let decoded = decode_last_resort_key_package(&encoded, &owner_pk)
+            .unwrap()
+            .expect("decoded Rust last-resort KeyPackage");
+        assert_eq!(decoded.kp_ref, stored_kp.kp_ref);
+        assert_eq!(decoded.bundle.kp_64, stored_kp.bundle.kp_64);
+        assert!(decoded.bundle.last_resort);
+
+        let web_only = MultiDeviceLastResortKeyPackage {
+            kp_ref: "abcd".to_owned(),
+            kp_64: "AAAA".to_owned(),
+            private_kp_64: Some("BBBB".to_owned()),
+            rust_bundle_b64: None,
+            created_at: 1_760_000_123,
+        };
+        assert!(decode_last_resort_key_package(&web_only, &owner_pk)
+            .unwrap()
+            .is_none());
+
+        // 2. `auto_approve_joins` preserved across adoption.
+        let state = create_workspace_group("earthly:auto-approve", &owner_pk).unwrap();
+        let doc = MultiDeviceGroupDocument {
+            schema_version: 1,
+            doc_type: "group".to_owned(),
+            issued_at: 1_760_000_000,
+            prev: None,
+            gid: "earthly:auto-approve".to_owned(),
+            coordinator: coord_pk.clone(),
+            coordinator_relays: vec!["wss://relay.earthly.city".to_owned()],
+            client_state: encode_rust_client_state(&state).unwrap(),
+            cursor: 1,
+            state_format: Some(EARTHLY_MLS_RS_STATE_FORMAT.to_owned()),
+            workspace_id: Some("ws-auto".to_owned()),
+            admin_pubkey: Some(owner_pk.clone()),
+            metadata: Some(WorkspaceMetadata {
+                name: "Auto Approve Group".to_owned(),
+                description: None,
+                recommended_basemap: None,
+            }),
+            envelopes: Vec::new(),
+            epoch_media_keys: BTreeMap::new(),
+            envelope_epochs: BTreeMap::new(),
+            auto_approve_joins: true,
+        };
+        let adopted = reconcile_remote_group_document(&store, &owner_pk, &doc).unwrap();
+        assert!(adopted.workspace.auto_approve_joins);
+
+        // 3. Legacy Web ts-mls clientState produces clear guidance on brand-new native adopt.
+        let legacy_doc = MultiDeviceGroupDocument {
+            gid: "earthly:legacy-web".to_owned(),
+            workspace_id: Some("ws-legacy-web".to_owned()),
+            client_state: serde_json::json!({ "tsMlsOpaque": true }).to_string(),
+            state_format: None,
+            metadata: Some(WorkspaceMetadata {
+                name: "Old Web Circle".to_owned(),
+                description: None,
+                recommended_basemap: None,
+            }),
+            ..doc
+        };
+        let err = reconcile_remote_group_document(&store, &owner_pk, &legacy_doc).unwrap_err();
+        assert!(err.contains("legacy Web ts-mls"));
+        assert!(err.contains("Old Web Circle"));
     }
 }

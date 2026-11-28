@@ -223,6 +223,46 @@ class DeviceBridge {
 
   static Future<PickedBinaryFile> capturePhoto() => _invokeFile('capturePhoto');
 
+  /// Checks the current runtime camera permission status on Android:
+  /// `'granted'`, `'denied'`, `'permanently_denied'`, or `'unavailable'`.
+  static Future<String> checkCameraPermission() async {
+    try {
+      final status = await _channel.invokeMethod<String>('checkCameraPermission');
+      return status ?? 'unavailable';
+    } on MissingPluginException {
+      return 'unavailable';
+    } catch (_) {
+      return 'unavailable';
+    }
+  }
+
+  /// Requests runtime camera permission on Android and returns the resulting
+  /// status (`'granted'`, `'denied'`, `'permanently_denied'`, or `'unavailable'`).
+  static Future<String> requestCameraPermission() async {
+    try {
+      final status =
+          await _channel.invokeMethod<String>('requestCameraPermission');
+      return status ?? 'unavailable';
+    } on MissingPluginException {
+      return 'unavailable';
+    } catch (_) {
+      return 'unavailable';
+    }
+  }
+
+  /// Opens the OS application settings screen (e.g. Android App Info / Permissions)
+  /// so the user can re-enable permanently denied permissions such as Camera.
+  static Future<bool> openAppSettings() async {
+    try {
+      final ok = await _channel.invokeMethod<bool>('openAppSettings');
+      return ok ?? false;
+    } on MissingPluginException {
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<PickedBinaryFile> pickImage() => _invokeFile('pickImage');
 
   /// Picks any image, PDF, audio, video, or document file up to

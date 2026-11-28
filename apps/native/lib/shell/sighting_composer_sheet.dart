@@ -4,6 +4,7 @@ import 'package:maplibre/maplibre.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../nostr/nip55_signer.dart';
+import '../runtime/camera_capture.dart';
 import '../runtime/device_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/publish.dart';
@@ -111,11 +112,12 @@ class _SightingComposerSheetState extends State<SightingComposerSheet> {
     setState(() => _error = null);
     try {
       final picked = camera
-          ? await DeviceBridge.capturePhoto()
+          ? await CameraCapture.capturePhoto(context)
           : await DeviceBridge.pickImage();
-      if (!mounted) return;
+      if (!mounted || picked == null) return;
       setState(() => _photo = picked);
     } catch (err) {
+      if (CameraCapture.isCancellation(err)) return;
       if (!mounted) return;
       setState(() => _error = 'Photo not attached: $err');
     }

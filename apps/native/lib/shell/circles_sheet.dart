@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../nostr/nip55_signer.dart';
+import '../runtime/camera_capture.dart';
 import '../runtime/device_bridge.dart';
 import '../runtime/rust_bridge.dart';
 import '../src/rust/api/blossom.dart';
@@ -215,6 +216,14 @@ class _CirclesSheetState extends State<CirclesSheet>
   String? _info;
   String? _multiDeviceStatus;
   String? _lastMultiDeviceDekHex;
+  String? _autoRecoveryAttemptedForPubkey;
+  bool _autoBackupInFlight = false;
+  bool _autoBackupPending = false;
+  String _pendingAutoBackupReason = 'group updated';
+  bool _hasFetchedRemoteTip = false;
+  final Map<String, Map<String, Object?>> _knownRemoteGroupPointers =
+      <String, Map<String, Object?>>{};
+  final Set<String> _locallyDeletedGroupIds = <String>{};
   String? _generatedInviteUrl;
   String? _generatedInviteWorkspaceId;
   List<CircleJoinRequestDto> _joinRequests = const [];
@@ -269,11 +278,13 @@ class _CirclesSheetState extends State<CirclesSheet>
       _inviteInputController.text = widget.initialInviteLink!.trim();
       unawaited(_previewInvite(widget.initialInviteLink!.trim()));
     }
-    if (_selectedWorkspaceId != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(_backgroundSyncSelected());
-      });
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_selectedWorkspaceId != null) {
+        unawaited(_backgroundSyncSelected());
+      }
+      unawaited(_maybeAutoRecoverOnEmpty());
+    });
   }
 
   @override
@@ -282,6 +293,24 @@ class _CirclesSheetState extends State<CirclesSheet>
     if (oldWidget.cordnServerPubkey != widget.cordnServerPubkey &&
         _cordnInputController.text != widget.cordnServerPubkey) {
       _cordnInputController.text = widget.cordnServerPubkey;
+    }
+    final oldPk = oldWidget.account?.pubkey.trim().toLowerCase() ?? '';
+    final newPk = widget.account?.pubkey.trim().toLowerCase() ?? '';
+    if (oldPk != newPk) {
+      _autoRecoveryAttemptedForPubkey = null;
+      _lastMultiDeviceDekHex = null;
+      _hasFetchedRemoteTip = false;
+      _knownRemoteGroupPointers.clear();
+      _locallyDeletedGroupIds.clear();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_maybeAutoRecoverOnEmpty());
+      });
+    } else if (oldWidget.mlsDatabasePath.isEmpty &&
+        widget.mlsDatabasePath.isNotEmpty &&
+        widget.workspaces.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_maybeAutoRecoverOnEmpty());
+      });
     }
     if (widget.initialWorkspaceId != null &&
         widget.initialWorkspaceId != oldWidget.initialWorkspaceId &&
@@ -721,6 +750,8 @@ class _CirclesSheetState extends State<CirclesSheet>
         _selectedWorkspaceId = created.workspaceId;
         _info = 'Created MLS Circle "${created.name}" locally (epoch 0).';
       });
+      _locallyDeletedGroupIds.remove(created.groupId);
+      _scheduleAutoBackupMultiDevice('circle created');
     });
   }
 
@@ -766,12 +797,16 @@ class _CirclesSheetState extends State<CirclesSheet>
       await widget.onRefreshCircles();
       if (!mounted) return;
       if (joined.isNotEmpty) {
+        for (final ws in joined) {
+          _locallyDeletedGroupIds.remove(ws.groupId);
+        }
         widget.onWorkspaceUpdated(joined.first);
         setState(() {
           _selectedWorkspaceId = joined.first.workspaceId;
           _info =
               'Joined ${joined.length} Circle${joined.length == 1 ? '' : 's'} and decrypted checkpoint!';
         });
+        _scheduleAutoBackupMultiDevice('circle joined');
       } else {
         setState(() => _info = 'No approved Welcomes yet from Cordn.');
       }
@@ -873,6 +908,7 @@ class _CirclesSheetState extends State<CirclesSheet>
                 'Processed pending join requests · ${updated.members.length} members · epoch ${updated.epoch}';
           });
         }
+        _scheduleAutoBackupMultiDevice('membership updated');
       },
     );
   }
@@ -880,12 +916,12 @@ class _CirclesSheetState extends State<CirclesSheet>
   Future<PickedBinaryFile?> _pickMediaFile(_AttachmentSource source) async {
     try {
       return switch (source) {
-        _AttachmentSource.camera => await DeviceBridge.capturePhoto(),
+        _AttachmentSource.camera => await CameraCapture.capturePhoto(context),
         _AttachmentSource.image => await DeviceBridge.pickImage(),
         _AttachmentSource.file => await DeviceBridge.pickAnyFile(),
       };
     } catch (err) {
-      if (err.toString().toLowerCase().contains('cancel')) return null;
+      if (CameraCapture.isCancellation(err)) return null;
       if (mounted) setState(() => _error = err.toString());
       return null;
     }
@@ -1251,203 +1287,415 @@ class _CirclesSheetState extends State<CirclesSheet>
     });
   }
 
+  void _cacheRemoteTipPointersFromJson(String tipPlaintextJson) {
+    try {
+      final decoded = jsonDecode(tipPlaintextJson);
+      if (decoded is! Map) return;
+      final dek = decoded['dekHex'];
+      if (dek is String && dek.trim().length == 64) {
+        _lastMultiDeviceDekHex = dek.trim().toLowerCase();
+      }
+      final groups = decoded['groups'];
+      if (groups is Map) {
+        for (final entry in groups.entries) {
+          final gid = entry.key.toString();
+          if (gid.isEmpty || entry.value is! Map) continue;
+          _knownRemoteGroupPointers[gid] =
+              Map<String, Object?>.from(entry.value as Map);
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _maybeAutoRecoverOnEmpty() async {
+    final pubkey = widget.account?.pubkey.trim().toLowerCase() ?? '';
+    if (pubkey.isEmpty ||
+        !_hasSupportedSigner ||
+        widget.workspaces.isNotEmpty ||
+        widget.mlsDatabasePath.isEmpty ||
+        _busy ||
+        _autoRecoveryAttemptedForPubkey == pubkey) {
+      return;
+    }
+    _autoRecoveryAttemptedForPubkey = pubkey;
+    await _recoverGroupsFromRelays(automatic: true);
+  }
+
+  void _scheduleAutoBackupMultiDevice(String reason) {
+    if (!_hasSupportedSigner || widget.mlsDatabasePath.isEmpty) return;
+    _pendingAutoBackupReason = reason;
+    if (_autoBackupInFlight) {
+      _autoBackupPending = true;
+      return;
+    }
+    _autoBackupInFlight = true;
+    unawaited(() async {
+      try {
+        while (mounted) {
+          _autoBackupPending = false;
+          final currentReason = _pendingAutoBackupReason;
+          try {
+            final status = await _publishMultiDeviceSnapshotCore(
+              allowExternalInit: true,
+            );
+            if (mounted && status != null) {
+              setState(() => _multiDeviceStatus = '$status ($currentReason)');
+            }
+          } catch (_) {
+            if (mounted) {
+              setState(() {
+                _multiDeviceStatus ??=
+                    'Encrypted relay backup pending — tap Backup to Devices when online.';
+              });
+            }
+          }
+          if (!_autoBackupPending) break;
+        }
+      } finally {
+        _autoBackupInFlight = false;
+      }
+    }());
+  }
+
+  Future<String?> _publishMultiDeviceSnapshotCore({
+    bool allowExternalInit = true,
+  }) async {
+    if (widget.onBackupMultiDevice != null) {
+      final summary = await widget.onBackupMultiDevice!();
+      _lastMultiDeviceDekHex = summary.dekHex ?? _lastMultiDeviceDekHex;
+      return 'Backed up ${summary.uploadedBlobs} encrypted blob${summary.uploadedBlobs == 1 ? '' : 's'}';
+    }
+
+    if (allowExternalInit) {
+      await RustBridge.ensureInitialized();
+    }
+
+    final nsec = widget.localNsec?.trim();
+    if (nsec != null && nsec.isNotEmpty) {
+      final summary = await publishMultiDeviceSnapshotDirect(
+        databasePath: widget.mlsDatabasePath,
+        signerNsec: nsec,
+        blossomServerUrl: widget.blossomServerUrl,
+        relayUrls: widget.relayUrls,
+      );
+      _lastMultiDeviceDekHex = summary.dekHex ?? _lastMultiDeviceDekHex;
+      _hasFetchedRemoteTip = true;
+      return 'Backed up ${summary.uploadedBlobs} blob${summary.uploadedBlobs == 1 ? '' : 's'} (tip ${summary.tipEventId != null ? _shortHex(summary.tipEventId!) : 'published'}).';
+    }
+
+    // Android Amber (NIP-55) or NIP-46 Bunker step-by-step publish flow.
+    final ownerPk = widget.account?.pubkey.trim();
+    if (ownerPk == null || ownerPk.isEmpty) {
+      throw StateError('Sign in to back up Circles.');
+    }
+    final encryptSelf = widget.onNip44EncryptSelf;
+    final signEvent = widget.onSignUnsignedEvent;
+    if (encryptSelf == null ||
+        signEvent == null ||
+        widget.onUploadBlossomBlob == null) {
+      throw StateError(
+        'Self-NIP-44 encryption, Blossom upload, and event signing callbacks are not available for this session.',
+      );
+    }
+
+    // Best-effort check for an existing remote tip before first publish so we
+    // reuse its DEK and preserve groups published from other devices.
+    if (!_hasFetchedRemoteTip && widget.onNip44DecryptSelf != null) {
+      _hasFetchedRemoteTip = true;
+      try {
+        final remoteFetched = await fetchMultiDeviceTipEvent(
+          ownerPubkeyHex: ownerPk,
+          relayUrls: widget.relayUrls,
+        );
+        if (remoteFetched != null) {
+          final remotePlain =
+              await widget.onNip44DecryptSelf!(remoteFetched.encryptedContent);
+          _cacheRemoteTipPointersFromJson(remotePlain);
+        }
+      } catch (_) {}
+    }
+
+    final prepared = await prepareMultiDevicePublish(
+      databasePath: widget.mlsDatabasePath,
+      ownerPubkeyHex: ownerPk,
+      blossomServerUrl: widget.blossomServerUrl,
+      existingDekHex: _lastMultiDeviceDekHex,
+    );
+    final primaryServer = prepared.blossomServers.isNotEmpty
+        ? prepared.blossomServers.first
+        : widget.blossomServerUrl.replaceAll(RegExp(r'/+$'), '');
+
+    final groupPointers = <String, Map<String, Object?>>{};
+    Map<String, Object?>? metaPointer;
+    var uploadedCount = 0;
+
+    for (final blob in prepared.blobs) {
+      final uploaded = await _uploadEncryptedBlobToBlossom(
+        bytes: blob.encryptedBytes,
+        sha256Hex: blob.xHex,
+        mimeType: 'text/plain',
+        purpose: 'Upload encrypted Circle sync snapshot',
+        serverUrl: primaryServer,
+      );
+      final canonicalUrl = '$primaryServer/${blob.xHex}';
+      final urls = <String>[
+        uploaded.url,
+        if (uploaded.url != canonicalUrl) canonicalUrl,
+      ];
+      final pointer = <String, Object?>{
+        'x': blob.xHex,
+        'urls': urls,
+        'issuedAt': blob.issuedAt.toInt(),
+      };
+      if (blob.kind == 'group' && blob.gid != null) {
+        groupPointers[blob.gid!] = pointer;
+      } else if (blob.kind == 'meta') {
+        metaPointer = pointer;
+      }
+      uploadedCount += 1;
+    }
+
+    // Preserve any non-deleted remote group pointers from other devices when
+    // using the same DEK so auto-backup never clobbers another device's groups.
+    if (_lastMultiDeviceDekHex == null ||
+        _lastMultiDeviceDekHex == prepared.dekHex) {
+      for (final entry in _knownRemoteGroupPointers.entries) {
+        if (!groupPointers.containsKey(entry.key) &&
+            !_locallyDeletedGroupIds.contains(entry.key)) {
+          groupPointers[entry.key] = entry.value;
+        }
+      }
+    }
+
+    final tipPlaintext = await buildMultiDeviceTipPlaintext(
+      dekHex: prepared.dekHex,
+      blossomServers: prepared.blossomServers,
+      groupPointersJson: jsonEncode(groupPointers),
+      metaPointerJson: metaPointer != null ? jsonEncode(metaPointer) : null,
+    );
+    final encryptedTip = await encryptSelf(tipPlaintext);
+    final unsignedTip = await prepareUnsignedMultiDeviceTipEvent(
+      ownerPubkeyHex: ownerPk,
+      encryptedTipContent: encryptedTip,
+    );
+    final signedTip = await signEvent(unsignedTip);
+    final eventId = await publishSignedMultiDeviceTipEvent(
+      signedEventJson: signedTip,
+      relayUrls: widget.relayUrls,
+    );
+
+    _lastMultiDeviceDekHex = prepared.dekHex;
+    _knownRemoteGroupPointers
+      ..clear()
+      ..addAll(groupPointers);
+    return 'Backed up $uploadedCount blob${uploadedCount == 1 ? '' : 's'} (tip ${_shortHex(eventId)}).';
+  }
+
   Future<void> _backupMultiDevice() async {
     await _runAction(
       'Sealing & backing up Circles to Blossom…',
       requireRustBridge: widget.onBackupMultiDevice == null,
       requireExternalSigner: false,
       () async {
-        if (widget.onBackupMultiDevice != null) {
-          final summary = await widget.onBackupMultiDevice!();
-          if (mounted) {
-            setState(() {
-              _multiDeviceStatus =
-                  'Backed up ${summary.uploadedBlobs} encrypted blob${summary.uploadedBlobs == 1 ? '' : 's'}';
-              _info = _multiDeviceStatus;
-            });
-          }
-          return;
-        }
-
-        final nsec = widget.localNsec?.trim();
-        if (nsec != null && nsec.isNotEmpty) {
-          final summary = await publishMultiDeviceSnapshotDirect(
-            databasePath: widget.mlsDatabasePath,
-            signerNsec: nsec,
-            blossomServerUrl: widget.blossomServerUrl,
-            relayUrls: widget.relayUrls,
-          );
-          _lastMultiDeviceDekHex = summary.dekHex ?? _lastMultiDeviceDekHex;
-          if (mounted) {
-            setState(() {
-              _multiDeviceStatus =
-                  'Backed up ${summary.uploadedBlobs} blob${summary.uploadedBlobs == 1 ? '' : 's'} (tip ${summary.tipEventId != null ? _shortHex(summary.tipEventId!) : 'published'}).';
-              _info = _multiDeviceStatus;
-            });
-          }
-          return;
-        }
-
-        // Android Amber (NIP-55) or NIP-46 Bunker step-by-step publish flow.
-        final ownerPk = widget.account?.pubkey.trim();
-        if (ownerPk == null || ownerPk.isEmpty) {
-          throw StateError('Sign in to back up Circles.');
-        }
-        final encryptSelf = widget.onNip44EncryptSelf;
-        final signEvent = widget.onSignUnsignedEvent;
-        if (encryptSelf == null || signEvent == null) {
-          throw StateError(
-            'Self-NIP-44 encryption and event signing callbacks are not available for this session.',
-          );
-        }
-
-        final prepared = await prepareMultiDevicePublish(
-          databasePath: widget.mlsDatabasePath,
-          ownerPubkeyHex: ownerPk,
-          blossomServerUrl: widget.blossomServerUrl,
-          existingDekHex: _lastMultiDeviceDekHex,
+        final status = await _publishMultiDeviceSnapshotCore(
+          allowExternalInit: false,
         );
-        final primaryServer = prepared.blossomServers.isNotEmpty
-            ? prepared.blossomServers.first
-            : widget.blossomServerUrl.replaceAll(RegExp(r'/+$'), '');
-
-        final groupPointers = <String, Map<String, Object?>>{};
-        Map<String, Object?>? metaPointer;
-        var uploadedCount = 0;
-
-        for (final blob in prepared.blobs) {
-          final uploaded = await _uploadEncryptedBlobToBlossom(
-            bytes: blob.encryptedBytes,
-            sha256Hex: blob.xHex,
-            mimeType: 'text/plain',
-            purpose: 'Upload encrypted Circle sync snapshot',
-            serverUrl: primaryServer,
-          );
-          final canonicalUrl = '$primaryServer/${blob.xHex}';
-          final urls = <String>[
-            uploaded.url,
-            if (uploaded.url != canonicalUrl) canonicalUrl,
-          ];
-          final pointer = <String, Object?>{
-            'x': blob.xHex,
-            'urls': urls,
-            'issuedAt': blob.issuedAt.toInt(),
-          };
-          if (blob.kind == 'group' && blob.gid != null) {
-            groupPointers[blob.gid!] = pointer;
-          } else if (blob.kind == 'meta') {
-            metaPointer = pointer;
-          }
-          uploadedCount += 1;
-        }
-
-        final tipPlaintext = await buildMultiDeviceTipPlaintext(
-          dekHex: prepared.dekHex,
-          blossomServers: prepared.blossomServers,
-          groupPointersJson: jsonEncode(groupPointers),
-          metaPointerJson: metaPointer != null ? jsonEncode(metaPointer) : null,
-        );
-        final encryptedTip = await encryptSelf(tipPlaintext);
-        final unsignedTip = await prepareUnsignedMultiDeviceTipEvent(
-          ownerPubkeyHex: ownerPk,
-          encryptedTipContent: encryptedTip,
-        );
-        final signedTip = await signEvent(unsignedTip);
-        final eventId = await publishSignedMultiDeviceTipEvent(
-          signedEventJson: signedTip,
-          relayUrls: widget.relayUrls,
-        );
-
-        _lastMultiDeviceDekHex = prepared.dekHex;
-        if (mounted) {
+        if (mounted && status != null) {
           setState(() {
-            _multiDeviceStatus =
-                'Backed up $uploadedCount blob${uploadedCount == 1 ? '' : 's'} (tip ${_shortHex(eventId)}).';
-            _info = _multiDeviceStatus;
+            _multiDeviceStatus = status;
+            _info = status;
           });
         }
       },
     );
   }
 
-  Future<void> _pullMultiDevice() async {
-    await _runAction(
-      'Pulling encrypted Circles from other devices…',
-      requireRustBridge: widget.onPullMultiDevice == null,
-      requireExternalSigner: false,
-      () async {
-        MultiDeviceSyncSummaryDto summary;
-        if (widget.onPullMultiDevice != null) {
-          summary = await widget.onPullMultiDevice!();
+  Future<void> _pullMultiDevice() => _recoverGroupsFromRelays(automatic: false);
+
+  Future<void> _recoverGroupsFromRelays({required bool automatic}) async {
+    if (automatic && widget.onPullMultiDevice == null) {
+      try {
+        await RustBridge.ensureInitialized();
+      } catch (_) {
+        // Headless widget tests disable RustBridge unless onPullMultiDevice is provided.
+        return;
+      }
+    }
+
+    if (automatic) {
+      if (!mounted) return;
+      setState(() {
+        _busy = true;
+        _busyLabel = 'Checking relays for encrypted MLS groups…';
+      });
+    } else {
+      setState(() {
+        _busy = true;
+        _busyLabel = 'Recovering encrypted MLS groups & welcomes from relays…';
+        _error = null;
+        _info = null;
+      });
+    }
+
+    try {
+      if (widget.onPullMultiDevice == null) {
+        await RustBridge.ensureInitialized();
+      }
+
+      MultiDeviceSyncSummaryDto? summary;
+      var acceptedWelcomeCount = 0;
+
+      if (widget.onPullMultiDevice != null) {
+        summary = await widget.onPullMultiDevice!();
+      } else {
+        final ownerPk = widget.account?.pubkey.trim();
+        if (ownerPk == null || ownerPk.isEmpty) {
+          if (!automatic) {
+            throw StateError('Sign in to recover MLS groups from relays.');
+          }
+          return;
+        }
+        final nsec = widget.localNsec?.trim();
+        if (nsec != null && nsec.isNotEmpty) {
+          summary = await syncMultiDeviceDirect(
+            databasePath: widget.mlsDatabasePath,
+            signerNsec: nsec,
+            relayUrls: widget.relayUrls,
+          );
+          _hasFetchedRemoteTip = true;
         } else {
-          final nsec = widget.localNsec?.trim();
-          if (nsec != null && nsec.isNotEmpty) {
-            summary = await syncMultiDeviceDirect(
-              databasePath: widget.mlsDatabasePath,
-              signerNsec: nsec,
-              relayUrls: widget.relayUrls,
-            );
-          } else {
-            final ownerPk = widget.account?.pubkey.trim();
-            if (ownerPk == null || ownerPk.isEmpty) {
-              throw StateError('Sign in to pull Circles from other devices.');
-            }
+          // Android Amber (NIP-55) or NIP-46 Bunker recovery flow:
+          // 1. Public read of kind 30078 tip event (ZERO signer prompts).
+          final fetched = await fetchMultiDeviceTipEvent(
+            ownerPubkeyHex: ownerPk,
+            relayUrls: widget.relayUrls,
+          );
+          _hasFetchedRemoteTip = true;
+          if (fetched != null) {
             final decryptSelf = widget.onNip44DecryptSelf;
             if (decryptSelf == null) {
-              throw StateError(
-                'Self-NIP-44 decryption is not available for this session.',
+              if (!automatic) {
+                throw StateError(
+                  'Self-NIP-44 decryption is not available for this session.',
+                );
+              }
+            } else {
+              final tipPlaintext = await decryptSelf(fetched.encryptedContent);
+              _cacheRemoteTipPointersFromJson(tipPlaintext);
+              summary = await applyDecryptedMultiDeviceTip(
+                databasePath: widget.mlsDatabasePath,
+                ownerPubkeyHex: ownerPk,
+                tipPlaintextJson: tipPlaintext,
               );
             }
-            final fetched = await fetchMultiDeviceTipEvent(
-              ownerPubkeyHex: ownerPk,
-              relayUrls: widget.relayUrls,
-            );
-            if (fetched == null) {
-              if (mounted) {
-                setState(() {
-                  _multiDeviceStatus =
-                      'No multi-device backup found on relays yet.';
-                  _info = _multiDeviceStatus;
-                });
+          }
+
+          // 2. Scan Cordn pending/historical welcomes whenever triggered manually,
+          //    when local pending joins exist, or when a backup snapshot was found.
+          final shouldScanWelcomes = !automatic ||
+              widget.pendingJoins.isNotEmpty ||
+              fetched != null;
+          if (shouldScanWelcomes) {
+            try {
+              if (widget.onEnsureExternalSigner != null) {
+                await widget.onEnsureExternalSigner!();
               }
-              return;
+              final welcomed = await acceptCircleWelcomes(
+                databasePath: widget.mlsDatabasePath,
+                signerNsec: widget.localNsec,
+                bunkerUri: widget.bunkerUri,
+                bunkerClientNsec: widget.bunkerClientNsec,
+              );
+              acceptedWelcomeCount = welcomed.length;
+              for (final ws in welcomed) {
+                widget.onWorkspaceUpdated(ws);
+              }
+            } catch (_) {
+              // Welcome scan is best-effort during multi-device recovery.
             }
-            final tipPlaintext = await decryptSelf(fetched.encryptedContent);
-            summary = await applyDecryptedMultiDeviceTip(
-              databasePath: widget.mlsDatabasePath,
-              ownerPubkeyHex: ownerPk,
-              tipPlaintextJson: tipPlaintext,
-            );
           }
         }
 
+        // 3. Catch up recovered workspaces from Cordn read-only (ZERO Amber prompts).
+        if ((summary != null && summary.workspaces.isNotEmpty) ||
+            acceptedWelcomeCount > 0) {
+          try {
+            final synced = await syncAllCircleWorkspacesReadonly(
+              databasePath: widget.mlsDatabasePath,
+              ownerPubkeyHex: ownerPk,
+            );
+            for (final ws in synced) {
+              widget.onWorkspaceUpdated(ws);
+            }
+          } catch (_) {}
+        }
+      }
+
+      if (summary != null) {
         _lastMultiDeviceDekHex = summary.dekHex ?? _lastMultiDeviceDekHex;
-        await widget.onRefreshCircles();
         for (final ws in summary.workspaces) {
           widget.onWorkspaceUpdated(ws);
         }
-        final parts = <String>[
-          '${summary.adoptedGroups} adopted',
-          '${summary.updatedGroups} updated',
-          '${summary.mergedGroups} merged',
-          if (summary.removedGroupsMarked > 0)
-            '${summary.removedGroupsMarked} removed',
-          if (summary.skippedErrors.isNotEmpty)
-            '${summary.skippedErrors.length} warning${summary.skippedErrors.length == 1 ? '' : 's'}',
-        ];
-        if (mounted) {
-          setState(() {
-            _multiDeviceStatus = summary.tipEventId == null &&
-                    summary.dekHex == null &&
-                    summary.adoptedGroups == 0 &&
-                    summary.updatedGroups == 0
-                ? 'No multi-device backup found on relays yet.'
-                : 'Pulled Circles: ${parts.join(' · ')}.';
-            _info = _multiDeviceStatus;
-          });
-        }
-      },
-    );
+      }
+      await widget.onRefreshCircles();
+
+      final totalAdopted =
+          (summary?.adoptedGroups ?? 0) + acceptedWelcomeCount;
+      final totalUpdated = summary?.updatedGroups ?? 0;
+      final totalMerged = summary?.mergedGroups ?? 0;
+      final totalRemoved = summary?.removedGroupsMarked ?? 0;
+      final warnings = summary?.skippedErrors ?? const <String>[];
+      final foundTip = summary != null &&
+          (summary.tipEventId != null ||
+              summary.dekHex != null ||
+              summary.adoptedGroups > 0 ||
+              summary.updatedGroups > 0 ||
+              summary.unchangedGroups > 0);
+
+      final parts = <String>[
+        '$totalAdopted adopted',
+        if (totalUpdated > 0 || !automatic) '$totalUpdated updated',
+        if (totalMerged > 0 || !automatic) '$totalMerged merged',
+        if (totalRemoved > 0) '$totalRemoved removed',
+        if (warnings.isNotEmpty)
+          '${warnings.length} warning${warnings.length == 1 ? '' : 's'}',
+      ];
+
+      String? statusMessage;
+      if (totalAdopted > 0 || totalUpdated > 0 || totalMerged > 0) {
+        statusMessage = 'Recovered Circles from relays: ${parts.join(' · ')}.';
+      } else if (foundTip) {
+        statusMessage = automatic
+            ? null
+            : 'Pulled Circles: ${parts.join(' · ')}.';
+      } else if (!automatic) {
+        statusMessage =
+            'No encrypted group backup or pending welcomes found on relays yet.';
+      }
+
+      if (mounted) {
+        setState(() {
+          if (statusMessage != null) {
+            _multiDeviceStatus = statusMessage;
+            _info = statusMessage;
+          }
+          if (!automatic && warnings.isNotEmpty) {
+            _error = warnings.join('\n');
+          }
+        });
+      }
+    } catch (err) {
+      if (!automatic && mounted) {
+        setState(() => _error = err.toString());
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _busyLabel = null;
+        });
+      }
+    }
   }
 
   Future<void> _generateInvite({required bool copyImmediately}) async {
@@ -1516,6 +1764,7 @@ class _CirclesSheetState extends State<CirclesSheet>
             _joinRequests.where((r) => r.kpRef != req.kpRef).toList();
         _info = 'Member added (epoch ${updated.epoch}) & Welcome stored on Cordn!';
       });
+      _scheduleAutoBackupMultiDevice('member approved');
     });
   }
 
@@ -1603,6 +1852,7 @@ class _CirclesSheetState extends State<CirclesSheet>
                 : 'Demoted ${_authorLabel(memberPk)}.',
           );
         }
+        _scheduleAutoBackupMultiDevice('admin policy updated');
       },
     );
   }
@@ -1624,6 +1874,7 @@ class _CirclesSheetState extends State<CirclesSheet>
               'Removed ${_authorLabel(memberPk)} (epoch ${updated.epoch} protects future records).',
         );
       }
+      _scheduleAutoBackupMultiDevice('member removed');
     });
   }
 
@@ -1661,11 +1912,14 @@ class _CirclesSheetState extends State<CirclesSheet>
         widget.onLeaveCircleLens();
       }
       await widget.onRefreshCircles();
+      _locallyDeletedGroupIds.add(ws.groupId);
+      _knownRemoteGroupPointers.remove(ws.groupId);
       if (!mounted) return;
       setState(() {
         _selectedWorkspaceId = null;
         _info = 'Deleted "${ws.name}" from this device.';
       });
+      _scheduleAutoBackupMultiDevice('circle removed');
     });
   }
 
@@ -1707,6 +1961,14 @@ class _CirclesSheetState extends State<CirclesSheet>
             ),
           ),
           const Spacer(),
+          if (_hasSupportedSigner)
+            IconButton(
+              key: const Key('circles-header-recover-btn'),
+              tooltip: 'Recover Groups from Relays',
+              visualDensity: VisualDensity.compact,
+              onPressed: _busy ? null : _pullMultiDevice,
+              icon: const Icon(Icons.cloud_sync_outlined, size: 18),
+            ),
           IconButton(
             tooltip: 'Cordn Coordinator settings',
             visualDensity: VisualDensity.compact,
@@ -2365,12 +2627,31 @@ class _CirclesSheetState extends State<CirclesSheet>
         ),
         const SizedBox(height: 6),
         if (widget.workspaces.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Text(
-              'No Circles on this device yet. Create a Circle above or paste an invitation link from Earthly Web.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall,
+          Container(
+            margin: const EdgeInsets.only(top: 6),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: theme.dividerColor),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'No Circles on this device yet. After an app update or new sign-in, recover your encrypted MLS groups and pending welcomes from Nostr relays, or create/join a Circle above.',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall,
+                ),
+                const SizedBox(height: 10),
+                FilledButton.tonalIcon(
+                  key: const Key('circles-empty-recover-btn'),
+                  onPressed: _busy ? null : _pullMultiDevice,
+                  icon: const Icon(Icons.cloud_download_outlined, size: 17),
+                  label: const Text('Recover Groups from Relays'),
+                ),
+              ],
             ),
           )
         else

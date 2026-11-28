@@ -1427,90 +1427,245 @@ impl PrivateWorkspaceService {
     }
 
     pub async fn accept_pending_welcomes(&self) -> Result<Vec<StoredWorkspace>, String> {
+        self.accept_available_welcomes_for_endpoints(&[]).await
+    }
+
+    /// Scans Cordn `welcome_take` across all pending-join coordinators, existing workspace
+    /// coordinators, any caller-provided extra endpoints, and the default coordinator.
+    /// Matches incoming Welcomes against BOTH `pending_joins` AND all locally stored
+    /// `mls_key_packages` (including last-resort KeyPackages restored from a multi-device
+    /// `kind 30078` backup after an app upgrade or reinstall).
+    pub async fn accept_available_welcomes_for_endpoints(
+        &self,
+        extra_endpoints: &[(String, Vec<String>)],
+    ) -> Result<Vec<StoredWorkspace>, String> {
         let owner = self.owner_pubkey();
         let joins = self.store.list_pending_joins(&owner)?;
+        let stored_kps = self.store.list_key_packages(&owner)?;
+        if joins.is_empty() && stored_kps.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let kp_by_ref: HashMap<String, StoredKeyPackage> = stored_kps
+            .into_iter()
+            .map(|kp| (kp.kp_ref.clone(), kp))
+            .collect();
+        let pending_by_ref: HashMap<String, PendingWorkspaceJoin> = joins
+            .iter()
+            .map(|j| (j.key_package_ref.clone(), j.clone()))
+            .collect();
+
+        // Collect unique Cordn endpoints; endpoints with explicit pending_joins are required
+        // (errors propagate), whereas opportunistic fallback endpoints degrade gracefully.
+        let mut endpoints: Vec<((String, Vec<String>), bool)> = Vec::new();
+        let mut seen_endpoints: HashSet<(String, Vec<String>)> = HashSet::new();
+        let mut push_endpoint = |coord_pk: &str, relays: &[String], required: bool| {
+            let key = canonical_cordn_pool_key(coord_pk, relays);
+            if !is_valid_hex_pubkey(&key.0) || key.1.is_empty() {
+                return;
+            }
+            if seen_endpoints.insert(key.clone()) {
+                endpoints.push((key, required));
+            } else if required {
+                if let Some(entry) = endpoints.iter_mut().find(|(k, _)| *k == key) {
+                    entry.1 = true;
+                }
+            }
+        };
+
+        for pending in &joins {
+            push_endpoint(&pending.coordinator_pubkey, &pending.relays, true);
+        }
+        if let Ok(existing_ws) = self.store.list_workspaces(&owner) {
+            for ws in existing_ws {
+                push_endpoint(&ws.coordinator_pubkey, &ws.relays, false);
+            }
+        }
+        for (coord_pk, relays) in extra_endpoints {
+            push_endpoint(coord_pk, relays, false);
+        }
+        push_endpoint(&self.default_coordinator_pubkey, &self.default_relays, false);
+
         let mut accepted = Vec::new();
+        let mut joined_gids: HashSet<String> = HashSet::new();
 
-        for pending in joins {
-            let coord = self.coordinator(&pending.coordinator_pubkey, &pending.relays)?;
-            let res = retry_transient_coordinator_call(
-                &pending.coordinator_pubkey,
-                &pending.relays,
-                || {
-                    let coord = Arc::clone(&coord);
-                    async move { coord.take_welcomes(None).await }
-                },
-            )
-            .await?;
-            let Some(welcome) = res
-                .welcomes
-                .iter()
-                .find(|w| w.kp_ref == pending.key_package_ref)
-                .cloned()
-            else {
-                continue;
+        for ((coord_pk, relays), required) in endpoints {
+            let coord = match self.coordinator(&coord_pk, &relays) {
+                Ok(c) => c,
+                Err(err) => {
+                    if required {
+                        return Err(err);
+                    }
+                    continue;
+                }
             };
-            let stored_kp = self
-                .store
-                .get_key_package(&owner, &pending.key_package_ref)?
-                .ok_or_else(|| "The MLS private KeyPackage for this Welcome is missing".to_owned())?;
-            let mls_state = join_workspace_group(&welcome.welcome_64, &stored_kp.bundle)?;
-            if mls_state.group_id != pending.group_id {
-                return Err("Welcome is for another group".to_owned());
+            let res = match retry_transient_coordinator_call(&coord_pk, &relays, || {
+                let coord = Arc::clone(&coord);
+                async move { coord.take_welcomes(None).await }
+            })
+            .await
+            {
+                Ok(r) => r,
+                Err(err) => {
+                    if required {
+                        return Err(err);
+                    }
+                    continue;
+                }
+            };
+
+            let mut consumed: Vec<ConsumedWelcome> = Vec::new();
+            let mut consumed_keys: HashSet<(String, u64)> = HashSet::new();
+
+            for welcome in &res.welcomes {
+                let pending_opt = pending_by_ref.get(&welcome.kp_ref);
+                let stored_kp = match kp_by_ref.get(&welcome.kp_ref).cloned() {
+                    Some(kp) => kp,
+                    None => match self.store.get_key_package(&owner, &welcome.kp_ref)? {
+                        Some(kp) => kp,
+                        None => {
+                            if pending_opt.is_some() {
+                                return Err(
+                                    "The MLS private KeyPackage for this Welcome is missing"
+                                        .to_owned(),
+                                );
+                            }
+                            continue;
+                        }
+                    },
+                };
+
+                let mls_state = match join_workspace_group(&welcome.welcome_64, &stored_kp.bundle) {
+                    Ok(state) => state,
+                    Err(err) => {
+                        if pending_opt.is_some() {
+                            return Err(err);
+                        }
+                        continue;
+                    }
+                };
+
+                if let Some(pending) = pending_opt {
+                    if mls_state.group_id != pending.group_id {
+                        return Err("Welcome is for another group".to_owned());
+                    }
+                }
+
+                // Skip duplicate adoption if we already hold an active copy of this MLS group.
+                let already_active = joined_gids.contains(&mls_state.group_id)
+                    || self
+                        .store
+                        .get_workspace_by_group_id(&owner, &mls_state.group_id)?
+                        .map(|existing| existing.status == "active")
+                        .unwrap_or(false);
+                if already_active {
+                    if pending_opt.is_some() {
+                        let _ = self.store.delete_pending_join(&owner, &welcome.kp_ref);
+                    }
+                    if consumed_keys.insert((welcome.kp_ref.clone(), welcome.at)) {
+                        consumed.push(ConsumedWelcome {
+                            kp_ref: welcome.kp_ref.clone(),
+                            at: welcome.at,
+                        });
+                    }
+                    continue;
+                }
+
+                let workspace_id = pending_opt
+                    .map(|p| p.workspace_id.clone())
+                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+                let inferred_admin = pending_opt
+                    .map(|p| p.admin_pubkey.clone())
+                    .unwrap_or_else(|| {
+                        member_pubkeys_from_state(&mls_state)
+                            .ok()
+                            .and_then(|members| {
+                                members
+                                    .iter()
+                                    .find(|pk| pk.as_str() != owner.as_str())
+                                    .cloned()
+                                    .or_else(|| members.into_iter().next())
+                            })
+                            .unwrap_or_else(|| owner.clone())
+                    });
+                let ws_coord_pk = pending_opt
+                    .map(|p| p.coordinator_pubkey.clone())
+                    .unwrap_or_else(|| coord_pk.clone());
+                let ws_relays = pending_opt
+                    .map(|p| p.relays.clone())
+                    .unwrap_or_else(|| relays.clone());
+
+                let lock = workspace_mutex(&owner, &workspace_id);
+                let _guard = lock.lock().await;
+
+                let mut ws = StoredWorkspace {
+                    workspace_id: workspace_id.clone(),
+                    group_id: mls_state.group_id.clone(),
+                    owner_pubkey: owner.clone(),
+                    admin_pubkey: inferred_admin,
+                    coordinator_pubkey: ws_coord_pk,
+                    relays: ws_relays,
+                    role: "member".to_owned(),
+                    status: "active".to_owned(),
+                    mls_state,
+                    cursor: welcome.after.unwrap_or(0),
+                    metadata: None,
+                    envelopes: Vec::new(),
+                    pending_outbound: Vec::new(),
+                    pending_application: None,
+                    pending_approval: None,
+                    pending_membership_commit: None,
+                    skipped_coordinator_messages: Vec::new(),
+                    consecutive_decrypt_errors: 0,
+                    sync_health: SYNC_HEALTH_HEALTHY.to_owned(),
+                    auto_approve_joins: false,
+                    envelope_epochs: BTreeMap::new(),
+                    epoch_media_keys: BTreeMap::new(),
+                    created_at_ms: now_ms(),
+                };
+                record_current_epoch_media_key(&mut ws);
+                self.store.put_workspace(&ws)?;
+
+                if stored_kp.bundle.last_resort && pending_opt.is_some() {
+                    let _ = coord
+                        .remove_key_packages(vec![welcome.kp_ref.clone()])
+                        .await;
+                }
+                if pending_opt.is_some() {
+                    self.store.delete_pending_join(&owner, &welcome.kp_ref)?;
+                }
+
+                for matching in res.welcomes.iter().filter(|w| w.kp_ref == welcome.kp_ref) {
+                    if consumed_keys.insert((matching.kp_ref.clone(), matching.at)) {
+                        consumed.push(ConsumedWelcome {
+                            kp_ref: matching.kp_ref.clone(),
+                            at: matching.at,
+                        });
+                    }
+                }
+
+                let _ = self.sync_with_coordinator_locked(&mut ws, coord.as_ref()).await;
+                // When recovering a Welcome without a local PendingWorkspaceJoin, backfill
+                // root admin_pubkey and metadata from the checkpoint's metadata envelope if needed.
+                if pending_opt.is_none() && ws.metadata.is_none() {
+                    if let Some((meta_author, meta)) = ws.envelopes.iter().rev().find_map(|env| {
+                        read_metadata(env).map(|m| (env.pubkey.clone(), m))
+                    }) {
+                        ws.metadata = Some(meta);
+                        if is_valid_hex_pubkey(&meta_author) {
+                            ws.admin_pubkey = meta_author;
+                            let _ = self.administrator_policy(&mut ws);
+                        }
+                        let _ = self.store.put_workspace(&ws);
+                    }
+                }
+                joined_gids.insert(ws.group_id.clone());
+                accepted.push(ws);
             }
 
-            let lock = workspace_mutex(&owner, &pending.workspace_id);
-            let _guard = lock.lock().await;
-
-            let mut ws = StoredWorkspace {
-                workspace_id: pending.workspace_id.clone(),
-                group_id: pending.group_id.clone(),
-                owner_pubkey: owner.clone(),
-                admin_pubkey: pending.admin_pubkey.clone(),
-                coordinator_pubkey: pending.coordinator_pubkey.clone(),
-                relays: pending.relays.clone(),
-                role: "member".to_owned(),
-                status: "active".to_owned(),
-                mls_state,
-                cursor: welcome.after.unwrap_or(0),
-                metadata: None,
-                envelopes: Vec::new(),
-                pending_outbound: Vec::new(),
-                pending_application: None,
-                pending_approval: None,
-                pending_membership_commit: None,
-                skipped_coordinator_messages: Vec::new(),
-                consecutive_decrypt_errors: 0,
-                sync_health: SYNC_HEALTH_HEALTHY.to_owned(),
-                auto_approve_joins: false,
-                envelope_epochs: BTreeMap::new(),
-                epoch_media_keys: BTreeMap::new(),
-                created_at_ms: now_ms(),
-            };
-            record_current_epoch_media_key(&mut ws);
-            self.store.put_workspace(&ws)?;
-
-            if stored_kp.bundle.last_resort {
-                let _ = coord
-                    .remove_key_packages(vec![pending.key_package_ref.clone()])
-                    .await;
+            if !consumed.is_empty() {
+                let _ = coord.take_welcomes(Some(consumed)).await;
             }
-            self.store
-                .delete_pending_join(&owner, &pending.key_package_ref)?;
-            let consumed: Vec<ConsumedWelcome> = res
-                .welcomes
-                .iter()
-                .filter(|w| w.kp_ref == welcome.kp_ref)
-                .map(|w| ConsumedWelcome {
-                    kp_ref: w.kp_ref.clone(),
-                    at: w.at,
-                })
-                .collect();
-            let _ = coord.take_welcomes(Some(consumed)).await;
-
-            self.sync_with_coordinator_locked(&mut ws, coord.as_ref())
-                .await?;
-            accepted.push(ws);
         }
 
         Ok(accepted)
@@ -4290,5 +4445,92 @@ mod tests {
         let props_after = PrivateWorkspaceService::project_proposals(&bob_after);
         assert_eq!(props_after[0].status, "applied");
         assert_eq!(props_after[0].status_note.as_deref(), Some("Looks great!"));
+    }
+
+    #[tokio::test]
+    async fn accept_pending_welcomes_recovers_group_from_restored_key_package_without_pending_join() {
+        let dir = tempfile::tempdir().unwrap();
+        let alice_store =
+            Arc::new(SqlitePrivateWorkspaceStore::open(dir.path().join("alice.sqlite3")).unwrap());
+        let bob_old_store =
+            Arc::new(SqlitePrivateWorkspaceStore::open(dir.path().join("bob_old.sqlite3")).unwrap());
+        let bob_new_store =
+            Arc::new(SqlitePrivateWorkspaceStore::open(dir.path().join("bob_new.sqlite3")).unwrap());
+        let coord_state = Arc::new(Mutex::new(MockCordnState::default()));
+
+        let alice_keys = Keys::generate();
+        let bob_keys = Keys::generate();
+        let coord_pk = Keys::generate().public_key().to_hex();
+        let alice_pk = alice_keys.public_key().to_hex();
+        let bob_pk = bob_keys.public_key().to_hex();
+
+        let alice = PrivateWorkspaceService::with_factory(
+            Arc::new(LocalKeysSigner::new(alice_keys)),
+            Arc::clone(&alice_store),
+            coord_pk.clone(),
+            vec!["wss://relay.earthly.city".to_owned()],
+            make_mock_factory(Arc::clone(&coord_state)),
+        );
+        let bob_old = PrivateWorkspaceService::with_factory(
+            Arc::new(LocalKeysSigner::new(bob_keys.clone())),
+            Arc::clone(&bob_old_store),
+            coord_pk.clone(),
+            vec!["wss://relay.earthly.city".to_owned()],
+            make_mock_factory(Arc::clone(&coord_state)),
+        );
+
+        let ws = alice
+            .create_workspace(WorkspaceMetadata {
+                name: "Upgrade Recovery Circle".to_owned(),
+                description: Some("Recovered via restored KeyPackage".to_owned()),
+                recommended_basemap: None,
+            })
+            .unwrap();
+        let geo = r#"{"type":"FeatureCollection","name":"Recovered Map","features":[{"type":"Feature","id":"p1","geometry":{"type":"Point","coordinates":[16.37,48.20]},"properties":{"name":"Camp"}}]}"#;
+        alice
+            .send_dataset(&ws.workspace_id, geo, Some("rec-map-1"), Some("Recovered Map"))
+            .await
+            .unwrap();
+
+        // Bob requests to join on his old install; Alice approves and stores the Welcome on Cordn.
+        let inv = alice.create_invitation_url(&ws.workspace_id).await.unwrap();
+        let pending = bob_old.request_to_join(&inv).await.unwrap();
+        let restored_kp = bob_old_store
+            .get_key_package(&bob_pk, &pending.key_package_ref)
+            .unwrap()
+            .expect("old install stored key package");
+
+        let reqs = alice.fetch_join_requests(&ws.workspace_id).await.unwrap();
+        alice
+            .approve_join_request(&ws.workspace_id, &reqs[0])
+            .await
+            .unwrap();
+
+        // Simulate app upgrade / reinstall: Bob's new SQLite DB has NO workspaces and NO pending_joins,
+        // ONLY the KeyPackage restored from multi-device meta backup.
+        bob_new_store.put_key_package(&restored_kp).unwrap();
+        assert!(bob_new_store.list_workspaces(&bob_pk).unwrap().is_empty());
+        assert!(bob_new_store.list_pending_joins(&bob_pk).unwrap().is_empty());
+
+        let bob_new = PrivateWorkspaceService::with_factory(
+            Arc::new(LocalKeysSigner::new(bob_keys)),
+            Arc::clone(&bob_new_store),
+            coord_pk,
+            vec!["wss://relay.earthly.city".to_owned()],
+            make_mock_factory(Arc::clone(&coord_state)),
+        );
+
+        let recovered = bob_new.accept_pending_welcomes().await.unwrap();
+        assert_eq!(recovered.len(), 1);
+        let rec_ws = &recovered[0];
+        assert_eq!(rec_ws.group_id, ws.group_id);
+        assert_eq!(
+            rec_ws.metadata.as_ref().map(|m| m.name.as_str()),
+            Some("Upgrade Recovery Circle")
+        );
+        assert_eq!(rec_ws.admin_pubkey, alice_pk);
+        let datasets = PrivateWorkspaceService::project_datasets(rec_ws);
+        assert_eq!(datasets.len(), 1);
+        assert_eq!(datasets[0].dataset_id, "rec-map-1");
     }
 }

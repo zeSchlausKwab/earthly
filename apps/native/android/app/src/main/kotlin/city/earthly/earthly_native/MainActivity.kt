@@ -18,8 +18,10 @@ import android.location.Location
 import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.provider.Settings
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -51,8 +53,14 @@ class MainActivity : FlutterActivity() {
         private const val VAULT_PREFS_NAME = "earthly_keystore_vault"
         private const val VAULT_CIPHERTEXT_KEY = "master_key_ciphertext"
         private const val VAULT_IV_KEY = "master_key_iv"
+        private const val VAULT_BACKUP_CIPHERTEXT_KEY = "master_key_ciphertext_bak"
+        private const val VAULT_BACKUP_IV_KEY = "master_key_iv_bak"
+        private const val PERMISSION_PREFS_NAME = "earthly_permissions_prefs"
+        private const val PREF_CAMERA_REQUESTED = "camera_permission_requested"
+        private const val STATE_PENDING_PHOTO_PATH = "earthly_pending_photo_path"
         private const val MASTER_KEY_BYTES = 32
         private const val GCM_TAG_BITS = 128
+        private const val CAMERA_TEMP_MAX_AGE_MS = 60L * 60L * 1000L
         private const val REQUEST_GET_PUBKEY = 5501
         private const val REQUEST_SIGN_EVENT = 5502
         private const val REQUEST_NIP44_DECRYPT = 5503
@@ -66,6 +74,9 @@ class MainActivity : FlutterActivity() {
         private const val REQUEST_PICK_ANY_FILE = 5607
         private const val REQUEST_LOCATION_PERMISSION = 5701
         private const val REQUEST_TRACK_PERMISSION = 5702
+        private const val REQUEST_CAMERA_PERMISSION = 5703
+        private const val REQUEST_QR_CAMERA_PERMISSION = 5704
+        private const val REQUEST_CHECK_CAMERA_PERMISSION = 5705
         private const val MAX_PICKED_ATTACHMENT_BYTES = 25 * 1024 * 1024
         private const val CIRCLES_NOTIFICATION_CHANNEL_ID = "earthly_circles"
         private const val CIRCLES_NOTIFICATION_CHANNEL_NAME = "MLS Groups"
@@ -88,11 +99,29 @@ class MainActivity : FlutterActivity() {
     private var pendingSaveContent: String? = null
     private var pendingSaveBytes: ByteArray? = null
     private var pendingPhotoFile: File? = null
+    private var pendingPhotoUri: Uri? = null
+    private var pendingCameraResult: MethodChannel.Result? = null
+    private var pendingCameraAction: Int = 0
     private var pendingLocationResult: MethodChannel.Result? = null
     private var pendingTrackStartResult: MethodChannel.Result? = null
     private var deviceChannel: MethodChannel? = null
     private var initialDeepLink: String? = null
     private var initialDroppedFile: Map<String, Any>? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val restoredPhotoPath = savedInstanceState?.getString(STATE_PENDING_PHOTO_PATH)
+        if (!restoredPhotoPath.isNullOrBlank()) {
+            pendingPhotoFile = File(restoredPhotoPath)
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        pendingPhotoFile?.absolutePath?.let { path ->
+            outState.putString(STATE_PENDING_PHOTO_PATH, path)
+        }
+    }
 
     private fun normalizeCirclePayloadLink(rawPayload: String?): String? {
         val trimmed = rawPayload?.trim() ?: return null
@@ -279,58 +308,31 @@ class MainActivity : FlutterActivity() {
                         )
                     }
 
-                    "capturePhoto" -> {
-                        if (pendingResult != null) {
-                            result.error("busy", "Another picker/capture request is pending", null)
-                            return@setMethodCallHandler
+                    "capturePhoto" -> handleCapturePhoto(result)
+
+                    "checkCameraPermission" -> {
+                        val status = when {
+                            hasCameraPermission() -> "granted"
+                            isCameraPermissionPermanentlyDenied() -> "permanently_denied"
+                            else -> "denied"
                         }
-                        val cameraDir = File(cacheDir, "camera").apply { mkdirs() }
-                        val photoFile = File(cameraDir, "earthly-photo-${System.currentTimeMillis()}.jpg")
-                        val photoUri = try {
-                            FileProvider.getUriForFile(
-                                this,
-                                "${applicationContext.packageName}.fileprovider",
-                                photoFile,
-                            )
-                        } catch (_: Exception) {
-                            null
-                        }
-                        val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
-                            if (photoUri != null) {
-                                putExtra(MediaStore.EXTRA_OUTPUT, photoUri)
-                                addFlags(
-                                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
-                                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                                )
-                                clipData = ClipData.newRawUri("output", photoUri)
-                            }
-                        }
-                        pendingResult = result
-                        pendingRequestCode = REQUEST_CAPTURE_PHOTO
-                        pendingPhotoFile = if (photoUri != null) photoFile else null
+                        result.success(status)
+                    }
+
+                    "requestCameraPermission" -> handleRequestCameraPermission(result)
+
+                    "openAppSettings" -> {
                         try {
-                            @Suppress("DEPRECATION")
-                            startActivityForResult(intent, REQUEST_CAPTURE_PHOTO)
-                        } catch (err: ActivityNotFoundException) {
-                            pendingResult = null
-                            pendingRequestCode = 0
-                            pendingPhotoFile?.delete()
-                            pendingPhotoFile = null
-                            result.error(
-                                "no_camera",
-                                err.message ?: "No camera app available on this device",
-                                null,
-                            )
-                        } catch (err: SecurityException) {
-                            pendingResult = null
-                            pendingRequestCode = 0
-                            pendingPhotoFile?.delete()
-                            pendingPhotoFile = null
-                            result.error(
-                                "camera_denied",
-                                err.message ?: "Camera access was denied by the system",
-                                null,
-                            )
+                            val settingsIntent = Intent(
+                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.fromParts("package", packageName, null),
+                            ).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(settingsIntent)
+                            result.success(true)
+                        } catch (_: Exception) {
+                            result.success(false)
                         }
                     }
 
@@ -490,22 +492,7 @@ class MainActivity : FlutterActivity() {
                         }
                     }
 
-                    "scanQrCode" -> {
-                        if (pendingResult != null) {
-                            result.error("busy", "Another picker/capture request is pending", null)
-                            return@setMethodCallHandler
-                        }
-                        pendingResult = result
-                        pendingRequestCode = IntentIntegrator.REQUEST_CODE
-                        @Suppress("DEPRECATION")
-                        IntentIntegrator(this).apply {
-                            setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
-                            setPrompt("Scan Earthly Field Session QR")
-                            setBeepEnabled(false)
-                            setOrientationLocked(false)
-                            initiateScan()
-                        }
-                    }
+                    "scanQrCode" -> handleScanQrCode(result)
 
                     "getOrCreateMasterKey" -> {
                         try {
@@ -728,12 +715,26 @@ class MainActivity : FlutterActivity() {
         startActivityForResult(intent, requestCode)
     }
 
-    private fun getOrCreateWrappingKey(): SecretKey {
-        val keyStore = KeyStore.getInstance(KEYSTORE_PROVIDER).apply { load(null) }
-        val existing = keyStore.getKey(KEYSTORE_ALIAS, null) as? SecretKey
-        if (existing != null) {
-            return existing
+    private fun getExistingWrappingKey(): SecretKey? {
+        var lastError: Exception? = null
+        for (attempt in 0..1) {
+            try {
+                val keyStore = KeyStore.getInstance(KEYSTORE_PROVIDER).apply { load(null) }
+                val existing = keyStore.getKey(KEYSTORE_ALIAS, null) as? SecretKey
+                if (existing != null) {
+                    return existing
+                }
+            } catch (err: Exception) {
+                lastError = err
+            }
         }
+        if (lastError != null) {
+            throw lastError
+        }
+        return null
+    }
+
+    private fun createWrappingKey(): SecretKey {
         val keyGenerator = KeyGenerator.getInstance(
             KeyProperties.KEY_ALGORITHM_AES,
             KEYSTORE_PROVIDER,
@@ -751,35 +752,303 @@ class MainActivity : FlutterActivity() {
         return keyGenerator.generateKey()
     }
 
+    private fun unwrapMasterKey(
+        wrappingKey: SecretKey,
+        cipherB64: String,
+        ivB64: String,
+    ): ByteArray {
+        val ciphertext = Base64.decode(cipherB64, Base64.NO_WRAP)
+        val iv = Base64.decode(ivB64, Base64.NO_WRAP)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, wrappingKey, GCMParameterSpec(GCM_TAG_BITS, iv))
+        val unwrapped = cipher.doFinal(ciphertext)
+        require(unwrapped.size == MASTER_KEY_BYTES) {
+            "Unwrapped master key has invalid length: ${unwrapped.size}"
+        }
+        return unwrapped
+    }
+
     private fun getOrCreateMasterKeyBase64(): String {
-        val wrappingKey = getOrCreateWrappingKey()
         val prefs = getSharedPreferences(VAULT_PREFS_NAME, Context.MODE_PRIVATE)
         val cipherB64 = prefs.getString(VAULT_CIPHERTEXT_KEY, null)
         val ivB64 = prefs.getString(VAULT_IV_KEY, null)
-        if (!cipherB64.isNullOrBlank() && !ivB64.isNullOrBlank()) {
-            val ciphertext = Base64.decode(cipherB64, Base64.NO_WRAP)
-            val iv = Base64.decode(ivB64, Base64.NO_WRAP)
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.DECRYPT_MODE, wrappingKey, GCMParameterSpec(GCM_TAG_BITS, iv))
-            val unwrapped = cipher.doFinal(ciphertext)
-            require(unwrapped.size == MASTER_KEY_BYTES) {
-                "Unwrapped master key has invalid length: ${unwrapped.size}"
+        val backupCipherB64 = prefs.getString(VAULT_BACKUP_CIPHERTEXT_KEY, null)
+        val backupIvB64 = prefs.getString(VAULT_BACKUP_IV_KEY, null)
+        val hasPrimaryVault = !cipherB64.isNullOrBlank() && !ivB64.isNullOrBlank()
+        val hasBackupVault = !backupCipherB64.isNullOrBlank() && !backupIvB64.isNullOrBlank()
+
+        if (hasPrimaryVault || hasBackupVault) {
+            // Never regenerate or overwrite an existing wrapped master key or its Keystore alias.
+            val existingKey = getExistingWrappingKey()
+                ?: throw IllegalStateException(
+                    "Android Keystore key '$KEYSTORE_ALIAS' is unavailable while an encrypted vault exists; refusing to overwrite existing data.",
+                )
+            if (hasPrimaryVault) {
+                try {
+                    val unwrapped = unwrapMasterKey(existingKey, cipherB64, ivB64)
+                    if (!hasBackupVault) {
+                        prefs.edit()
+                            .putString(VAULT_BACKUP_CIPHERTEXT_KEY, cipherB64)
+                            .putString(VAULT_BACKUP_IV_KEY, ivB64)
+                            .apply()
+                    }
+                    return Base64.encodeToString(unwrapped, Base64.NO_WRAP)
+                } catch (primaryErr: Exception) {
+                    if (!hasBackupVault) {
+                        throw primaryErr
+                    }
+                }
             }
-            return Base64.encodeToString(unwrapped, Base64.NO_WRAP)
+            val unwrappedBackup = unwrapMasterKey(existingKey, backupCipherB64!!, backupIvB64!!)
+            prefs.edit()
+                .putString(VAULT_CIPHERTEXT_KEY, backupCipherB64)
+                .putString(VAULT_IV_KEY, backupIvB64)
+                .commit()
+            return Base64.encodeToString(unwrappedBackup, Base64.NO_WRAP)
         }
 
+        // Fresh install: no wrapped master key exists yet.
+        val wrappingKey = getExistingWrappingKey() ?: createWrappingKey()
         val masterKey = ByteArray(MASTER_KEY_BYTES)
         SecureRandom().nextBytes(masterKey)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, wrappingKey)
         val iv = cipher.iv
         val ciphertext = cipher.doFinal(masterKey)
+        val encodedCipher = Base64.encodeToString(ciphertext, Base64.NO_WRAP)
+        val encodedIv = Base64.encodeToString(iv, Base64.NO_WRAP)
         val persisted = prefs.edit()
-            .putString(VAULT_CIPHERTEXT_KEY, Base64.encodeToString(ciphertext, Base64.NO_WRAP))
-            .putString(VAULT_IV_KEY, Base64.encodeToString(iv, Base64.NO_WRAP))
+            .putString(VAULT_CIPHERTEXT_KEY, encodedCipher)
+            .putString(VAULT_IV_KEY, encodedIv)
+            .putString(VAULT_BACKUP_CIPHERTEXT_KEY, encodedCipher)
+            .putString(VAULT_BACKUP_IV_KEY, encodedIv)
             .commit()
         check(persisted) { "Failed to persist wrapped master key" }
         return Base64.encodeToString(masterKey, Base64.NO_WRAP)
+    }
+
+    private fun hasCameraPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.CAMERA,
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun wasCameraPermissionRequested(): Boolean {
+        val prefs = getSharedPreferences(PERMISSION_PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(PREF_CAMERA_REQUESTED, false)
+    }
+
+    private fun markCameraPermissionRequested() {
+        val prefs = getSharedPreferences(PERMISSION_PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(PREF_CAMERA_REQUESTED, true).apply()
+    }
+
+    private fun isCameraPermissionPermanentlyDenied(): Boolean {
+        return !hasCameraPermission() &&
+            wasCameraPermissionRequested() &&
+            !ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.CAMERA)
+    }
+
+    private fun handleRequestCameraPermission(result: MethodChannel.Result) {
+        if (hasCameraPermission()) {
+            result.success("granted")
+            return
+        }
+        if (pendingCameraResult != null) {
+            result.error("busy", "Camera permission request already pending", null)
+            return
+        }
+        markCameraPermissionRequested()
+        pendingCameraResult = result
+        pendingCameraAction = REQUEST_CHECK_CAMERA_PERMISSION
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.CAMERA),
+            REQUEST_CHECK_CAMERA_PERMISSION,
+        )
+    }
+
+    private fun handleCapturePhoto(result: MethodChannel.Result) {
+        if (pendingResult != null || pendingCameraResult != null) {
+            result.error("busy", "Another picker/capture request is pending", null)
+            return
+        }
+        // Because zxing-android-embedded merges android.permission.CAMERA into the APK,
+        // Android requires runtime CAMERA permission before launching ACTION_IMAGE_CAPTURE.
+        if (!hasCameraPermission()) {
+            markCameraPermissionRequested()
+            pendingCameraResult = result
+            pendingCameraAction = REQUEST_CAMERA_PERMISSION
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.CAMERA),
+                REQUEST_CAMERA_PERMISSION,
+            )
+            return
+        }
+        launchCapturePhotoIntent(result)
+    }
+
+    private fun handleScanQrCode(result: MethodChannel.Result) {
+        if (pendingResult != null || pendingCameraResult != null) {
+            result.error("busy", "Another picker/capture request is pending", null)
+            return
+        }
+        if (!hasCameraPermission()) {
+            markCameraPermissionRequested()
+            pendingCameraResult = result
+            pendingCameraAction = REQUEST_QR_CAMERA_PERMISSION
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.CAMERA),
+                REQUEST_QR_CAMERA_PERMISSION,
+            )
+            return
+        }
+        launchQrScanner(result)
+    }
+
+    private fun launchQrScanner(result: MethodChannel.Result) {
+        pendingResult = result
+        pendingRequestCode = IntentIntegrator.REQUEST_CODE
+        try {
+            @Suppress("DEPRECATION")
+            IntentIntegrator(this).apply {
+                setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
+                setPrompt("Scan Earthly Field Session QR")
+                setBeepEnabled(false)
+                setOrientationLocked(false)
+                initiateScan()
+            }
+        } catch (err: ActivityNotFoundException) {
+            pendingResult = null
+            pendingRequestCode = 0
+            result.error("no_camera", err.message ?: "No camera scanner available on this device", null)
+        } catch (err: SecurityException) {
+            pendingResult = null
+            pendingRequestCode = 0
+            val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
+                this,
+                Manifest.permission.CAMERA,
+            )
+            result.error(
+                if (permanent) "camera_permanently_denied" else "camera_denied",
+                err.message ?: "Camera access was denied by Android",
+                mapOf("permanentlyDenied" to permanent),
+            )
+        }
+    }
+
+    private fun prepareCameraTempFile(): Pair<File, Uri?> {
+        val candidates = listOf(File(cacheDir, "camera"), File(filesDir, "camera"))
+        val now = System.currentTimeMillis()
+        for (dir in candidates) {
+            try {
+                if (!dir.exists()) {
+                    dir.mkdirs()
+                }
+                dir.listFiles()?.forEach { stale ->
+                    if (stale.isFile &&
+                        stale.name.startsWith("earthly-photo-") &&
+                        now - stale.lastModified() > CAMERA_TEMP_MAX_AGE_MS
+                    ) {
+                        stale.delete()
+                    }
+                }
+                val file = File(dir, "earthly-photo-$now.jpg")
+                val uri = FileProvider.getUriForFile(
+                    this,
+                    "${applicationContext.packageName}.fileprovider",
+                    file,
+                )
+                return Pair(file, uri)
+            } catch (_: Exception) {
+                // Try fallback camera directory.
+            }
+        }
+        val fallbackDir = File(cacheDir, "camera").apply { mkdirs() }
+        return Pair(File(fallbackDir, "earthly-photo-$now.jpg"), null)
+    }
+
+    private fun revokePendingPhotoUri() {
+        val uri = pendingPhotoUri ?: return
+        pendingPhotoUri = null
+        try {
+            revokeUriPermission(
+                uri,
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun launchCapturePhotoIntent(result: MethodChannel.Result) {
+        val (photoFile, photoUri) = prepareCameraTempFile()
+        val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+            if (photoUri != null) {
+                putExtra(MediaStore.EXTRA_OUTPUT, photoUri)
+                addFlags(
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+                clipData = ClipData.newRawUri("output", photoUri)
+            }
+        }
+        if (photoUri != null) {
+            try {
+                @Suppress("DEPRECATION")
+                val handlers = packageManager.queryIntentActivities(
+                    intent,
+                    PackageManager.MATCH_DEFAULT_ONLY,
+                )
+                for (info in handlers) {
+                    val targetPkg = info.activityInfo?.packageName ?: continue
+                    grantUriPermission(
+                        targetPkg,
+                        photoUri,
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                }
+            } catch (_: Exception) {
+                // ClipData + Intent grant flags remain active even if package query is restricted.
+            }
+        }
+        pendingResult = result
+        pendingRequestCode = REQUEST_CAPTURE_PHOTO
+        pendingPhotoFile = if (photoUri != null) photoFile else null
+        pendingPhotoUri = photoUri
+        try {
+            @Suppress("DEPRECATION")
+            startActivityForResult(intent, REQUEST_CAPTURE_PHOTO)
+        } catch (err: ActivityNotFoundException) {
+            pendingResult = null
+            pendingRequestCode = 0
+            revokePendingPhotoUri()
+            pendingPhotoFile?.delete()
+            pendingPhotoFile = null
+            result.error(
+                "no_camera",
+                err.message ?: "No camera app available on this device",
+                null,
+            )
+        } catch (err: SecurityException) {
+            pendingResult = null
+            pendingRequestCode = 0
+            revokePendingPhotoUri()
+            pendingPhotoFile?.delete()
+            pendingPhotoFile = null
+            val permanent = !ActivityCompat.shouldShowRequestPermissionRationale(
+                this,
+                Manifest.permission.CAMERA,
+            )
+            result.error(
+                if (permanent) "camera_permanently_denied" else "camera_denied",
+                err.message ?: "Camera access was denied by the system",
+                mapOf("permanentlyDenied" to permanent),
+            )
+        }
     }
 
     private fun hasLocationPermission(): Boolean {
@@ -915,6 +1184,52 @@ class MainActivity : FlutterActivity() {
                 callback.success(true)
             } else {
                 callback.error("permission_denied", "Location permission required for GPS track", null)
+            }
+            return
+        }
+        if ((requestCode == REQUEST_CAMERA_PERMISSION ||
+                requestCode == REQUEST_QR_CAMERA_PERMISSION ||
+                requestCode == REQUEST_CHECK_CAMERA_PERMISSION) &&
+            pendingCameraResult != null
+        ) {
+            val callback = pendingCameraResult!!
+            val action = pendingCameraAction
+            pendingCameraResult = null
+            pendingCameraAction = 0
+            val granted = grantResults.any { it == PackageManager.PERMISSION_GRANTED } ||
+                hasCameraPermission()
+            if (action == REQUEST_CHECK_CAMERA_PERMISSION) {
+                val status = when {
+                    granted -> "granted"
+                    !ActivityCompat.shouldShowRequestPermissionRationale(
+                        this,
+                        Manifest.permission.CAMERA,
+                    ) -> "permanently_denied"
+                    else -> "denied"
+                }
+                callback.success(status)
+                return
+            }
+            if (granted) {
+                if (action == REQUEST_QR_CAMERA_PERMISSION) {
+                    launchQrScanner(callback)
+                } else {
+                    launchCapturePhotoIntent(callback)
+                }
+            } else {
+                val permanentlyDenied = !ActivityCompat.shouldShowRequestPermissionRationale(
+                    this,
+                    Manifest.permission.CAMERA,
+                )
+                callback.error(
+                    if (permanentlyDenied) "camera_permanently_denied" else "camera_denied",
+                    if (permanentlyDenied) {
+                        "Camera permission is disabled in Android settings. Open App Settings to allow Camera, or choose a photo from Gallery."
+                    } else {
+                        "Camera permission is required to take a photo."
+                    },
+                    mapOf("permanentlyDenied" to permanentlyDenied),
+                )
             }
             return
         }
@@ -1116,6 +1431,7 @@ class MainActivity : FlutterActivity() {
             if (requestCode == REQUEST_CAPTURE_PHOTO) {
                 val photoFile = pendingPhotoFile
                 pendingPhotoFile = null
+                revokePendingPhotoUri()
                 if (resultCode != Activity.RESULT_OK) {
                     photoFile?.delete()
                     callback.error("cancelled", "Request was cancelled", null)
@@ -1147,6 +1463,9 @@ class MainActivity : FlutterActivity() {
                         } else {
                             raw
                         }
+                    } else if (data?.data != null) {
+                        photoFile?.delete()
+                        readUriBytesCapped(data.data!!, MAX_PICKED_ATTACHMENT_BYTES)
                     } else {
                         photoFile?.delete()
                         @Suppress("DEPRECATION")
