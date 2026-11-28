@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.2.1] - 2026-11-28
+
+- Fixed Android post-update camera capture permission failures by explicitly
+  requesting runtime `CAMERA` permission before capture and QR scans, with
+  App Settings deep-link and Gallery fallback.
+- Hardened MLS group persistence across Android updates: safe Keystore master-key
+  vault checks, SQLite v2 backup & pubkey normalization, automatic NIP-44
+  multi-device (`cordn-md-tip-v1`) backup & empty-state recovery for local keys
+  and Android Amber (NIP-55), and a prominent Recover Groups from Relays action.
+- Added a Production Public Relay Manager connecting by default to Earthly plus
+  public relays (`relay.damus.io`, `nos.lol`, `relay.primal.net`, `purplepag.es`),
+  NIP-65 user relay auto-sync, NIP-66 (`nostr.watch`) public relay discovery with
+  live WebSocket RTT & NIP-11 quality probing in Settings → Relays, and public
+  network fanout for geometry, profiles, zaps, and NIP-60 Cashu wallets (while
+  strictly isolating private MLS & Nearby sessions).
+- Replaced sticky SnackBars with auto-decaying toasts featuring an animated
+  countdown time bar and a one-tap Copy button on all errors.
+- Added native Android Back and predictive left-edge swipe navigation across the
+  drawer history stack (plus explicit Back buttons in sub-drawer headers) so
+  navigating sub-drawers like Desk → Outbox Queue returns cleanly instead of
+  closing the app.
+- Tapping a Map, Story, Atlas, or Sighting in Search or Explore now immediately
+  displays it on the map and fits the camera (including Blossom-backed maps).
+- Reorganized Drawing Mode into contextual grouped button menus (`Select`,
+  `Draw`, `Shapes & Spatial`, `Desk`, `Options`, `Done`) and added opening Desk
+  right beneath the docked Drawing Toolbar while staying in Drawing Mode.
+- Cleaned up Agent drawer pill clouds, unified the action buttons below map
+  descriptions, and eliminated multi-line button wrapping across mobile sheets.
+
 ## [0.2.0] - 2026-11-27
 
 - Replaced the legacy Tauri Android shell with Earthly's new Flutter + Rust native
