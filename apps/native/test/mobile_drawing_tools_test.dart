@@ -2,8 +2,10 @@ import 'package:earthly_native/controllers/draft_workbench_controller.dart';
 import 'package:earthly_native/drawing/drawing_model.dart';
 import 'package:earthly_native/main.dart';
 import 'package:earthly_native/nostr/callout_overlay.dart';
+import 'package:earthly_native/nostr/shelf_renderer.dart';
 import 'package:earthly_native/shell/desk_sheet.dart';
 import 'package:earthly_native/shell/feature_inspector_sheet.dart';
+import 'package:earthly_native/shell/mobile_drawing_bar.dart';
 import 'package:earthly_native/shell/mobile_drawing_tools_sheet.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maplibre/maplibre.dart';
@@ -319,7 +321,7 @@ void main() {
   });
 
   testWidgets(
-      'More button opens MobileDrawingToolsSheet with tools, shapes, toggles, workbench ops, and actions',
+      'More button opens focused Canvas Options sheet (no catch-all tools/workbench dump)',
       (WidgetTester tester) async {
     setTestViewport(tester, const Size(412, 915));
     final draft = DraftWorkbenchController();
@@ -334,44 +336,25 @@ void main() {
     await tester.tap(find.byKey(const Key('mobile-drawing-more-tools')));
     await tester.pumpAndSettle();
 
-    expect(find.byType(MobileDrawingToolsSheet), findsOneWidget);
-    expect(find.text('AUTHORING TOOLS & WORKBENCH'), findsOneWidget);
-    expect(find.byKey(const Key('mobile-tools-snapping-toggle')), findsOneWidget);
-
-    final sheetScrollable = find.descendant(
-      of: find.byType(MobileDrawingToolsSheet),
-      matching: find.byType(Scrollable),
-    ).first;
-
-    // Toggle snapping from sheet (already visible near top of sheet)
-    await tester.ensureVisible(
-      find.byKey(const Key('mobile-tools-snapping-toggle')),
+    expect(find.byType(MobileDrawingOptionsSheet), findsOneWidget);
+    expect(find.text('CANVAS OPTIONS'), findsOneWidget);
+    expect(find.text('AUTHORING TOOLS & WORKBENCH'), findsNothing);
+    expect(find.text('GEOMETRY WORKBENCH'), findsNothing);
+    expect(find.text('DATA & PUBLISH'), findsNothing);
+    expect(
+      find.byKey(const Key('mobile-options-snapping-toggle')),
+      findsOneWidget,
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('mobile-tools-snapping-toggle')));
+
+    // Toggle Magnetic Snap from focused options sheet
+    await tester.tap(find.byKey(const Key('mobile-options-snapping-toggle')));
     await tester.pump();
     expect(draft.snappingEnabled, isFalse);
 
-    // Scroll down to verify bottom Data & Publish section
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('mobile-tools-open-desk')),
-      180,
-      scrollable: sheetScrollable,
-    );
-    expect(find.byKey(const Key('mobile-tools-open-desk')), findsOneWidget);
-
-    // Scroll back up to Area tool from sheet grid -> switches mode & closes sheet
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('mobile-tools-mode-polygon')),
-      -120,
-      scrollable: sheetScrollable,
-    );
-    await tester.ensureVisible(find.byKey(const Key('mobile-tools-mode-polygon')));
+    // Close sheet cleanly
+    await tester.tap(find.byKey(const Key('mobile-options-close')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('mobile-tools-mode-polygon')));
-    await tester.pumpAndSettle();
-    expect(find.byType(MobileDrawingToolsSheet), findsNothing);
-    expect(draft.mode, DrawToolMode.polygon);
+    expect(find.byType(MobileDrawingOptionsSheet), findsNothing);
   });
 
   testWidgets(
@@ -411,137 +394,615 @@ void main() {
   });
 
   testWidgets(
-      'MobileDrawingToolsSheet executes meter presets, workbench ops, selection, and data callbacks',
+      'MobileDrawingOptionsSheet exposes ONLY canvas settings and Undo/Redo without overflow at 360dp',
       (WidgetTester tester) async {
-    setTestViewport(tester, const Size(440, 920));
+    setTestViewport(tester, const Size(360, 780));
 
-    DrawToolMode? pickedTool;
-    PrimitiveShapeKind? pickedShape;
-    (PrimitiveShapeKind, double)? droppedShape;
-    (RustGeoAction, double?, double?)? lastOp;
-    var pasted = false;
-    var importedOsm = false;
-    var openedDesk = false;
     var toggledSnap = false;
-    var toggledCallouts = false;
-    var selectedAll = false;
+    var toggledEdgeSnap = false;
+    var toggledPlacement = false;
+    var toggledLoupe = false;
+    var cycledCallouts = false;
+    var undid = false;
+    var redid = false;
 
     await tester.pumpWidget(
       wrapInScaffold(
-        MobileDrawingToolsSheet(
-          activeMode: DrawToolMode.line,
-          activePrimitiveShape: PrimitiveShapeKind.circle,
+        MobileDrawingOptionsSheet(
           placementStyle: TouchPlacementStyle.drawDrag,
           loupeEnabled: true,
           snappingEnabled: true,
           snapToEdgesEnabled: true,
           calloutMode: CalloutDisplayMode.full,
-          drawnFeatures: const [
-            DrawnFeature(
-              id: 'l-1',
-              kind: DrawToolMode.line,
-              vertices: [
-                Geographic(lon: 16.36, lat: 48.20),
-                Geographic(lon: 16.38, lat: 48.20),
-              ],
-            ),
-          ],
-          selectedFeatureIds: const {'l-1'},
           canUndo: true,
-          canRedo: false,
-          onSelectTool: (m) => pickedTool = m,
-          onSelectPrimitiveShape: (s) => pickedShape = s,
-          onDropPrimitiveAtCenter: (s, r) async {
-            droppedShape = (s, r);
-          },
+          canRedo: true,
           onToggleSnapping: () => toggledSnap = true,
-          onToggleSnapToEdges: () {},
-          onTogglePlacementStyle: () {},
-          onToggleLoupe: () {},
-          onCycleCalloutMode: () => toggledCallouts = true,
-          onUndo: () {},
-          onRedo: () {},
-          onSelectAll: () => selectedAll = true,
-          onClearSelection: () {},
-          onDuplicateSelected: () {},
-          onDeleteSelected: () {},
-          onClearDraft: () {},
-          onRunGeoAction: (a, {meters, angleDeg, scale}) {
-            lastOp = (a, meters, angleDeg);
-          },
-          onPasteGeoJson: () => pasted = true,
-          onImportGeoJson: () {},
-          onImportOsm: () => importedOsm = true,
-          onExportGeoJson: () {},
-          onOpenDeskAndPublish: () => openedDesk = true,
-          onExitDrawingMode: () {},
+          onToggleSnapToEdges: () => toggledEdgeSnap = true,
+          onTogglePlacementStyle: () => toggledPlacement = true,
+          onToggleLoupe: () => toggledLoupe = true,
+          onCycleCalloutMode: () => cycledCallouts = true,
+          onUndo: () => undid = true,
+          onRedo: () => redid = true,
           onClose: () {},
         ),
       ),
     );
+    await tester.pumpAndSettle();
 
-    await scrollAndTap(
-      tester,
-      find.byKey(const Key('mobile-tools-meters-250')),
-    );
-    await scrollAndTap(
-      tester,
-      find.byKey(const Key('mobile-tools-drop-shape-center')),
-    );
-    expect(droppedShape, (PrimitiveShapeKind.circle, 250.0));
+    expect(tester.takeException(), isNull);
+    expect(find.text('CANVAS OPTIONS'), findsOneWidget);
+    expect(find.text('Magnetic Snap'), findsOneWidget);
+    expect(find.text('Snap to Edges'), findsOneWidget);
+    expect(find.text('Touch Placement'), findsOneWidget);
+    expect(find.text('Magnifier Loupe'), findsOneWidget);
+    expect(find.text('Callouts'), findsOneWidget);
+    expect(find.text('Undo'), findsOneWidget);
+    expect(find.text('Redo'), findsOneWidget);
+    // Zero mixed tools/shapes/workbench sections
+    expect(find.text('DRAW & EDIT TOOLS'), findsNothing);
+    expect(find.text('GEOMETRY WORKBENCH'), findsNothing);
+    expect(find.text('DATA & PUBLISH'), findsNothing);
 
-    await scrollAndTap(
-      tester,
-      find.byKey(const Key('mobile-tools-op-corridor')),
-    );
-    expect(lastOp, (RustGeoAction.corridorLastLine, 250.0, null));
+    await tester.tap(find.byKey(const Key('mobile-options-undo')));
+    await tester.tap(find.byKey(const Key('mobile-options-redo')));
+    await tester.tap(find.byKey(const Key('mobile-options-snapping-toggle')));
+    await tester.tap(find.byKey(const Key('mobile-options-edge-snap-toggle')));
+    await tester.tap(find.byKey(const Key('mobile-options-placement-toggle')));
+    await tester.tap(find.byKey(const Key('mobile-options-loupe-toggle')));
+    await tester.tap(find.byKey(const Key('mobile-options-callouts-cycle')));
+    await tester.pump();
 
-    await scrollAndTap(
-      tester,
-      find.byKey(const Key('mobile-tools-snapping-toggle')),
-    );
+    expect(undid, isTrue);
+    expect(redid, isTrue);
     expect(toggledSnap, isTrue);
+    expect(toggledEdgeSnap, isTrue);
+    expect(toggledPlacement, isTrue);
+    expect(toggledLoupe, isTrue);
+    expect(cycledCallouts, isTrue);
+  });
 
-    await scrollAndTap(
-      tester,
-      find.byKey(const Key('mobile-tools-callouts-cycle')),
-    );
-    expect(toggledCallouts, isTrue);
+  testWidgets(
+      'MobileDrawingBar grouped menus (Select, Draw, Shapes & Spatial), Desk badge, Options sheet, and Done work cleanly at 360dp and 412dp',
+      (WidgetTester tester) async {
+    for (final viewport in const [Size(360, 780), Size(412, 915)]) {
+      setTestViewport(tester, viewport);
 
-    await scrollAndTap(
-      tester,
-      find.byKey(const Key('mobile-tools-select-all')),
-    );
-    expect(selectedAll, isTrue);
+      var mode = DrawToolMode.line;
+      var shape = PrimitiveShapeKind.circle;
+      var placement = TouchPlacementStyle.drawDrag;
+      var snapping = true;
+      var edgeSnap = true;
+      var loupe = true;
+      var callouts = CalloutDisplayMode.full;
+      var deskOpen = false;
+      var exited = false;
+      var undid = false;
+      (PrimitiveShapeKind, double)? droppedCenter;
 
-    await scrollAndTap(
-      tester,
-      find.byKey(const Key('mobile-tools-paste-geojson')),
-    );
-    expect(pasted, isTrue);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) => Stack(
+                fit: StackFit.expand,
+                children: [
+                  const ColoredBox(color: Color(0xFFEDF0EA)),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: MobileDrawingBar(
+                      activeMode: mode,
+                      activePrimitiveShape: shape,
+                      placementStyle: placement,
+                      loupeEnabled: loupe,
+                      snappingEnabled: snapping,
+                      snapToEdgesEnabled: edgeSnap,
+                      calloutMode: callouts,
+                      draftFeatureCount: 4,
+                      isDeskOpen: deskOpen,
+                      canUndo: true,
+                      canRedo: false,
+                      onSelectTool: (next) => setState(() => mode = next),
+                      onSelectPrimitiveShape: (next) => setState(() {
+                        shape = next;
+                        mode = DrawToolMode.shape;
+                      }),
+                      onDropPrimitiveAtCenter: (s, r) async {
+                        droppedCenter = (s, r);
+                      },
+                      onToggleDesk: () => setState(() => deskOpen = !deskOpen),
+                      onToggleSnapping: () =>
+                          setState(() => snapping = !snapping),
+                      onToggleSnapToEdges: () =>
+                          setState(() => edgeSnap = !edgeSnap),
+                      onTogglePlacementStyle: () => setState(
+                        () => placement =
+                            placement == TouchPlacementStyle.drawDrag
+                                ? TouchPlacementStyle.crosshair
+                                : TouchPlacementStyle.drawDrag,
+                      ),
+                      onToggleLoupe: () => setState(() => loupe = !loupe),
+                      onCycleCalloutMode: () => setState(
+                        () => callouts = nextCalloutDisplayMode(callouts),
+                      ),
+                      onUndo: () => undid = true,
+                      onRedo: () {},
+                      onExitDrawingMode: () => exited = true,
+                      onDropCrosshairPoint: () {},
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'Zero overflow expected at $viewport',
+      );
 
-    await scrollAndTap(
-      tester,
-      find.byKey(const Key('mobile-tools-import-osm')),
-    );
-    expect(importedOsm, isTrue);
+      // All 6 primary controls visible with Desk feature badge
+      expect(find.byKey(const Key('mobile-draw-menu-select')), findsOneWidget);
+      expect(find.byKey(const Key('mobile-draw-menu-draw')), findsOneWidget);
+      expect(find.byKey(const Key('mobile-draw-menu-shapes')), findsOneWidget);
+      expect(find.byKey(const Key('mobile-draw-desk-toggle')), findsOneWidget);
+      expect(find.byKey(const Key('mobile-draw-desk-badge')), findsOneWidget);
+      expect(find.text('4'), findsOneWidget);
+      expect(find.byKey(const Key('mobile-draw-options-btn')), findsOneWidget);
+      expect(find.byKey(const Key('mobile-draw-done-btn')), findsOneWidget);
 
-    await scrollAndTap(
-      tester,
-      find.byKey(const Key('mobile-tools-open-desk')),
-    );
-    expect(openedDesk, isTrue);
+      // 1. Select menu -> Edit Vertices
+      await tester.tap(find.byKey(const Key('mobile-draw-menu-select')));
+      await tester.pumpAndSettle();
+      expect(find.text('Edit Vertices'), findsOneWidget);
+      expect(find.text('Box Select'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('mobile-draw-item-editVertices')));
+      await tester.pumpAndSettle();
+      expect(mode, DrawToolMode.editVertices);
+      expect(find.text('Edit'), findsOneWidget);
 
-    await scrollAndTap(
-      tester,
-      find.byKey(const Key('mobile-tools-shape-diamond')),
-    );
-    expect(pickedShape, PrimitiveShapeKind.diamond);
+      // 2. Draw menu -> Area (Polygon)
+      await tester.tap(find.byKey(const Key('mobile-draw-menu-draw')));
+      await tester.pumpAndSettle();
+      expect(find.text('Point'), findsOneWidget);
+      expect(find.text('Area (Polygon)'), findsOneWidget);
+      expect(find.text('Sketch (Freehand)'), findsOneWidget);
+      expect(find.text('Arrow'), findsOneWidget);
+      expect(find.text('Label'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('mobile-draw-item-polygon')));
+      await tester.pumpAndSettle();
+      expect(mode, DrawToolMode.polygon);
+      expect(find.text('Area'), findsOneWidget);
 
-    await scrollAndTap(
-      tester,
-      find.byKey(const Key('mobile-tools-mode-freehand')),
+      // 3. Shapes & Spatial menu -> cleanly sectioned "SHAPES" & "CUT & MEASURE"
+      await tester.tap(find.byKey(const Key('mobile-draw-menu-shapes')));
+      await tester.pumpAndSettle();
+      expect(find.text('SHAPES'), findsOneWidget);
+      expect(find.text('CUT & MEASURE'), findsOneWidget);
+      expect(find.text('Drop 100m Circle at Center'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('mobile-draw-drop-shape-center')));
+      await tester.pumpAndSettle();
+      expect(droppedCenter, (PrimitiveShapeKind.circle, 100.0));
+
+      // Re-open Shapes & Spatial menu -> pick Hexagon
+      await tester.tap(find.byKey(const Key('mobile-draw-menu-shapes')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('mobile-draw-shape-hexagon')));
+      await tester.pumpAndSettle();
+      expect(mode, DrawToolMode.shape);
+      expect(shape, PrimitiveShapeKind.hexagon);
+      expect(find.text('Hexagon'), findsOneWidget);
+
+      // Re-open Shapes & Spatial menu -> pick Cut
+      await tester.tap(find.byKey(const Key('mobile-draw-menu-shapes')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('mobile-draw-item-splitByLine')));
+      await tester.pumpAndSettle();
+      expect(mode, DrawToolMode.splitByLine);
+      expect(find.text('Cut'), findsOneWidget);
+
+      // 4. Desk toggle
+      await tester.tap(find.byKey(const Key('mobile-draw-desk-toggle')));
+      await tester.pump();
+      expect(deskOpen, isTrue);
+
+      // 5. Options button opens focused MobileDrawingOptionsSheet & syncs live
+      await tester.tap(find.byKey(const Key('mobile-draw-options-btn')));
+      await tester.pumpAndSettle();
+      expect(find.byType(MobileDrawingOptionsSheet), findsOneWidget);
+      await tester.tap(find.byKey(const Key('mobile-options-snapping-toggle')));
+      await tester.pumpAndSettle();
+      expect(snapping, isFalse);
+      await tester.tap(find.byKey(const Key('mobile-options-undo')));
+      await tester.pump();
+      expect(undid, isTrue);
+      await tester.tap(find.byKey(const Key('mobile-options-placement-toggle')));
+      await tester.pumpAndSettle();
+      expect(placement, TouchPlacementStyle.crosshair);
+      await tester.tap(find.byKey(const Key('mobile-options-close')));
+      await tester.pumpAndSettle();
+
+      // Crosshair Drop strip appears without overflowing the 6-button bar
+      expect(find.byKey(const Key('mobile-draw-crosshair-drop')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      // 6. Done exits drawing mode
+      await tester.tap(find.byKey(const Key('mobile-draw-done-btn')));
+      await tester.pump();
+      expect(exited, isTrue);
+    }
+  });
+
+  testWidgets(
+      'MobileDrawingBar active multi-point stroke bar renders Finish/Cut/Save/Measure without overflow on 360dp and 412dp',
+      (WidgetTester tester) async {
+    for (final viewport in const [Size(360, 780), Size(412, 915)]) {
+      setTestViewport(tester, viewport);
+      var finished = false;
+      var undonePt = false;
+      var cancelled = false;
+      var toggledDesk = false;
+
+      Widget buildBar({
+        required DrawToolMode mode,
+        required int vertices,
+        bool canFinish = true,
+        bool editing = false,
+      }) =>
+          MaterialApp(
+            home: Scaffold(
+              body: Align(
+                alignment: Alignment.bottomCenter,
+                child: MobileDrawingBar(
+                  activeMode: mode,
+                  activePrimitiveShape: PrimitiveShapeKind.circle,
+                  placementStyle: TouchPlacementStyle.drawDrag,
+                  loupeEnabled: true,
+                  snappingEnabled: true,
+                  snapToEdgesEnabled: true,
+                  calloutMode: CalloutDisplayMode.full,
+                  draftFeatureCount: 2,
+                  isDeskOpen: false,
+                  canUndo: true,
+                  canRedo: false,
+                  hasActiveStroke: true,
+                  draftVertexCount: vertices,
+                  canFinishStroke: canFinish,
+                  isEditingExistingFeature: editing,
+                  onSelectTool: (_) {},
+                  onSelectPrimitiveShape: (_) {},
+                  onDropPrimitiveAtCenter: (_, _) async {},
+                  onToggleDesk: () => toggledDesk = true,
+                  onToggleSnapping: () {},
+                  onToggleSnapToEdges: () {},
+                  onTogglePlacementStyle: () {},
+                  onToggleLoupe: () {},
+                  onCycleCalloutMode: () {},
+                  onUndo: () {},
+                  onRedo: () {},
+                  onFinishStroke: () => finished = true,
+                  onUndoPoint: () => undonePt = true,
+                  onCancelStroke: () => cancelled = true,
+                  onExitDrawingMode: () {},
+                ),
+              ),
+            ),
+          );
+
+      // 1. Standard Polygon Finish · 3
+      await tester.pumpWidget(
+        buildBar(mode: DrawToolMode.polygon, vertices: 3),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('mobile-drawing-stroke-bar')), findsOneWidget);
+      expect(find.text('Finish · 3'), findsOneWidget);
+      expect(find.text('Undo pt'), findsOneWidget);
+      expect(find.text('Cancel'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('mobile-draw-finish-stroke')));
+      await tester.tap(find.byKey(const Key('mobile-draw-undo-pt')));
+      await tester.tap(find.byKey(const Key('mobile-draw-cancel-stroke')));
+      await tester.tap(find.byKey(const Key('mobile-draw-desk-toggle')));
+      await tester.pump();
+      expect(finished, isTrue);
+      expect(undonePt, isTrue);
+      expect(cancelled, isTrue);
+      expect(toggledDesk, isTrue);
+
+      // 2. Cut · 2
+      await tester.pumpWidget(
+        buildBar(mode: DrawToolMode.splitByLine, vertices: 2),
+      );
+      await tester.pump();
+      expect(find.text('Cut · 2'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      // 3. Save · 4 (editing existing feature)
+      await tester.pumpWidget(
+        buildBar(mode: DrawToolMode.line, vertices: 4, editing: true),
+      );
+      await tester.pump();
+      expect(find.text('Save · 4'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      // 4. Measure · 2
+      await tester.pumpWidget(
+        buildBar(mode: DrawToolMode.measure, vertices: 2, canFinish: false),
+      );
+      await tester.pump();
+      expect(find.text('Measure · 2'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets(
+      'DeskSheet docks cleanly directly under MobileDrawingBar while staying in Drawing Mode on mobile and desktop',
+      (WidgetTester tester) async {
+    const sampleFeatures = <DrawnFeature>[
+      DrawnFeature(
+        id: 'line-1',
+        kind: DrawToolMode.line,
+        name: 'Ridge Trail',
+        vertices: [
+          Geographic(lon: 16.36, lat: 48.20),
+          Geographic(lon: 16.38, lat: 48.21),
+        ],
+      ),
+      DrawnFeature(
+        id: 'poly-1',
+        kind: DrawToolMode.polygon,
+        name: 'Camp Zone',
+        vertices: [
+          Geographic(lon: 16.36, lat: 48.20),
+          Geographic(lon: 16.37, lat: 48.20),
+          Geographic(lon: 16.37, lat: 48.21),
+        ],
+      ),
+    ];
+
+    // Mobile docked stack: Map visible on top -> MobileDrawingBar -> DeskSheet below
+    for (final viewport in const [Size(360, 780), Size(412, 915)]) {
+      setTestViewport(tester, viewport);
+
+      var mode = DrawToolMode.line;
+      var deskOpen = false;
+      String? inspectedId;
+      String? toggledShelfAddr;
+      RustGeoAction? ranAction;
+
+      Widget buildDockedHarness() => MaterialApp(
+            home: Scaffold(
+              body: StatefulBuilder(
+                builder: (context, setState) {
+                  Widget buildBar({required bool docked}) => MobileDrawingBar(
+                        activeMode: mode,
+                        activePrimitiveShape: PrimitiveShapeKind.circle,
+                        placementStyle: TouchPlacementStyle.drawDrag,
+                        loupeEnabled: true,
+                        snappingEnabled: true,
+                        snapToEdgesEnabled: true,
+                        calloutMode: CalloutDisplayMode.full,
+                        draftFeatureCount: sampleFeatures.length,
+                        isDeskOpen: deskOpen,
+                        canUndo: true,
+                        canRedo: false,
+                        isDockedAboveDesk: docked,
+                        onSelectTool: (next) => setState(() => mode = next),
+                        onSelectPrimitiveShape: (_) =>
+                            setState(() => mode = DrawToolMode.shape),
+                        onDropPrimitiveAtCenter: (_, _) async {},
+                        onToggleDesk: () =>
+                            setState(() => deskOpen = !deskOpen),
+                        onToggleSnapping: () {},
+                        onToggleSnapToEdges: () {},
+                        onTogglePlacementStyle: () {},
+                        onToggleLoupe: () {},
+                        onCycleCalloutMode: () {},
+                        onUndo: () {},
+                        onRedo: () {},
+                        onExitDrawingMode: () =>
+                            setState(() => mode = DrawToolMode.browse),
+                      );
+
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      const ColoredBox(
+                        key: Key('live-map-canvas'),
+                        color: Color(0xFFEDF0EA),
+                      ),
+                      if (deskOpen)
+                        DeskSheet(
+                          activeDraftId: 'draft-draw',
+                          savedDrafts: const [],
+                          relayUrls: const ['wss://relay.earthly.city'],
+                          draftTitle: 'Field Sketch',
+                          audience: DraftAudienceChoice.publicRelay,
+                          account: null,
+                          shelfMaps: [
+                            ShelfMapEntry(
+                              summary: makeTestMap(
+                                address: '37515:aaa:ref-layer',
+                                title: 'Reference Topo',
+                              ),
+                              shapes: const [],
+                              visible: true,
+                            ),
+                          ],
+                          deskStories: const [],
+                          deskAtlases: const [],
+                          drawnFeatures: sampleFeatures,
+                          isDockedUnderDrawingBar: true,
+                          drawingBar: buildBar(docked: true),
+                          onSelectDraft: (_) {},
+                          onCreateNewDraft: () {},
+                          onDeleteDraft: (_) {},
+                          onDraftTitleChanged: (_) {},
+                          onAudienceChanged: (_) {},
+                          onToggleShelfVisibility: (addr) =>
+                              toggledShelfAddr = addr,
+                          onRemoveShelfMap: (_) {},
+                          onInspectShelfMap: (_) {},
+                          onFlyToShelfMap: (_) {},
+                          onCloneShelfMapToDraft: (_) {},
+                          onOpenShelfDiscussion: (_) {},
+                          onOpenDeskStory: (_) {},
+                          onRemoveDeskStory: (_) {},
+                          onOpenDeskAtlas: (_) {},
+                          onRemoveDeskAtlas: (_) {},
+                          onInspectDraftFeature: (f) => inspectedId = f.id,
+                          onRunGeoAction: (a) => ranAction = a,
+                          onRunParameterizedGeoAction: (
+                            a, {
+                            meters,
+                            angleDeg,
+                            scale,
+                          }) =>
+                              ranAction = a,
+                          onPublishDraft: (_, _) async => testPublishOutcome(),
+                          onComposeStory: () {},
+                          onCreateAtlas: () {},
+                          onImportGeoJson: () {},
+                          onExportGeoJsonFile: () {},
+                          onCopyGeoJson: () {},
+                          onClearDraftFeatures: () {},
+                          onClose: () => setState(() => deskOpen = false),
+                        ),
+                      if (!deskOpen)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: buildBar(docked: false),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          );
+
+      await tester.pumpWidget(buildDockedHarness());
+      await tester.pumpAndSettle();
+
+      // Open Desk from Drawing Toolbar -> stays in Drawing Mode!
+      await tester.tap(find.byKey(const Key('mobile-draw-desk-toggle')));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(deskOpen, isTrue);
+      expect(mode, DrawToolMode.line);
+      expect(find.byKey(const Key('desk-docked-drawing-stack')), findsOneWidget);
+      expect(find.byKey(const Key('desk-drawing-mode-badge')), findsOneWidget);
+
+      // Verify cohesive top-to-bottom stack: Map on top -> DrawingBar -> Desk tabs below
+      final barRect = tester.getRect(find.byKey(const Key('mobile-drawing-bar')));
+      final deskTabRect = tester.getRect(find.byKey(const Key('desk-tab-draft')));
+      expect(
+        barRect.top,
+        greaterThan(160),
+        reason: 'Map canvas should stay generously visible above docked toolbar at $viewport',
+      );
+      expect(
+        barRect.bottom,
+        lessThanOrEqualTo(deskTabRect.top + 8),
+        reason: 'Drawing toolbar must dock cleanly directly ABOVE Desk at $viewport',
+      );
+
+      // Inspect a feature in Desk while staying in Drawing Mode
+      final inspectIcons = find.byTooltip('Style & inspect feature');
+      await tester.ensureVisible(inspectIcons.first);
+      await tester.pumpAndSettle();
+      await tester.tap(inspectIcons.first);
+      await tester.pump();
+      expect(inspectedId, 'line-1');
+      expect(mode, DrawToolMode.line);
+
+      // Run a spatial tool from Desk while staying in Drawing Mode
+      final spatialTile = find.byKey(const Key('desk-spatial-tools-tile'));
+      await scrollAndTap(tester, spatialTile, delta: 180);
+      await scrollAndTap(
+        tester,
+        find.byKey(const Key('workbench-rotate-selected')),
+        delta: 180,
+      );
+      expect(ranAction, RustGeoAction.rotateSelected);
+      expect(mode, DrawToolMode.line);
+
+      // Switch to Shelf tab & toggle reference layer visibility
+      await tester.tap(find.byKey(const Key('desk-tab-shelf')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Hide'));
+      await tester.pump();
+      expect(toggledShelfAddr, '37515:aaa:ref-layer');
+      expect(mode, DrawToolMode.line);
+
+      // Switch drawing tool right from the docked Drawing Toolbar -> stays in draw mode & Desk stays docked!
+      await tester.tap(find.byKey(const Key('mobile-draw-menu-draw')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('mobile-draw-item-point')));
+      await tester.pumpAndSettle();
+      expect(mode, DrawToolMode.point);
+      expect(deskOpen, isTrue);
+
+      // Toggle Desk closed via toolbar Desk button -> STILL in Drawing Mode!
+      await tester.tap(find.byKey(const Key('mobile-draw-desk-toggle')));
+      await tester.pumpAndSettle();
+      expect(deskOpen, isFalse);
+      expect(mode, DrawToolMode.point);
+    }
+
+    // Desktop docked presentation: side panel leaves bottom clearance for drawing bar
+    setTestViewport(tester, const Size(1280, 800));
+    await tester.pumpWidget(
+      wrapSheetInStack(
+        DeskSheet(
+          activeDraftId: 'draft-desktop',
+          savedDrafts: const [],
+          relayUrls: const ['wss://relay.earthly.city'],
+          draftTitle: 'Desktop Sketch',
+          audience: DraftAudienceChoice.publicRelay,
+          account: null,
+          shelfMaps: const [],
+          deskStories: const [],
+          deskAtlases: const [],
+          drawnFeatures: sampleFeatures,
+          isDockedUnderDrawingBar: true,
+          onSelectDraft: (_) {},
+          onCreateNewDraft: () {},
+          onDeleteDraft: (_) {},
+          onDraftTitleChanged: (_) {},
+          onAudienceChanged: (_) {},
+          onToggleShelfVisibility: (_) {},
+          onRemoveShelfMap: (_) {},
+          onInspectShelfMap: (_) {},
+          onFlyToShelfMap: (_) {},
+          onCloneShelfMapToDraft: (_) {},
+          onOpenShelfDiscussion: (_) {},
+          onOpenDeskStory: (_) {},
+          onRemoveDeskStory: (_) {},
+          onOpenDeskAtlas: (_) {},
+          onRemoveDeskAtlas: (_) {},
+          onRunGeoAction: (_) {},
+          onPublishDraft: (_, _) async => testPublishOutcome(),
+          onComposeStory: () {},
+          onCreateAtlas: () {},
+          onImportGeoJson: () {},
+          onExportGeoJsonFile: () {},
+          onCopyGeoJson: () {},
+          onClearDraftFeatures: () {},
+          onClose: () {},
+        ),
+      ),
     );
-    expect(pickedTool, DrawToolMode.freehand);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    final desktopStackRect =
+        tester.getRect(find.byKey(const Key('desk-docked-drawing-stack')));
+    expect(desktopStackRect.bottom, lessThanOrEqualTo(800 - 80));
   });
 }

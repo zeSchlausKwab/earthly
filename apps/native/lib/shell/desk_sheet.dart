@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -113,6 +115,11 @@ class DeskSheet extends StatefulWidget {
     this.onRedo,
     this.pendingOutboxCount = 0,
     this.onOpenOutbox,
+    this.onBack,
+    this.isDockedUnderDrawingBar = false,
+    this.drawingBar,
+    this.dockedInitialFraction = 0.44,
+    this.onHeightFractionChanged,
     required this.onClose,
     super.key,
   });
@@ -191,6 +198,27 @@ class DeskSheet extends StatefulWidget {
   final VoidCallback? onRedo;
   final int pendingOutboxCount;
   final VoidCallback? onOpenOutbox;
+  final VoidCallback? onBack;
+
+  /// When `true`, renders Desk in a compact draw-mode presentation so the user
+  /// stays in Drawing Mode while inspecting features, styling, or running
+  /// spatial ops. On phones (`width < 880`), docks cohesively directly below
+  /// [drawingBar] (or flush beneath an externally positioned bar) with the live
+  /// map canvas visible above; on desktop (`width >= 880`), leaves bottom
+  /// clearance above the drawing toolbar.
+  final bool isDockedUnderDrawingBar;
+
+  /// Optional drawing toolbar widget (typically [MobileDrawingBar] with
+  /// `isDockedAboveDesk: true`) mounted flush directly on top of Desk on mobile
+  /// when [isDockedUnderDrawingBar] is `true`.
+  final Widget? drawingBar;
+
+  /// Initial viewport height fraction for Desk's body when docked in draw mode.
+  final double dockedInitialFraction;
+
+  /// Optional height fraction callback forwarded from the sheet container.
+  final ValueChanged<double>? onHeightFractionChanged;
+
   final VoidCallback onClose;
 
   @override
@@ -200,11 +228,17 @@ class DeskSheet extends StatefulWidget {
 class _DeskSheetState extends State<DeskSheet>
     with SingleTickerProviderStateMixin {
   static const List<double> _meterPresets = <double>[10, 25, 50, 100, 250, 500];
+  static const List<double> _dockedSnapPoints = <double>[0.22, 0.44, 0.72];
+  static const double _dockedMinFraction = 0.22;
+  static const double _dockedMaxFraction = 0.74;
+  static const double _dockedDismissThreshold = 0.14;
 
   late final TabController _tabs;
   late final TextEditingController _titleController;
   late final TextEditingController _proposalSummaryController;
   late DraftAudienceChoice _audience;
+  late double _dockedFraction;
+  bool _dockedDragging = false;
   String? _localSelectedCircleId;
   double _workbenchMeters = 100;
   bool _publishing = false;
@@ -221,6 +255,8 @@ class _DeskSheetState extends State<DeskSheet>
     _proposalSummaryController =
         TextEditingController(text: widget.proposalSummary);
     _audience = widget.audience;
+    _dockedFraction = widget.dockedInitialFraction
+        .clamp(_dockedMinFraction, _dockedMaxFraction);
     _localSelectedCircleId = widget.selectedCircleId;
   }
 
@@ -256,6 +292,10 @@ class _DeskSheetState extends State<DeskSheet>
     }
     if (oldWidget.drawnFeatures.length != widget.drawnFeatures.length) {
       _validationResult = null;
+    }
+    if (!oldWidget.isDockedUnderDrawingBar && widget.isDockedUnderDrawingBar) {
+      _dockedFraction = widget.dockedInitialFraction
+          .clamp(_dockedMinFraction, _dockedMaxFraction);
     }
   }
 
@@ -409,6 +449,7 @@ class _DeskSheetState extends State<DeskSheet>
               Text(
                 label,
                 maxLines: 1,
+                softWrap: false,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 11,
@@ -507,10 +548,20 @@ class _DeskSheetState extends State<DeskSheet>
               key: const Key('desk-detach-copy-btn'),
               style: TextButton.styleFrom(
                 visualDensity: VisualDensity.compact,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                minimumSize: const Size(0, 32),
                 padding: const EdgeInsets.symmetric(horizontal: 6),
+                textStyle: const TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               onPressed: widget.onDetachAsNewCopy,
-              child: const Text('Save as Copy'),
+              child: const Text(
+                'Save as Copy',
+                maxLines: 1,
+                softWrap: false,
+              ),
             ),
         ],
       ),
@@ -562,35 +613,332 @@ class _DeskSheetState extends State<DeskSheet>
         : 'Publish to Nearby Local Node';
   }
 
+  void _setDockedFraction(double next) {
+    final clamped = next.clamp(0.0, _dockedMaxFraction);
+    if ((clamped - _dockedFraction).abs() < 0.0005) return;
+    setState(() => _dockedFraction = clamped);
+    widget.onHeightFractionChanged?.call(clamped);
+  }
+
+  void _snapDockedWithVelocity(double velocityPxPerSec) {
+    final shouldClose = _dockedFraction < _dockedDismissThreshold ||
+        (velocityPxPerSec > 750 && _dockedFraction < 0.42) ||
+        (velocityPxPerSec > 350 && _dockedFraction <= 0.24);
+    if (shouldClose) {
+      setState(() => _dockedDragging = false);
+      HapticFeedback.selectionClick();
+      widget.onClose();
+      return;
+    }
+
+    double target;
+    if (velocityPxPerSec < -350) {
+      target = _dockedSnapPoints.firstWhere(
+        (s) => s > _dockedFraction + 0.04,
+        orElse: () => _dockedSnapPoints.last,
+      );
+    } else if (velocityPxPerSec > 350) {
+      target = _dockedSnapPoints.lastWhere(
+        (s) => s < _dockedFraction - 0.04,
+        orElse: () => _dockedSnapPoints.first,
+      );
+    } else {
+      target = _dockedSnapPoints.reduce(
+        (a, b) =>
+            (a - _dockedFraction).abs() <= (b - _dockedFraction).abs() ? a : b,
+      );
+    }
+    setState(() {
+      _dockedDragging = false;
+      _dockedFraction = target.clamp(_dockedMinFraction, _dockedMaxFraction);
+    });
+    widget.onHeightFractionChanged?.call(_dockedFraction);
+  }
+
+  void _cycleDockedSnap() {
+    final next = _dockedFraction < 0.34
+        ? 0.44
+        : _dockedFraction < 0.62
+            ? 0.72
+            : 0.44;
+    setState(() => _dockedFraction = next);
+    widget.onHeightFractionChanged?.call(_dockedFraction);
+  }
+
+  Widget _buildHeader(ThemeData theme, {required bool compact}) {
+    final isDark = theme.brightness == Brightness.dark;
+    final row = Padding(
+      padding: EdgeInsets.fromLTRB(widget.onBack != null ? 4 : 8, 0, 4, 0),
+      child: Row(
+        children: [
+          if (widget.onBack != null)
+            IconButton(
+              key: const Key('desk-back-btn'),
+              tooltip: 'Back',
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints(
+                minWidth: 34,
+                minHeight: 34,
+              ),
+              padding: EdgeInsets.zero,
+              onPressed: widget.onBack,
+              icon: const Icon(Icons.arrow_back, size: 18),
+            ),
+          Expanded(
+            child: TabBar(
+              controller: _tabs,
+              dividerHeight: 0,
+              tabAlignment: TabAlignment.fill,
+              tabs: const [
+                Tab(key: Key('desk-tab-draft'), text: 'Draft'),
+                Tab(key: Key('desk-tab-shelf'), text: 'Shelf'),
+              ],
+            ),
+          ),
+          if (compact) ...[
+            const SizedBox(width: 4),
+            Container(
+              key: const Key('desk-drawing-mode-badge'),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: EarthlyColors.amber
+                    .withValues(alpha: isDark ? 0.20 : 0.16),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: EarthlyColors.amber.withValues(alpha: 0.65),
+                ),
+              ),
+              child: Text(
+                'DRAW',
+                maxLines: 1,
+                softWrap: false,
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 9,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
+                  color:
+                      isDark ? EarthlyColors.amber : EarthlyColors.lightAccent,
+                ),
+              ),
+            ),
+            const SizedBox(width: 2),
+          ],
+          IconButton(
+            key: const Key('desk-close-btn'),
+            tooltip: compact ? 'Hide Desk' : 'Close',
+            visualDensity: VisualDensity.compact,
+            constraints: compact
+                ? const BoxConstraints(minWidth: 34, minHeight: 34)
+                : null,
+            padding: compact ? EdgeInsets.zero : null,
+            onPressed: widget.onClose,
+            icon: const Icon(Icons.close, size: 18),
+          ),
+        ],
+      ),
+    );
+    return compact ? SizedBox(height: 40, child: row) : row;
+  }
+
+  Widget _buildDockedInDrawingMode(BuildContext context, ThemeData theme) {
+    final isDark = theme.brightness == Brightness.dark;
+    final size = MediaQuery.sizeOf(context);
+    final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
+    final isDesktop = size.width >= 880;
+    final accentBorder =
+        EarthlyColors.amber.withValues(alpha: isDark ? 0.72 : 0.85);
+    final body = TabBarView(
+      controller: _tabs,
+      children: [
+        _buildDraftTab(theme),
+        _buildShelfTab(theme),
+      ],
+    );
+
+    if (isDesktop) {
+      final effectiveSide =
+          EarthlyDrawerPlacement.maybeOf(context) ?? EarthlyDrawerSide.left;
+      final isRight = effectiveSide == EarthlyDrawerSide.right;
+      final panelWidth = size.width >= 1240 ? 416.0 : 372.0;
+      return Positioned(
+        key: const Key('desk-docked-drawing-stack'),
+        top: 64,
+        left: isRight ? null : 12,
+        right: isRight ? 12 : null,
+        bottom: 84,
+        width: panelWidth,
+        child: EarthlyGlassSurface(
+          borderRadius: BorderRadius.circular(18),
+          blurSigma: 18,
+          color:
+              theme.colorScheme.surface.withValues(alpha: isDark ? 0.90 : 0.93),
+          borderColor: accentBorder,
+          borderWidth: 1.5,
+          shadows: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.16),
+              blurRadius: 28,
+              offset: const Offset(0, 10),
+            ),
+          ],
+          child: Material(
+            type: MaterialType.transparency,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 4),
+                _buildHeader(theme, compact: true),
+                const Divider(height: 1),
+                Expanded(
+                  child: MediaQuery.removePadding(
+                    context: context,
+                    removeTop: true,
+                    child: body,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Mobile cohesive bottom stack: Map visible on top -> Drawing Toolbar -> Desk below.
+    final availableHeight =
+        (size.height - keyboardInset).clamp(240.0, size.height);
+    final maxBodyHeight =
+        (availableHeight - 140.0).clamp(120.0, availableHeight * _dockedMaxFraction);
+    final deskBodyHeight =
+        (availableHeight * _dockedFraction).clamp(64.0, maxBodyHeight);
+    final dismissOpacity = _dockedFraction < _dockedMinFraction
+        ? (_dockedFraction / _dockedMinFraction).clamp(0.40, 1.0)
+        : 1.0;
+    final topRadius = widget.drawingBar != null
+        ? const BorderRadius.vertical(top: Radius.circular(20))
+        : BorderRadius.zero;
+
+    Widget wrapDragHandle(Widget child, {Key? key}) {
+      return GestureDetector(
+        key: key,
+        behavior: HitTestBehavior.opaque,
+        onTap: _cycleDockedSnap,
+        onVerticalDragStart: (_) => setState(() => _dockedDragging = true),
+        onVerticalDragUpdate: (details) {
+          final deltaFraction = -details.delta.dy / availableHeight;
+          _setDockedFraction(_dockedFraction + deltaFraction);
+        },
+        onVerticalDragEnd: (details) {
+          _snapDockedWithVelocity(details.primaryVelocity ?? 0);
+        },
+        child: child,
+      );
+    }
+
+    return Positioned(
+      key: const Key('desk-docked-drawing-stack'),
+      left: 0,
+      right: 0,
+      bottom: keyboardInset,
+      child: Opacity(
+        opacity: dismissOpacity,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: topRadius,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.48 : 0.20),
+                blurRadius: 24,
+                offset: const Offset(0, -6),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: topRadius,
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface
+                      .withValues(alpha: isDark ? 0.93 : 0.96),
+                  borderRadius: topRadius,
+                  border: Border(
+                    top: BorderSide(color: accentBorder, width: 1.8),
+                  ),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      wrapDragHandle(
+                        Padding(
+                          padding: const EdgeInsets.only(top: 7, bottom: 3),
+                          child: Center(
+                            child: Container(
+                              width: 38,
+                              height: 4,
+                              decoration: BoxDecoration(
+                                color: _dockedFraction < _dockedDismissThreshold
+                                    ? EarthlyColors.destructive
+                                        .withValues(alpha: 0.78)
+                                    : EarthlyColors.amber
+                                        .withValues(alpha: 0.85),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                            ),
+                          ),
+                        ),
+                        key: const Key('desk-docked-drag-handle'),
+                      ),
+                      if (widget.drawingBar != null) ...[
+                        widget.drawingBar!,
+                        const Divider(height: 1),
+                      ],
+                      AnimatedContainer(
+                        duration: _dockedDragging
+                            ? Duration.zero
+                            : const Duration(milliseconds: 220),
+                        curve: Curves.easeOutCubic,
+                        height: deskBodyHeight,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            wrapDragHandle(_buildHeader(theme, compact: true)),
+                            const Divider(height: 1),
+                            Expanded(
+                              child: MediaQuery.removePadding(
+                                context: context,
+                                removeTop: true,
+                                child: body,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    if (widget.isDockedUnderDrawingBar) {
+      return _buildDockedInDrawingMode(context, theme);
+    }
     return EarthlyMapDrawer(
       initialFraction: 0.56,
       onClose: widget.onClose,
-      header: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 0, 4, 0),
-        child: Row(
-          children: [
-            Expanded(
-              child: TabBar(
-                controller: _tabs,
-                dividerHeight: 0,
-                tabs: const [
-                  Tab(key: Key('desk-tab-draft'), text: 'Draft'),
-                  Tab(key: Key('desk-tab-shelf'), text: 'Shelf'),
-                ],
-              ),
-            ),
-            IconButton(
-              tooltip: 'Close',
-              visualDensity: VisualDensity.compact,
-              onPressed: widget.onClose,
-              icon: const Icon(Icons.close, size: 18),
-            ),
-          ],
-        ),
-      ),
+      onHeightFractionChanged: widget.onHeightFractionChanged,
+      header: _buildHeader(theme, compact: false),
       body: TabBarView(
         controller: _tabs,
         children: [
@@ -639,62 +987,101 @@ class _DeskSheetState extends State<DeskSheet>
           // Compact draft header bar: feature count + Validate + Undo/Redo/+ New/Clear
           Row(
             children: [
+              Text(
+                '${widget.drawnFeatures.length} feature${widget.drawnFeatures.length == 1 ? '' : 's'}',
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(width: 6),
               Expanded(
-                child: Text(
-                  '${widget.drawnFeatures.length} feature${widget.drawnFeatures.length == 1 ? '' : 's'}',
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontFamily: 'monospace',
-                    fontWeight: FontWeight.w700,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (widget.onValidateDraft != null &&
+                            widget.drawnFeatures.isNotEmpty)
+                          TextButton.icon(
+                            key: const Key('desk-validate-draft-btn'),
+                            style: TextButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 6),
+                            ),
+                            onPressed: _validating ? null : _handleValidate,
+                            icon: const Icon(Icons.verified_outlined, size: 15),
+                            label: Text(
+                              _validating ? 'Checking…' : 'Check',
+                              maxLines: 1,
+                              softWrap: false,
+                            ),
+                          ),
+                        if (widget.onUndo != null)
+                          IconButton(
+                            tooltip: 'Undo draft change (Cmd+Z)',
+                            visualDensity: VisualDensity.compact,
+                            constraints: const BoxConstraints(
+                              minWidth: 34,
+                              minHeight: 34,
+                            ),
+                            padding: EdgeInsets.zero,
+                            onPressed: widget.canUndo ? widget.onUndo : null,
+                            icon: const Icon(Icons.undo, size: 17),
+                          ),
+                        if (widget.onRedo != null)
+                          IconButton(
+                            tooltip: 'Redo draft change (Cmd+Shift+Z)',
+                            visualDensity: VisualDensity.compact,
+                            constraints: const BoxConstraints(
+                              minWidth: 34,
+                              minHeight: 34,
+                            ),
+                            padding: EdgeInsets.zero,
+                            onPressed: widget.canRedo ? widget.onRedo : null,
+                            icon: const Icon(Icons.redo, size: 17),
+                          ),
+                        TextButton.icon(
+                          key: const Key('desk-new-draft-btn'),
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                          ),
+                          onPressed: widget.onCreateNewDraft,
+                          icon: const Icon(Icons.add, size: 15),
+                          label: const Text(
+                            'New',
+                            maxLines: 1,
+                            softWrap: false,
+                          ),
+                        ),
+                        if (hasTitleOrFeatures)
+                          TextButton(
+                            key: const Key('desk-clear-draft-btn'),
+                            style: TextButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 6),
+                            ),
+                            onPressed: widget.onClearDraftFeatures,
+                            child: const Text(
+                              'Clear',
+                              maxLines: 1,
+                              softWrap: false,
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-              if (widget.onValidateDraft != null &&
-                  widget.drawnFeatures.isNotEmpty)
-                TextButton.icon(
-                  key: const Key('desk-validate-draft-btn'),
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                  ),
-                  onPressed: _validating ? null : _handleValidate,
-                  icon: const Icon(Icons.verified_outlined, size: 15),
-                  label: Text(_validating ? 'Checking…' : 'Check'),
-                ),
-              if (widget.onUndo != null)
-                IconButton(
-                  tooltip: 'Undo draft change (Cmd+Z)',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: widget.canUndo ? widget.onUndo : null,
-                  icon: const Icon(Icons.undo, size: 17),
-                ),
-              if (widget.onRedo != null)
-                IconButton(
-                  tooltip: 'Redo draft change (Cmd+Shift+Z)',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: widget.canRedo ? widget.onRedo : null,
-                  icon: const Icon(Icons.redo, size: 17),
-                ),
-              TextButton.icon(
-                key: const Key('desk-new-draft-btn'),
-                style: TextButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                ),
-                onPressed: widget.onCreateNewDraft,
-                icon: const Icon(Icons.add, size: 15),
-                label: const Text('New'),
-              ),
-              if (hasTitleOrFeatures)
-                TextButton(
-                  key: const Key('desk-clear-draft-btn'),
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                  ),
-                  onPressed: widget.onClearDraftFeatures,
-                  child: const Text('Clear'),
-                ),
             ],
           ),
 
@@ -883,6 +1270,7 @@ class _DeskSheetState extends State<DeskSheet>
                             Text(
                               'Export ▾',
                               maxLines: 1,
+                              softWrap: false,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontSize: 11,
@@ -984,22 +1372,34 @@ class _DeskSheetState extends State<DeskSheet>
                           TextButton(
                             style: TextButton.styleFrom(
                               visualDensity: VisualDensity.compact,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              minimumSize: const Size(0, 30),
                               padding:
                                   const EdgeInsets.symmetric(horizontal: 6),
                             ),
                             onPressed: widget.onSelectAllDraftFeatures,
-                            child: const Text('Select All'),
+                            child: const Text(
+                              'Select All',
+                              maxLines: 1,
+                              softWrap: false,
+                            ),
                           ),
                         if (selectedIds.isNotEmpty &&
                             widget.onClearDraftSelection != null)
                           TextButton(
                             style: TextButton.styleFrom(
                               visualDensity: VisualDensity.compact,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              minimumSize: const Size(0, 30),
                               padding:
                                   const EdgeInsets.symmetric(horizontal: 6),
                             ),
                             onPressed: widget.onClearDraftSelection,
-                            child: const Text('Clear'),
+                            child: const Text(
+                              'Clear',
+                              maxLines: 1,
+                              softWrap: false,
+                            ),
                           ),
                       ],
                     ),
@@ -1007,32 +1407,60 @@ class _DeskSheetState extends State<DeskSheet>
                       (widget.onDuplicateSelectedFeatures != null ||
                           widget.onDeleteSelectedFeatures != null)) ...[
                     const SizedBox(height: 4),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
+                    Row(
+                      key: const Key('desk-selection-actions-row'),
                       children: [
                         if (widget.onDuplicateSelectedFeatures != null)
-                          OutlinedButton.icon(
-                            key: const Key('desk-duplicate-selected-btn'),
-                            onPressed: widget.onDuplicateSelectedFeatures,
-                            icon: const Icon(
-                              Icons.control_point_duplicate,
-                              size: 15,
-                            ),
-                            label: Text('Duplicate (${selectedIds.length})'),
-                          ),
-                        if (widget.onDeleteSelectedFeatures != null)
-                          OutlinedButton.icon(
-                            key: const Key('desk-delete-selected-btn'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: EarthlyColors.destructive,
-                              side: const BorderSide(
-                                color: EarthlyColors.destructive,
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              key: const Key('desk-duplicate-selected-btn'),
+                              style: OutlinedButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                minimumSize: const Size(0, 34),
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 8),
+                              ),
+                              onPressed: widget.onDuplicateSelectedFeatures,
+                              icon: const Icon(
+                                Icons.control_point_duplicate,
+                                size: 15,
+                              ),
+                              label: Text(
+                                'Duplicate (${selectedIds.length})',
+                                maxLines: 1,
+                                softWrap: false,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            onPressed: widget.onDeleteSelectedFeatures,
-                            icon: const Icon(Icons.delete_outline, size: 15),
-                            label: Text('Delete (${selectedIds.length})'),
+                          ),
+                        if (widget.onDuplicateSelectedFeatures != null &&
+                            widget.onDeleteSelectedFeatures != null)
+                          const SizedBox(width: 6),
+                        if (widget.onDeleteSelectedFeatures != null)
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              key: const Key('desk-delete-selected-btn'),
+                              style: OutlinedButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                minimumSize: const Size(0, 34),
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 8),
+                                foregroundColor: EarthlyColors.destructive,
+                                side: const BorderSide(
+                                  color: EarthlyColors.destructive,
+                                ),
+                              ),
+                              onPressed: widget.onDeleteSelectedFeatures,
+                              icon: const Icon(Icons.delete_outline, size: 15),
+                              label: Text(
+                                'Delete (${selectedIds.length})',
+                                maxLines: 1,
+                                softWrap: false,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
                           ),
                       ],
                     ),
@@ -1095,129 +1523,127 @@ class _DeskSheetState extends State<DeskSheet>
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
+                  _buildSpatialActionGrid(
+                    <Widget>[
                       if (hasLine) ...[
-                        OutlinedButton(
+                        _buildSpatialActionButton(
+                          label: 'Simplify Line ($mLabel)',
                           onPressed: () =>
                               _triggerGeoAction(RustGeoAction.simplifyLastLine),
-                          child: Text('Simplify Line ($mLabel)'),
                         ),
-                        OutlinedButton(
+                        _buildSpatialActionButton(
+                          label: 'Corridor ($mLabel)',
                           onPressed: () =>
                               _triggerGeoAction(RustGeoAction.corridorLastLine),
-                          child: Text('Corridor ($mLabel)'),
                         ),
-                        OutlinedButton(
+                        _buildSpatialActionButton(
+                          label: 'Tapered Band ($mLabel)',
                           onPressed: () =>
                               _triggerGeoAction(RustGeoAction.extrudeBand),
-                          child: Text('Tapered Band ($mLabel)'),
                         ),
-                        OutlinedButton(
+                        _buildSpatialActionButton(
+                          label: 'Flow Arrow ($mLabel)',
                           onPressed: () =>
                               _triggerGeoAction(RustGeoAction.arrowLastLine),
-                          child: Text('Flow Arrow ($mLabel)'),
                         ),
-                        OutlinedButton(
+                        _buildSpatialActionButton(
+                          label: 'Parallel (+$mLabel)',
                           onPressed: () =>
                               _triggerGeoAction(RustGeoAction.offsetLastLine),
-                          child: Text('Parallel (+$mLabel)'),
                         ),
-                        OutlinedButton(
+                        _buildSpatialActionButton(
+                          label: 'Split Line (50%)',
                           onPressed: () => _triggerGeoAction(
                             RustGeoAction.splitLastLineAtMidpoint,
                           ),
-                          child: const Text('Split Line (50%)'),
                         ),
                         if (lineCount >= 2) ...[
-                          OutlinedButton(
+                          _buildSpatialActionButton(
                             key: const Key('workbench-connect-lines'),
+                            label: 'Connect Lines ($lineCount)',
                             onPressed: () =>
                                 _triggerGeoAction(RustGeoAction.connectLines),
-                            child: Text('Connect Lines ($lineCount)'),
                           ),
-                          OutlinedButton(
+                          _buildSpatialActionButton(
                             key: const Key('workbench-dissolve-lines'),
+                            label: 'Dissolve Lines ($lineCount)',
                             onPressed: () =>
                                 _triggerGeoAction(RustGeoAction.dissolveLines),
-                            child: Text('Dissolve Lines ($lineCount)'),
                           ),
                         ],
                       ],
                       if (polyCount >= 1) ...[
-                        OutlinedButton(
+                        _buildSpatialActionButton(
                           key: const Key('workbench-simplify-polygon'),
+                          label: 'Simplify Area ($mLabel)',
                           onPressed: () =>
                               _triggerGeoAction(RustGeoAction.simplifyPolygon),
-                          child: Text('Simplify Area ($mLabel)'),
                         ),
-                        OutlinedButton(
+                        _buildSpatialActionButton(
+                          label: 'Expand Area (+$mLabel)',
                           onPressed: () => _triggerGeoAction(
                             RustGeoAction.offsetLastPolygon,
                           ),
-                          child: Text('Expand Area (+$mLabel)'),
                         ),
-                        OutlinedButton(
+                        _buildSpatialActionButton(
                           key: const Key('workbench-inset-polygon'),
+                          label: 'Inset Area (−$mLabel)',
                           onPressed: () =>
                               _triggerGeoAction(RustGeoAction.insetPolygon),
-                          child: Text('Inset Area (−$mLabel)'),
                         ),
                         if (polyCount >= 2) ...[
-                          OutlinedButton(
+                          _buildSpatialActionButton(
+                            label: 'Union Areas ($polyCount)',
                             onPressed: () => _triggerGeoAction(
                               RustGeoAction.unionAllPolygons,
                             ),
-                            child: Text('Union Areas ($polyCount)'),
                           ),
-                          OutlinedButton(
+                          _buildSpatialActionButton(
+                            label: 'Difference (A − B)',
                             onPressed: () => _triggerGeoAction(
                               RustGeoAction.differenceLastTwoPolygons,
                             ),
-                            child: const Text('Difference (A − B)'),
                           ),
                         ],
                         if (hasLine)
-                          OutlinedButton(
+                          _buildSpatialActionButton(
+                            label: 'Split Area by Line',
                             onPressed: () => _triggerGeoAction(
                               RustGeoAction.splitLastPolygonByLine,
                             ),
-                            child: const Text('Split Area by Line'),
                           ),
                       ],
                       if (hasAnyTarget) ...[
-                        OutlinedButton(
+                        _buildSpatialActionButton(
                           key: const Key('workbench-rotate-selected'),
+                          label: 'Rotate +15°',
                           onPressed: () => _triggerGeoAction(
                             RustGeoAction.rotateSelected,
                             angleDeg: 15,
                           ),
-                          child: const Text('Rotate +15°'),
                         ),
-                        OutlinedButton(
+                        _buildSpatialActionButton(
                           key: const Key('workbench-scale-selected'),
+                          label: 'Scale ×1.2',
                           onPressed: () => _triggerGeoAction(
                             RustGeoAction.scaleSelected,
                             scale: 1.2,
                           ),
-                          child: const Text('Scale ×1.2'),
                         ),
                         if (canMergeMultipart)
-                          OutlinedButton(
+                          _buildSpatialActionButton(
                             key: const Key('workbench-merge-multipart'),
+                            label: 'Merge Multipart',
                             onPressed: () =>
                                 _triggerGeoAction(RustGeoAction.mergeMultipart),
-                            child: const Text('Merge Multipart'),
                           ),
                         if (hasMultipart)
-                          OutlinedButton(
+                          _buildSpatialActionButton(
                             key: const Key('workbench-explode-multipart'),
+                            label: 'Explode Multipart',
                             onPressed: () => _triggerGeoAction(
                               RustGeoAction.explodeMultipart,
                             ),
-                            child: const Text('Explode Multipart'),
                           ),
                       ],
                     ],
@@ -1227,7 +1653,7 @@ class _DeskSheetState extends State<DeskSheet>
             ),
           ],
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
 
           if (widget.provenance.isProposingEdit) ...[
             Text(
@@ -1258,38 +1684,7 @@ class _DeskSheetState extends State<DeskSheet>
               ),
             ),
             const SizedBox(height: 6),
-            SegmentedButton<DraftAudienceChoice>(
-              segments: const [
-                ButtonSegment(
-                  value: DraftAudienceChoice.publicRelay,
-                  label: Text('Public'),
-                  icon: Icon(Icons.public, size: 15),
-                ),
-                ButtonSegment(
-                  value: DraftAudienceChoice.nearbyLocalNode,
-                  label: Text('Nearby'),
-                  icon: Icon(Icons.wifi_tethering, size: 15),
-                ),
-                ButtonSegment(
-                  value: DraftAudienceChoice.privateCircle,
-                  label: Text('MLS Group'),
-                  icon: Icon(Icons.lock_outline, size: 15),
-                ),
-              ],
-              selected: {_audience},
-              onSelectionChanged: (selection) {
-                final next = selection.first;
-                setState(() => _audience = next);
-                widget.onAudienceChanged(next);
-                if (next == DraftAudienceChoice.privateCircle &&
-                    widget.selectedCircleId == null &&
-                    widget.circles.isNotEmpty) {
-                  final fallbackId = widget.circles.first.workspaceId;
-                  _localSelectedCircleId = fallbackId;
-                  widget.onSelectedCircleChanged?.call(fallbackId);
-                }
-              },
-            ),
+            _buildAudienceSegmentedControl(theme),
 
             if (_audience == DraftAudienceChoice.privateCircle) ...[
               const SizedBox(height: 8),
@@ -1478,7 +1873,7 @@ class _DeskSheetState extends State<DeskSheet>
             ],
           ],
 
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           FilledButton.icon(
             key: const Key('desk-publish-btn'),
             onPressed: canPublish ? _handlePublish : null,
@@ -1498,7 +1893,12 @@ class _DeskSheetState extends State<DeskSheet>
                                 : Icons.publish,
                     size: 18,
                   ),
-            label: Text(_resolvePublishButtonLabel(selectedCircle)),
+            label: Text(
+              _resolvePublishButtonLabel(selectedCircle),
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
 
           if (_publishError != null) ...[
@@ -1553,11 +1953,162 @@ class _DeskSheetState extends State<DeskSheet>
                 widget.pendingOutboxCount > 0
                     ? 'Outbox Queue (${widget.pendingOutboxCount} pending)'
                     : 'Outbox Queue',
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
         ],
       ),
+    );
+  }
+
+  Widget _buildAudienceSegmentedControl(ThemeData theme) {
+    void select(DraftAudienceChoice next) {
+      setState(() => _audience = next);
+      widget.onAudienceChanged(next);
+      if (next == DraftAudienceChoice.privateCircle &&
+          widget.selectedCircleId == null &&
+          widget.circles.isNotEmpty) {
+        final fallbackId = widget.circles.first.workspaceId;
+        _localSelectedCircleId = fallbackId;
+        widget.onSelectedCircleChanged?.call(fallbackId);
+      }
+    }
+
+    Widget cell({
+      required Key key,
+      required DraftAudienceChoice value,
+      required IconData icon,
+      required String label,
+    }) {
+      final selected = _audience == value;
+      final fg = selected ? EarthlyColors.amberInk : theme.colorScheme.onSurface;
+      return Expanded(
+        child: Material(
+          color: selected ? EarthlyColors.amber : Colors.transparent,
+          child: InkWell(
+            key: key,
+            onTap: () => select(value),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, size: 17, color: fg),
+                  const SizedBox(height: 4),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    softWrap: false,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                      color: fg,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Material(
+      key: const Key('desk-audience-segmented'),
+      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.7),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(11),
+        side: BorderSide(color: theme.dividerColor),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            cell(
+              key: const Key('desk-audience-public'),
+              value: DraftAudienceChoice.publicRelay,
+              icon: Icons.public,
+              label: 'Public',
+            ),
+            VerticalDivider(width: 1, color: theme.dividerColor),
+            cell(
+              key: const Key('desk-audience-nearby'),
+              value: DraftAudienceChoice.nearbyLocalNode,
+              icon: Icons.wifi_tethering,
+              label: 'Nearby',
+            ),
+            VerticalDivider(width: 1, color: theme.dividerColor),
+            cell(
+              key: const Key('desk-audience-mls'),
+              value: DraftAudienceChoice.privateCircle,
+              icon: Icons.lock_outline,
+              label: 'MLS Group',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSpatialActionButton({
+    Key? key,
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return OutlinedButton(
+      key: key,
+      style: OutlinedButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        minimumSize: const Size(0, 34),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+        textStyle: const TextStyle(
+          fontSize: 11.5,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      onPressed: onPressed,
+      child: Text(
+        label,
+        maxLines: 1,
+        softWrap: false,
+        overflow: TextOverflow.ellipsis,
+      ),
+    );
+  }
+
+  Widget _buildSpatialActionGrid(List<Widget> buttons) {
+    if (buttons.isEmpty) return const SizedBox.shrink();
+    final rows = <Widget>[];
+    for (var i = 0; i < buttons.length; i += 2) {
+      final hasRight = i + 1 < buttons.length;
+      rows.add(
+        Padding(
+          padding: EdgeInsets.only(bottom: i + 2 < buttons.length ? 6 : 0),
+          child: Row(
+            children: [
+              Expanded(child: buttons[i]),
+              const SizedBox(width: 6),
+              if (hasRight)
+                Expanded(child: buttons[i + 1])
+              else
+                const Spacer(),
+            ],
+          ),
+        ),
+      );
+    }
+    return Column(
+      key: const Key('desk-spatial-actions-grid'),
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: rows,
     );
   }
 
@@ -1674,20 +2225,32 @@ class _DeskSheetState extends State<DeskSheet>
               TextButton.icon(
                 style: TextButton.styleFrom(
                   visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  minimumSize: const Size(0, 32),
                   padding: const EdgeInsets.symmetric(horizontal: 6),
                 ),
                 onPressed: widget.onComposeStory,
                 icon: const Icon(Icons.auto_stories_outlined, size: 15),
-                label: const Text('Story'),
+                label: const Text(
+                  'Story',
+                  maxLines: 1,
+                  softWrap: false,
+                ),
               ),
               TextButton.icon(
                 style: TextButton.styleFrom(
                   visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  minimumSize: const Size(0, 32),
                   padding: const EdgeInsets.symmetric(horizontal: 6),
                 ),
                 onPressed: widget.onCreateAtlas,
                 icon: const Icon(Icons.collections_bookmark_outlined, size: 15),
-                label: const Text('Atlas'),
+                label: const Text(
+                  'Atlas',
+                  maxLines: 1,
+                  softWrap: false,
+                ),
               ),
             ],
           ),
