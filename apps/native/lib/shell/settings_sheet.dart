@@ -32,12 +32,22 @@ const _defaultCordnProdPubkey =
 const _defaultCordnDevPubkey =
     '79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798';
 const _defaultRelayUrl = 'wss://relay.earthly.city';
+const _profileDiscoveryRelayUrl = 'wss://purplepag.es';
+
+const _defaultProductionRelays = <String>[
+  'wss://relay.earthly.city',
+  'wss://relay.damus.io',
+  'wss://nos.lol',
+  'wss://relay.primal.net',
+];
 
 const _relayPresets = <String>[
   'wss://relay.earthly.city',
   'wss://relay.damus.io',
   'wss://nos.lol',
   'wss://relay.primal.net',
+  'wss://relay.snort.social',
+  'wss://nostr.wine',
 ];
 
 const _blossomPresets = <String>[
@@ -100,6 +110,11 @@ class SettingsSheet extends StatefulWidget {
     this.onUnmountAtlasWorkspace,
     this.onExportMapPosterPng,
     this.onProbeRelaysHealth,
+    this.onProbeRelaysQuality,
+    this.onDiscoverNip66Relays,
+    this.onLoadRelayManagerSnapshot,
+    this.publicRelaysEnabled,
+    this.onSetPublicRelaysEnabled,
     this.onFetchNip65Relays,
     this.onPublishNip65Relays,
     this.onDiscoverModels,
@@ -167,6 +182,13 @@ class SettingsSheet extends StatefulWidget {
   final ValueChanged<String> onCordnPubkeyChanged;
   final Future<List<RelayHealthDto>> Function(List<String> urls)?
       onProbeRelaysHealth;
+  final Future<List<RelayQualityReportDto>> Function(List<String> urls)?
+      onProbeRelaysQuality;
+  final Future<List<Nip66RelayCandidateDto>> Function()? onDiscoverNip66Relays;
+  final Future<RelayManagerSnapshotDto> Function(List<String> urls)?
+      onLoadRelayManagerSnapshot;
+  final bool? publicRelaysEnabled;
+  final Future<void> Function(bool enabled)? onSetPublicRelaysEnabled;
   final Future<List<RelayListEntryDto>> Function()? onFetchNip65Relays;
   final Future<PublishOutcomeDto> Function(List<RelayListEntryDto> relays)?
       onPublishNip65Relays;
@@ -237,11 +259,26 @@ class _SettingsSheetState extends State<SettingsSheet>
       TextEditingController(text: widget.blossomServerUrl);
   late final TextEditingController _cordnController =
       TextEditingController(text: widget.cordnServerPubkey);
-  final Map<String, RelayHealthDto> _relayHealth = <String, RelayHealthDto>{};
+  final Map<String, RelayQualityReportDto> _relayQuality =
+      <String, RelayQualityReportDto>{};
+  final Map<String, ManagedRelayStatusDto> _managedRelayMeta =
+      <String, ManagedRelayStatusDto>{};
+  List<RelayListEntryDto> _nip65Relays = const <RelayListEntryDto>[];
+  List<Nip66RelayCandidateDto> _nip66Candidates =
+      const <Nip66RelayCandidateDto>[];
+  late bool _publicRelaysEnabled = widget.publicRelaysEnabled ?? true;
   bool _probingRelays = false;
+  bool _discoveringNip66 = false;
+  bool _updatingPublicPolicy = false;
   bool _syncingNip65 = false;
   String? _relayStatus;
   String? _relayError;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_refreshRelayManagerSnapshot());
+  }
 
   // Chat / AI credentials state
   late final TextEditingController _baseUrlController =
@@ -266,6 +303,13 @@ class _SettingsSheetState extends State<SettingsSheet>
     if (oldWidget.initialTab != widget.initialTab &&
         _tabs.index != widget.initialTab.index) {
       _tabs.animateTo(widget.initialTab.index);
+    }
+    if (oldWidget.publicRelaysEnabled != widget.publicRelaysEnabled &&
+        widget.publicRelaysEnabled != null) {
+      _publicRelaysEnabled = widget.publicRelaysEnabled!;
+    }
+    if (oldWidget.relayUrls != widget.relayUrls) {
+      unawaited(_refreshRelayManagerSnapshot());
     }
     if (oldWidget.blossomServerUrl != widget.blossomServerUrl &&
         _blossomController.text != widget.blossomServerUrl) {
@@ -391,12 +435,126 @@ class _SettingsSheetState extends State<SettingsSheet>
 
   // --- Relay / Blossom / Cordn helpers ---
 
-  void _addRelay([String? explicit]) {
-    var raw = (explicit ?? _relayInputController.text).trim();
-    if (raw.isEmpty) return;
-    if (!raw.startsWith('wss://') && !raw.startsWith('ws://')) {
-      raw = 'wss://$raw';
+  static String _normalizeRelayUrl(String raw) {
+    var clean = raw.trim();
+    if (!clean.startsWith('wss://') && !clean.startsWith('ws://')) {
+      clean = 'wss://$clean';
     }
+    return clean.replaceFirst(RegExp(r'/+$'), '');
+  }
+
+  static RelayQualityReportDto _qualityFromBasicHealth(RelayHealthDto health) {
+    final status = !health.reachable
+        ? 'offline'
+        : health.latencyMs > 800
+            ? 'slow'
+            : 'healthy';
+    final score = !health.reachable
+        ? 0
+        : health.latencyMs <= 150
+            ? 92
+            : health.latencyMs <= 400
+                ? 80
+                : health.latencyMs <= 800
+                    ? 66
+                    : 45;
+    return RelayQualityReportDto(
+      url: _normalizeRelayUrl(health.url),
+      reachable: health.reachable,
+      rttMs: health.latencyMs,
+      status: status,
+      qualityScore: score,
+      authRequired: false,
+      paymentRequired: false,
+      nip11: null,
+      error: health.error,
+      probedAt: BigInt.from(DateTime.now().millisecondsSinceEpoch ~/ 1000),
+    );
+  }
+
+  Future<void> _refreshRelayManagerSnapshot() async {
+    try {
+      final RelayManagerSnapshotDto snap;
+      if (widget.onLoadRelayManagerSnapshot != null) {
+        snap = await widget.onLoadRelayManagerSnapshot!(widget.relayUrls);
+      } else {
+        await RustBridge.ensureInitialized();
+        snap = await getRelayManagerSnapshot(configuredRelays: widget.relayUrls);
+      }
+      if (!mounted) return;
+      setState(() {
+        if (widget.publicRelaysEnabled == null) {
+          _publicRelaysEnabled = snap.publicRelaysEnabled;
+        }
+        _nip65Relays = snap.nip65Relays;
+        _managedRelayMeta
+          ..clear()
+          ..addEntries(snap.configuredRelays.map((r) => MapEntry(r.url, r)));
+        for (final row in snap.configuredRelays) {
+          if (row.quality != null && !_relayQuality.containsKey(row.url)) {
+            _relayQuality[row.url] = row.quality!;
+          }
+        }
+      });
+    } catch (_) {
+      // Headless widget tests without native Rust dylib fall back gracefully.
+    }
+  }
+
+  Future<void> _togglePublicRelays(bool enabled) async {
+    if (_updatingPublicPolicy) return;
+    setState(() {
+      _updatingPublicPolicy = true;
+      _publicRelaysEnabled = enabled;
+      _relayError = null;
+    });
+    try {
+      if (widget.onSetPublicRelaysEnabled != null) {
+        await widget.onSetPublicRelaysEnabled!(enabled);
+      } else {
+        try {
+          await RustBridge.ensureInitialized();
+          final dir = await getApplicationSupportDirectory();
+          final updated = await setPublicRelaysEnabled(
+            databasePath: '${dir.path}/earthly.sqlite3',
+            enabled: enabled,
+          );
+          widget.onRelayUrlsChanged(updated.relayUrls);
+        } catch (_) {
+          // Fallback in headless widget tests without Rust FFI / path_provider.
+          final next = List<String>.from(widget.relayUrls);
+          if (enabled) {
+            for (final pubRelay in _defaultProductionRelays) {
+              if (!next.contains(pubRelay)) next.add(pubRelay);
+            }
+          } else {
+            next.removeWhere(
+              (u) =>
+                  u != _defaultRelayUrl && _defaultProductionRelays.contains(u),
+            );
+            if (next.isEmpty) next.add(_defaultRelayUrl);
+          }
+          widget.onRelayUrlsChanged(next);
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _relayStatus = enabled
+            ? 'Public Nostr relays enabled.'
+            : 'Public default relays disabled (Earthly + custom relays kept).';
+      });
+      unawaited(_refreshRelayManagerSnapshot());
+    } catch (err) {
+      if (mounted) setState(() => _relayError = err.toString());
+    } finally {
+      if (mounted) setState(() => _updatingPublicPolicy = false);
+    }
+  }
+
+  void _addRelay([String? explicit, bool fromNip66 = false]) {
+    final input = (explicit ?? _relayInputController.text).trim();
+    if (input.isEmpty) return;
+    final raw = _normalizeRelayUrl(input);
     if (widget.relayUrls.contains(raw)) {
       setState(() {
         _relayStatus = 'Relay already configured: $raw';
@@ -404,11 +562,21 @@ class _SettingsSheetState extends State<SettingsSheet>
       });
       return;
     }
+    if (fromNip66) {
+      unawaited(
+        () async {
+          try {
+            await RustBridge.ensureInitialized();
+            await markNip66RelayAdded(url: raw);
+          } catch (_) {}
+        }(),
+      );
+    }
     final next = <String>[...widget.relayUrls, raw];
     widget.onRelayUrlsChanged(next);
     if (explicit == null) _relayInputController.clear();
     setState(() {
-      _relayStatus = 'Added $raw';
+      _relayStatus = fromNip66 ? 'Added $raw from NIP-66' : 'Added $raw';
       _relayError = null;
     });
   }
@@ -421,34 +589,100 @@ class _SettingsSheetState extends State<SettingsSheet>
     final next = widget.relayUrls.where((r) => r != url).toList();
     widget.onRelayUrlsChanged(next);
     setState(() {
-      _relayHealth.remove(url);
+      _relayQuality.remove(url);
+      _managedRelayMeta.remove(url);
       _relayStatus = 'Removed $url';
       _relayError = null;
     });
   }
 
   Future<void> _probeRelays() async {
-    final probe = widget.onProbeRelaysHealth;
-    if (probe == null || _probingRelays) return;
+    if (_probingRelays || widget.relayUrls.isEmpty) return;
     setState(() {
       _probingRelays = true;
       _relayError = null;
-      _relayStatus = 'Checking ${widget.relayUrls.length} relay(s)…';
+      _relayStatus = 'Probing ${widget.relayUrls.length} relay(s) + NIP-11…';
     });
     try {
-      final results = await probe(widget.relayUrls);
+      final List<RelayQualityReportDto> results;
+      if (widget.onProbeRelaysQuality != null) {
+        results = await widget.onProbeRelaysQuality!(widget.relayUrls);
+      } else {
+        List<RelayQualityReportDto>? probed;
+        try {
+          await RustBridge.ensureInitialized();
+          probed = await probeRelaysQuality(relayUrls: widget.relayUrls);
+        } catch (_) {
+          if (widget.onProbeRelaysHealth != null) {
+            final basic = await widget.onProbeRelaysHealth!(widget.relayUrls);
+            probed = basic.map(_qualityFromBasicHealth).toList(growable: false);
+          } else {
+            rethrow;
+          }
+        }
+        results = probed;
+      }
       if (!mounted) return;
       setState(() {
         for (final item in results) {
-          _relayHealth[item.url] = item;
+          _relayQuality[item.url] = item;
         }
-        final okCount = results.where((r) => r.reachable).length;
-        _relayStatus = '$okCount/${results.length} relay(s) reachable.';
+        final healthyCount =
+            results.where((r) => r.status == 'healthy').length;
+        final slowCount = results.where((r) => r.status == 'slow').length;
+        final authCount =
+            results.where((r) => r.status == 'auth_required').length;
+        final offlineCount = results.where((r) => !r.reachable).length;
+        final parts = <String>[
+          '$healthyCount/${results.length} healthy',
+          if (slowCount > 0) '$slowCount slow',
+          if (authCount > 0) '$authCount auth',
+          if (offlineCount > 0) '$offlineCount offline',
+        ];
+        _relayStatus = parts.join(' · ');
       });
+      unawaited(_refreshRelayManagerSnapshot());
     } catch (err) {
       if (mounted) setState(() => _relayError = err.toString());
     } finally {
       if (mounted) setState(() => _probingRelays = false);
+    }
+  }
+
+  Future<void> _discoverNip66Relays() async {
+    if (_discoveringNip66) return;
+    setState(() {
+      _discoveringNip66 = true;
+      _relayError = null;
+      _relayStatus = 'Querying nostr.watch (NIP-66) & probing top relays…';
+    });
+    try {
+      final List<Nip66RelayCandidateDto> candidates;
+      if (widget.onDiscoverNip66Relays != null) {
+        candidates = await widget.onDiscoverNip66Relays!();
+      } else {
+        await RustBridge.ensureInitialized();
+        candidates = await discoverPublicRelaysNip66(
+          limit: 16,
+          probeCandidates: true,
+        );
+      }
+      if (!mounted) return;
+      setState(() {
+        _nip66Candidates = candidates;
+        for (final c in candidates) {
+          if (c.liveProbe != null) {
+            _relayQuality[c.url] = c.liveProbe!;
+          }
+        }
+        _relayStatus = candidates.isEmpty
+            ? 'No public relays returned by NIP-66 monitors.'
+            : 'Discovered ${candidates.length} public relay(s) via NIP-66.';
+      });
+    } catch (err) {
+      if (mounted) setState(() => _relayError = err.toString());
+    } finally {
+      if (mounted) setState(() => _discoveringNip66 = false);
     }
   }
 
@@ -468,12 +702,15 @@ class _SettingsSheetState extends State<SettingsSheet>
       } else {
         final merged = <String>[...widget.relayUrls];
         for (final e in entries) {
-          if (!merged.contains(e.url)) merged.add(e.url);
+          final norm = _normalizeRelayUrl(e.url);
+          if (!merged.contains(norm)) merged.add(norm);
         }
+        _nip65Relays = entries;
         widget.onRelayUrlsChanged(merged);
         setState(
           () => _relayStatus = 'Imported ${entries.length} NIP-65 relay(s).',
         );
+        unawaited(_refreshRelayManagerSnapshot());
       }
     } catch (err) {
       if (mounted) setState(() => _relayError = err.toString());
@@ -493,7 +730,14 @@ class _SettingsSheetState extends State<SettingsSheet>
     try {
       final entries = [
         for (final url in widget.relayUrls)
-          RelayListEntryDto(url: url, read: true, write: true),
+          () {
+            final meta = _managedRelayMeta[url];
+            return RelayListEntryDto(
+              url: url,
+              read: meta?.read ?? true,
+              write: meta?.write ?? true,
+            );
+          }(),
       ];
       await publish(entries);
       if (mounted) {
@@ -1211,10 +1455,116 @@ class _SettingsSheetState extends State<SettingsSheet>
 
   // --- Tab 2: Relays, Blossom & Cordn ---
 
+  Color _relayStatusColor(ThemeData theme, RelayQualityReportDto? quality, bool connected) {
+    if (quality == null) {
+      return connected
+          ? EarthlyColors.commentGreen
+          : theme.colorScheme.onSurfaceVariant;
+    }
+    switch (quality.status) {
+      case 'healthy':
+        return EarthlyColors.commentGreen;
+      case 'slow':
+        return EarthlyColors.amber;
+      case 'auth_required':
+        return Colors.deepOrange;
+      default:
+        return EarthlyColors.destructive;
+    }
+  }
+
+  String _relayStatusLabel(RelayQualityReportDto? quality, bool connected) {
+    if (quality == null) {
+      return connected ? 'CONNECTED' : 'UNPROBED';
+    }
+    switch (quality.status) {
+      case 'healthy':
+        return 'HEALTHY';
+      case 'slow':
+        return 'SLOW';
+      case 'auth_required':
+        return 'AUTH REQ';
+      default:
+        return 'OFFLINE';
+    }
+  }
+
+  String _relayRoleLabel(bool read, bool write) {
+    if (read && write) return 'R/W';
+    if (read) return 'READ';
+    if (write) return 'WRITE';
+    return 'OFF';
+  }
+
+  String _relaySourceLabel(String url, ManagedRelayStatusDto? meta) {
+    final src = meta?.source;
+    if (src == 'earthly' || url == _defaultRelayUrl) return 'Earthly';
+    if (src == 'public_default' || _defaultProductionRelays.contains(url)) {
+      return 'Public';
+    }
+    if (src == 'nip65' || _nip65Relays.any((e) => _normalizeRelayUrl(e.url) == url)) {
+      return 'NIP-65';
+    }
+    if (src == 'nip66') return 'NIP-66';
+    if (src == 'profile_discovery' || url == _profileDiscoveryRelayUrl) {
+      return 'Profiles';
+    }
+    return 'Custom';
+  }
+
+  String? _nip11SummaryLine(RelayNip11InfoDto? nip11) {
+    if (nip11 == null) return null;
+    final parts = <String>[];
+    if (nip11.name != null && nip11.name!.isNotEmpty) {
+      parts.add(nip11.name!);
+    }
+    if (nip11.software != null && nip11.software!.isNotEmpty) {
+      final shortSw = nip11.software!
+          .replaceFirst(RegExp(r'^https?://'), '')
+          .split('/')
+          .last;
+      final swText = (nip11.version != null && nip11.version!.isNotEmpty)
+          ? '$shortSw ${nip11.version}'
+          : shortSw;
+      if (swText.isNotEmpty) parts.add(swText);
+    }
+    if (nip11.supportedNips.isNotEmpty) {
+      final preview = nip11.supportedNips.take(6).join(', ');
+      final suffix = nip11.supportedNips.length > 6
+          ? ' +${nip11.supportedNips.length - 6}'
+          : '';
+      parts.add('NIPs: $preview$suffix');
+    }
+    return parts.isEmpty ? null : parts.join(' · ');
+  }
+
+  Widget _relayBadge(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(color: color.withValues(alpha: 0.45)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontFamily: 'monospace',
+          fontSize: 9.5,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
+  }
+
   Widget _buildRelaysTab(ThemeData theme) {
-    return ListView(
+    return SingleChildScrollView(
+      key: const Key('settings-relays-scroll'),
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 28),
-      children: [
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
         if (_relayStatus != null)
           _statusBanner(_relayStatus!, EarthlyColors.commentGreen),
         if (_relayError != null)
@@ -1223,7 +1573,7 @@ class _SettingsSheetState extends State<SettingsSheet>
           theme,
           title: 'Nostr Relays (${widget.relayUrls.length})',
           subtitle: widget.relayStreamLive
-              ? 'Live WebSocket stream connected'
+              ? 'Live WebSocket stream connected · Earthly + public network'
               : 'Connecting to configured relays…',
           trailing: Container(
             width: 9,
@@ -1236,70 +1586,181 @@ class _SettingsSheetState extends State<SettingsSheet>
             ),
           ),
           children: [
+            SwitchListTile(
+              key: const Key('settings-public-relays-switch'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text(
+                'Public Nostr Relays',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+              ),
+              subtitle: const Text(
+                'Broadcast & discover public maps, profiles, zaps, and Cashu wallets across major Nostr relays',
+                style: TextStyle(fontSize: 11),
+              ),
+              value: _publicRelaysEnabled,
+              onChanged: _updatingPublicPolicy
+                  ? null
+                  : (v) => unawaited(_togglePublicRelays(v)),
+            ),
+            const SizedBox(height: 4),
             for (final url in widget.relayUrls)
-              Container(
-                margin: const EdgeInsets.only(bottom: 6),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: theme.dividerColor),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.cell_tower,
-                      size: 15,
-                      color: _relayHealth[url] == null
-                          ? theme.colorScheme.onSurfaceVariant
-                          : _relayHealth[url]!.reachable
-                              ? EarthlyColors.commentGreen
-                              : EarthlyColors.destructive,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+              () {
+                final normUrl = _normalizeRelayUrl(url);
+                final meta = _managedRelayMeta[normUrl] ?? _managedRelayMeta[url];
+                final quality = _relayQuality[normUrl] ??
+                    _relayQuality[url] ??
+                    meta?.quality;
+                final connected = meta?.connected ?? false;
+                final statusColor =
+                    _relayStatusColor(theme, quality, connected);
+                final statusText = _relayStatusLabel(quality, connected);
+                final nip65Entry = _nip65Relays
+                    .where((e) => _normalizeRelayUrl(e.url) == normUrl)
+                    .firstOrNull;
+                final canRead = meta?.read ?? nip65Entry?.read ?? true;
+                final canWrite = meta?.write ?? nip65Entry?.write ?? true;
+                final sourceLabel = _relaySourceLabel(normUrl, meta);
+                final nip11Line = _nip11SummaryLine(quality?.nip11);
+                return Container(
+                  key: Key('settings-relay-row-$normUrl'),
+                  margin: const EdgeInsets.only(bottom: 7),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: theme.dividerColor),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
-                          Text(
-                            url,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w600,
-                            ),
+                          Icon(
+                            Icons.cell_tower,
+                            size: 15,
+                            color: statusColor,
                           ),
-                          if (_relayHealth[url] case final health?)
-                            Text(
-                              health.reachable
-                                  ? '${health.latencyMs} ms · Reachable'
-                                  : (health.error ?? 'Unreachable'),
-                              style: TextStyle(
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              url,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
                                 fontFamily: 'monospace',
-                                fontSize: 10,
-                                color: health.reachable
-                                    ? EarthlyColors.commentGreen
-                                    : EarthlyColors.destructive,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
+                          ),
+                          IconButton(
+                            key: Key('settings-remove-relay-$url'),
+                            tooltip: 'Remove relay',
+                            visualDensity: VisualDensity.compact,
+                            constraints: const BoxConstraints(
+                              minWidth: 28,
+                              minHeight: 28,
+                            ),
+                            padding: EdgeInsets.zero,
+                            onPressed: widget.relayUrls.length > 1
+                                ? () => _removeRelay(url)
+                                : null,
+                            icon: const Icon(Icons.close, size: 16),
+                          ),
                         ],
                       ),
-                    ),
-                    IconButton(
-                      key: Key('settings-remove-relay-$url'),
-                      tooltip: 'Remove relay',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: widget.relayUrls.length > 1
-                          ? () => _removeRelay(url)
-                          : null,
-                      icon: const Icon(Icons.close, size: 16),
-                    ),
-                  ],
+                      const SizedBox(height: 5),
+                      Wrap(
+                        spacing: 5,
+                        runSpacing: 4,
+                        children: [
+                          _relayBadge(statusText, statusColor),
+                          if (quality != null && quality.reachable)
+                            _relayBadge(
+                              '${quality.rttMs} ms · Q${quality.qualityScore}',
+                              statusColor,
+                            ),
+                          _relayBadge(
+                            _relayRoleLabel(canRead, canWrite),
+                            theme.colorScheme.primary,
+                          ),
+                          _relayBadge(
+                            sourceLabel,
+                            theme.colorScheme.onSurfaceVariant,
+                          ),
+                          if (quality?.authRequired == true)
+                            _relayBadge('Auth', Colors.deepOrange),
+                          if (quality?.paymentRequired == true)
+                            _relayBadge('Paid', EarthlyColors.amber),
+                        ],
+                      ),
+                      if (nip11Line != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          nip11Line,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 10,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ] else if (quality != null &&
+                          !quality.reachable &&
+                          quality.error != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          quality.error!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 10,
+                            color: EarthlyColors.destructive,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                );
+              }(),
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: theme.dividerColor.withValues(alpha: 0.7),
                 ),
               ),
-            const SizedBox(height: 4),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.person_search_outlined,
+                    size: 14,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Profile & NIP-65 discovery: $_profileDiscoveryRelayUrl'
+                      '${_nip65Relays.isNotEmpty ? ' · ${_nip65Relays.length} NIP-65 active' : ''}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 10,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             Row(
               children: [
                 Expanded(
@@ -1344,36 +1805,193 @@ class _SettingsSheetState extends State<SettingsSheet>
               spacing: 8,
               runSpacing: 6,
               children: [
-                if (widget.onProbeRelaysHealth != null)
-                  OutlinedButton.icon(
-                    onPressed: _probingRelays ? null : _probeRelays,
-                    icon: const Icon(Icons.speed, size: 15),
-                    label: Text(_probingRelays ? 'Probing…' : 'Check Health'),
+                OutlinedButton.icon(
+                  key: const Key('settings-probe-all-relays-btn'),
+                  onPressed: _probingRelays ? null : _probeRelays,
+                  icon: _probingRelays
+                      ? const SizedBox(
+                          width: 13,
+                          height: 13,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.speed, size: 15),
+                  label: Text(_probingRelays ? 'Probing…' : 'Probe All'),
+                ),
+                FilledButton.tonalIcon(
+                  key: const Key('settings-discover-nip66-btn'),
+                  onPressed: _discoveringNip66 ? null : _discoverNip66Relays,
+                  icon: _discoveringNip66
+                      ? const SizedBox(
+                          width: 13,
+                          height: 13,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.travel_explore, size: 15),
+                  label: Text(
+                    _discoveringNip66
+                        ? 'Discovering…'
+                        : 'Discover Public Relays (NIP-66)',
                   ),
+                ),
                 if (widget.onFetchNip65Relays != null)
                   OutlinedButton.icon(
+                    key: const Key('settings-import-nip65-btn'),
                     onPressed: _syncingNip65 ? null : _importNip65Relays,
                     icon: const Icon(Icons.download_outlined, size: 15),
                     label: const Text('Import NIP-65'),
                   ),
                 if (widget.onPublishNip65Relays != null)
                   OutlinedButton.icon(
+                    key: const Key('settings-publish-nip65-btn'),
                     onPressed: _syncingNip65 ? null : _publishNip65Relays,
                     icon: const Icon(Icons.cloud_upload_outlined, size: 15),
                     label: const Text('Publish NIP-65'),
                   ),
                 OutlinedButton(
+                  key: const Key('settings-reset-relays-btn'),
                   onPressed: () {
-                    widget.onRelayUrlsChanged(const <String>[_defaultRelayUrl]);
+                    widget.onRelayUrlsChanged(
+                      List<String>.from(_defaultProductionRelays),
+                    );
                     setState(() {
-                      _relayStatus = 'Restored default relay.';
+                      _publicRelaysEnabled = true;
+                      _relayStatus =
+                          'Restored default Earthly + public Nostr relays.';
                       _relayError = null;
                     });
                   },
-                  child: const Text('Reset Default'),
+                  child: const Text('Reset Defaults'),
                 ),
               ],
             ),
+            if (_nip66Candidates.isNotEmpty) ...[
+              const Divider(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'DISCOVERED PUBLIC RELAYS (NIP-66 · ${_nip66Candidates.length})',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => setState(() => _nip66Candidates = const []),
+                    child: const Text('Clear'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              for (final candidate in _nip66Candidates)
+                () {
+                  final norm = _normalizeRelayUrl(candidate.url);
+                  final alreadyAdded = widget.relayUrls.any(
+                    (u) => _normalizeRelayUrl(u) == norm,
+                  );
+                  final probe = candidate.liveProbe;
+                  final color = _relayStatusColor(theme, probe, false);
+                  final rtt = probe != null && probe.reachable
+                      ? probe.rttMs
+                      : candidate.rttOpenMs ?? candidate.rttReadMs;
+                  final swShort = candidate.software
+                      ?.replaceFirst(RegExp(r'^https?://'), '')
+                      .split('/')
+                      .last;
+                  final metaParts = <String>[
+                    if (swShort != null && swShort.isNotEmpty) swShort,
+                    if (candidate.supportedNips.isNotEmpty)
+                      '${candidate.supportedNips.length} NIPs',
+                    if (candidate.countryCode != null &&
+                        candidate.countryCode!.isNotEmpty)
+                      candidate.countryCode!,
+                    if (candidate.monitorCount > 0)
+                      '${candidate.monitorCount} mon',
+                  ];
+                  return Container(
+                    key: Key('settings-nip66-candidate-$norm'),
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surface,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: theme.dividerColor),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                norm,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Wrap(
+                                spacing: 4,
+                                runSpacing: 4,
+                                children: [
+                                  if (probe != null)
+                                    _relayBadge(
+                                      _relayStatusLabel(probe, false),
+                                      color,
+                                    ),
+                                  if (rtt != null)
+                                    _relayBadge('$rtt ms', color),
+                                  if (probe != null && probe.reachable)
+                                    _relayBadge('Q${probe.qualityScore}', color),
+                                  if (candidate.authRequired)
+                                    _relayBadge('Auth', Colors.deepOrange),
+                                  if (candidate.paymentRequired)
+                                    _relayBadge('Paid', EarthlyColors.amber),
+                                ],
+                              ),
+                              if (metaParts.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                Text(
+                                  metaParts.join(' · '),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 10,
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        alreadyAdded
+                            ? _relayBadge('ADDED', EarthlyColors.commentGreen)
+                            : FilledButton.tonal(
+                                key: Key('settings-nip66-add-$norm'),
+                                onPressed: () => _addRelay(norm, true),
+                                style: FilledButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                ),
+                                child: const Text('Add'),
+                              ),
+                      ],
+                    ),
+                  );
+                }(),
+            ],
           ],
         ),
         _sectionCard(
@@ -1466,7 +2084,8 @@ class _SettingsSheetState extends State<SettingsSheet>
             ),
           ],
         ),
-      ],
+        ],
+      ),
     );
   }
 

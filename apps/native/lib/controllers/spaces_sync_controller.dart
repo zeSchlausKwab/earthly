@@ -784,10 +784,35 @@ class SpacesSyncController extends ChangeNotifier {
   }) async {
     await RustBridge.ensureInitialized();
     final account = await ensureAccount();
-    return fetchUserRelayList(
-      relayUrls: relayUrls,
+    return syncUserNip65Relays(
       pubkeyOrNpub: account.pubkey,
+      seedRelays: relayUrls,
     );
+  }
+
+  Future<List<RelayQualityReportDto>> probeConfiguredRelaysQuality(
+    List<String> relayUrls,
+  ) async {
+    await RustBridge.ensureInitialized();
+    return probeRelaysQuality(relayUrls: relayUrls);
+  }
+
+  Future<List<Nip66RelayCandidateDto>> discoverPublicRelays({
+    int limit = 16,
+    bool probeCandidates = true,
+  }) async {
+    await RustBridge.ensureInitialized();
+    return discoverPublicRelaysNip66(
+      limit: limit,
+      probeCandidates: probeCandidates,
+    );
+  }
+
+  Future<RelayManagerSnapshotDto> loadRelayManagerSnapshot(
+    List<String> configuredRelays,
+  ) async {
+    await RustBridge.ensureInitialized();
+    return getRelayManagerSnapshot(configuredRelays: configuredRelays);
   }
 
   Future<PublishOutcomeDto> publishNip65Relays(

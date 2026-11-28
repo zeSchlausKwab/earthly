@@ -12,6 +12,87 @@ const DEFAULT_CORDN_PUBKEY: &str =
     "fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37";
 const DEFAULT_BLOSSOM_SERVER_URL: &str = "https://blossom.earthly.city";
 
+/// Dedicated Earthly primary geo relay.
+pub const PRIMARY_EARTHLY_RELAY: &str = "wss://relay.earthly.city";
+
+/// Well-known production public Nostr relays connected by default alongside the Earthly relay.
+pub const DEFAULT_PUBLIC_RELAYS: &[&str] = &[
+    "wss://relay.damus.io",
+    "wss://nos.lol",
+    "wss://relay.primal.net",
+];
+
+/// Specialized profile & NIP-65 discovery relay used for kind 0 / 10002 lookups.
+pub const PROFILE_DISCOVERY_RELAY: &str = "wss://purplepag.es";
+
+/// Schema version for default public relay migration from v0.2.0 Earthly-only installs.
+pub const CURRENT_RELAY_MIGRATION_VERSION: u32 = 1;
+
+/// Canonical production relay list: Earthly primary relay followed by default public relays.
+pub fn default_production_relay_urls() -> Vec<String> {
+    let mut urls = Vec::with_capacity(1 + DEFAULT_PUBLIC_RELAYS.len());
+    urls.push(PRIMARY_EARTHLY_RELAY.to_owned());
+    for relay in DEFAULT_PUBLIC_RELAYS {
+        urls.push((*relay).to_owned());
+    }
+    urls
+}
+
+/// Normalizes a WebSocket relay URL (trims whitespace, lowercases scheme+host,
+/// strips trailing slash). Returns `None` for non-ws/wss or malformed URLs.
+pub fn normalize_relay_url(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    let (scheme, rest) = if let Some(r) = trimmed.strip_prefix("wss://") {
+        ("wss://", r)
+    } else if let Some(r) = trimmed.strip_prefix("ws://") {
+        ("ws://", r)
+    } else if let Some(r) = trimmed
+        .get(..6)
+        .filter(|s| s.eq_ignore_ascii_case("wss://"))
+        .map(|_| &trimmed[6..])
+    {
+        ("wss://", r)
+    } else if let Some(r) = trimmed
+        .get(..5)
+        .filter(|s| s.eq_ignore_ascii_case("ws://"))
+        .map(|_| &trimmed[5..])
+    {
+        ("ws://", r)
+    } else {
+        return None;
+    };
+    let rest = rest.trim_end_matches('/');
+    if rest.is_empty() || rest.chars().any(char::is_whitespace) {
+        return None;
+    }
+    let normalized = match rest.split_once('/') {
+        Some((host, path)) => {
+            if host.is_empty() {
+                return None;
+            }
+            format!("{scheme}{}/{path}", host.to_ascii_lowercase())
+        }
+        None => format!("{scheme}{}", rest.to_ascii_lowercase()),
+    };
+    Some(normalized)
+}
+
+fn dedup_normalized_relays(urls: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut out = Vec::new();
+    for raw in urls {
+        if let Some(norm) = normalize_relay_url(&raw) {
+            if !out.contains(&norm) {
+                out.push(norm);
+            }
+        }
+    }
+    out
+}
+
+fn default_public_relays_enabled() -> bool {
+    true
+}
+
 fn default_cordn_pubkey() -> String {
     DEFAULT_CORDN_PUBKEY.to_owned()
 }
@@ -162,12 +243,16 @@ pub struct PersistedAppSettings {
     pub agent_auto_pay_cashu: bool,
     #[serde(default = "default_agent_cashu_max_sats")]
     pub agent_cashu_max_sats: u32,
+    #[serde(default = "default_public_relays_enabled")]
+    pub public_relays_enabled: bool,
+    #[serde(default)]
+    pub relay_migration_version: u32,
 }
 
 impl Default for PersistedAppSettings {
     fn default() -> Self {
         Self {
-            relay_urls: vec!["wss://relay.earthly.city".to_owned()],
+            relay_urls: default_production_relay_urls(),
             local_pubkey_hex: None,
             local_nsec: None,
             agent_preset: "Offline Rust Spatial".to_owned(),
@@ -201,6 +286,8 @@ impl Default for PersistedAppSettings {
             agent_provider_type: None,
             agent_auto_pay_cashu: false,
             agent_cashu_max_sats: default_agent_cashu_max_sats(),
+            public_relays_enabled: default_public_relays_enabled(),
+            relay_migration_version: CURRENT_RELAY_MIGRATION_VERSION,
         }
     }
 }
@@ -289,8 +376,26 @@ impl AppSettingsStore {
                 let mut parsed: PersistedAppSettings = serde_json::from_str(&json)
                     .unwrap_or_else(|_| PersistedAppSettings::default());
                 decrypt_sensitive_fields(&mut parsed, secret_box.as_ref())?;
+                parsed.relay_urls = dedup_normalized_relays(parsed.relay_urls);
                 if parsed.relay_urls.is_empty() {
-                    parsed.relay_urls = vec!["wss://relay.earthly.city".to_owned()];
+                    parsed.relay_urls = if parsed.public_relays_enabled {
+                        default_production_relay_urls()
+                    } else {
+                        vec![PRIMARY_EARTHLY_RELAY.to_owned()]
+                    };
+                }
+                // One-time transparent upgrade migration from v0.2.0 installs that only
+                // persisted `["wss://relay.earthly.city"]` (preserving all custom relays).
+                if parsed.relay_migration_version < CURRENT_RELAY_MIGRATION_VERSION {
+                    if parsed.public_relays_enabled {
+                        for relay in DEFAULT_PUBLIC_RELAYS {
+                            let url = (*relay).to_owned();
+                            if !parsed.relay_urls.contains(&url) {
+                                parsed.relay_urls.push(url);
+                            }
+                        }
+                    }
+                    parsed.relay_migration_version = CURRENT_RELAY_MIGRATION_VERSION;
                 }
                 // Transparent migration from single-account fields to multi-session list.
                 if parsed.saved_accounts.is_empty() {
@@ -334,17 +439,17 @@ impl AppSettingsStore {
     ) -> Result<PersistedAppSettings, SettingsStoreError> {
         let secret_box = parse_secret_box(master_key_b64)?;
         let mut normalized = settings.clone();
-        normalized.relay_urls = normalized
-            .relay_urls
-            .into_iter()
-            .map(|r| r.trim().to_owned())
-            .filter(|r| r.starts_with("wss://") || r.starts_with("ws://"))
-            .collect();
+        normalized.relay_urls = dedup_normalized_relays(normalized.relay_urls);
         if normalized.relay_urls.is_empty() {
-            normalized
-                .relay_urls
-                .push("wss://relay.earthly.city".to_owned());
+            normalized.relay_urls = if normalized.public_relays_enabled {
+                default_production_relay_urls()
+            } else {
+                vec![PRIMARY_EARTHLY_RELAY.to_owned()]
+            };
         }
+        normalized.relay_migration_version = normalized
+            .relay_migration_version
+            .max(CURRENT_RELAY_MIGRATION_VERSION);
         normalized.satellite_opacity = if normalized.satellite_opacity.is_finite() {
             normalized.satellite_opacity.clamp(0.0, 1.0)
         } else {
@@ -490,10 +595,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let db = dir.path().join("earthly.sqlite3");
         let store = AppSettingsStore::open(&db).unwrap();
-        assert_eq!(store.load().unwrap().relay_urls, vec!["wss://relay.earthly.city"]);
+        let fresh = store.load().unwrap();
+        assert_eq!(fresh.relay_urls, default_production_relay_urls());
+        assert!(fresh.public_relays_enabled);
+        assert_eq!(fresh.relay_migration_version, CURRENT_RELAY_MIGRATION_VERSION);
 
         let mut s = PersistedAppSettings::default();
-        s.relay_urls.push("wss://relay.damus.io".to_owned());
+        s.relay_urls.push("wss://relay.custom.example/".to_owned());
         s.local_pubkey_hex = Some("a".repeat(64));
         s.agent_preset = "Local Ollama".to_owned();
         s.agent_base_url = "http://127.0.0.1:11434/v1".to_owned();
@@ -501,6 +609,7 @@ mod tests {
         s.pinned_entity_ids = vec!["map:37515:abc:vienna".to_owned()];
         s.recent_entity_ids = vec!["story:37520:abc:bushby".to_owned()];
         let saved = store.save(s).unwrap();
+        assert!(saved.relay_urls.contains(&"wss://relay.custom.example".to_owned()));
         drop(store);
 
         let reopened = AppSettingsStore::open(&db).unwrap();
@@ -509,6 +618,71 @@ mod tests {
         assert_eq!(loaded.saved_accounts.len(), 1);
         assert_eq!(loaded.saved_accounts[0].pubkey_hex, "a".repeat(64));
         assert_eq!(loaded.active_account_id, Some(format!("amber:{}", "a".repeat(64))));
+    }
+
+    #[test]
+    fn migrates_v020_earthly_only_install_to_public_relays_preserving_custom_relays() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("v020-upgrade.sqlite3");
+        let store = AppSettingsStore::open(&db).unwrap();
+
+        // Simulate a v0.2.0 SQLite row missing `publicRelaysEnabled` and `relayMigrationVersion`.
+        let legacy_json = serde_json::json!({
+            "relayUrls": ["wss://relay.earthly.city/", "wss://my-field-relay.example/"],
+            "localPubkeyHex": null,
+            "localNsec": null,
+            "agentPreset": "Offline Rust Spatial",
+            "agentBaseUrl": "",
+            "agentModel": "offline-spatial",
+            "agentApiKey": "",
+            "offlinePacks": []
+        })
+        .to_string();
+        {
+            let conn = Connection::open(&db).unwrap();
+            conn.execute(
+                "INSERT INTO app_settings (key, value_json, updated_at) VALUES (?1, ?2, 1700000000)",
+                params![SETTINGS_KEY, legacy_json],
+            )
+            .unwrap();
+        }
+
+        let migrated = store.load().unwrap();
+        assert!(migrated.public_relays_enabled);
+        assert_eq!(migrated.relay_migration_version, CURRENT_RELAY_MIGRATION_VERSION);
+        assert_eq!(migrated.relay_urls[0], "wss://relay.earthly.city");
+        assert_eq!(migrated.relay_urls[1], "wss://my-field-relay.example");
+        for pub_relay in DEFAULT_PUBLIC_RELAYS {
+            assert!(
+                migrated.relay_urls.contains(&(*pub_relay).to_owned()),
+                "missing default public relay {pub_relay}"
+            );
+        }
+
+        // After saving a customized relay list (e.g. removing nos.lol), migration does NOT re-add it.
+        let mut customized = migrated;
+        customized.relay_urls.retain(|u| u != "wss://nos.lol");
+        store.save(customized.clone()).unwrap();
+        let reloaded = store.load().unwrap();
+        assert!(!reloaded.relay_urls.contains(&"wss://nos.lol".to_owned()));
+        assert!(reloaded.relay_urls.contains(&"wss://my-field-relay.example".to_owned()));
+        assert!(reloaded.relay_urls.contains(&"wss://relay.damus.io".to_owned()));
+    }
+
+    #[test]
+    fn public_relays_disabled_policy_respects_earthly_only_preference() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("public-disabled.sqlite3");
+        let store = AppSettingsStore::open(&db).unwrap();
+
+        let mut s = PersistedAppSettings::default();
+        s.public_relays_enabled = false;
+        s.relay_urls = vec!["wss://relay.earthly.city".to_owned()];
+        store.save(s).unwrap();
+
+        let reloaded = store.load().unwrap();
+        assert!(!reloaded.public_relays_enabled);
+        assert_eq!(reloaded.relay_urls, vec!["wss://relay.earthly.city"]);
     }
 
     #[test]

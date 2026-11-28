@@ -453,6 +453,32 @@ void main() {
         expect(account.nip60WalletEnabled, isFalse);
       },
     );
+
+    test(
+      'CatalogShelfController defaults to production Earthly + public relays and merges cleanly',
+      () {
+        final catalog = CatalogShelfController();
+        addTearDown(catalog.dispose);
+
+        expect(
+          catalog.relayUrls,
+          containsAll(<String>[
+            'wss://relay.earthly.city',
+            'wss://relay.damus.io',
+            'wss://nos.lol',
+            'wss://relay.primal.net',
+          ]),
+        );
+
+        // Merging duplicate / trailing-slash relays is a no-op; new relay is normalized & appended.
+        expect(catalog.mergeRelayUrls(const ['wss://relay.damus.io/']), isFalse);
+        expect(
+          catalog.mergeRelayUrls(const ['wss://relay.snort.social/']),
+          isTrue,
+        );
+        expect(catalog.relayUrls, contains('wss://relay.snort.social'));
+      },
+    );
   });
 
   group('Widget rebuild isolation', () {

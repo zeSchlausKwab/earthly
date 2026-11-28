@@ -37,6 +37,8 @@ class AccountWalletController extends ChangeNotifier {
       <String, ProfileMetadataDto>{};
   final Set<String> _requestedProfilePubkeys = <String>{};
   final Set<String> mutedPubkeys = <String>{};
+  List<RelayListEntryDto> nip65Relays = const <RelayListEntryDto>[];
+  String? _lastNip65SyncedPubkey;
 
   String? nwcUri;
   String? settingsMasterKey;
@@ -399,11 +401,55 @@ class AccountWalletController extends ChangeNotifier {
     }).toList(growable: false);
   }
 
+  Future<List<RelayListEntryDto>> syncActiveAccountNip65Relays(
+    List<String> seedRelays, {
+    bool isHeadlessTest = false,
+    bool force = false,
+  }) async {
+    if (isHeadlessTest) return nip65Relays;
+    final activePk = account?.pubkey.trim() ?? '';
+    if (activePk.isEmpty) {
+      if (nip65Relays.isNotEmpty || _lastNip65SyncedPubkey != null) {
+        nip65Relays = const <RelayListEntryDto>[];
+        _lastNip65SyncedPubkey = null;
+        accountListenable.notifyListeners();
+        notifyListeners();
+      }
+      return const <RelayListEntryDto>[];
+    }
+    if (!force && _lastNip65SyncedPubkey == activePk) {
+      return nip65Relays;
+    }
+    try {
+      await RustBridge.ensureInitialized();
+      final entries = await syncUserNip65Relays(
+        pubkeyOrNpub: activePk,
+        seedRelays: seedRelays,
+      );
+      if (account?.pubkey.trim() != activePk) return const <RelayListEntryDto>[];
+      nip65Relays = entries;
+      _lastNip65SyncedPubkey = activePk;
+      accountListenable.notifyListeners();
+      notifyListeners();
+      return entries;
+    } catch (_) {
+      return nip65Relays;
+    }
+  }
+
   Future<void> resolveSessionProfiles(
     List<String> relayUrls, {
     bool isHeadlessTest = false,
   }) async {
     if (isHeadlessTest) return;
+    // Automatically fetch & merge the active signed-in user's NIP-65 (kind 10002)
+    // relay list into the Rust Relay Manager on login / session restore.
+    unawaited(
+      syncActiveAccountNip65Relays(
+        relayUrls,
+        isHeadlessTest: isHeadlessTest,
+      ),
+    );
     final pks = savedAccounts
         .map((s) => s.pubkeyHex)
         .where((p) => p.isNotEmpty && !profilesByPubkey.containsKey(p))
@@ -480,6 +526,8 @@ class AccountWalletController extends ChangeNotifier {
     }
     if (session == null || session.pubkeyHex != prevPubkey) {
       cashuWalletState = null;
+      nip65Relays = const <RelayListEntryDto>[];
+      _lastNip65SyncedPubkey = null;
       walletListenable.notifyListeners();
     }
     accountListenable.notifyListeners();
@@ -822,6 +870,11 @@ class AccountWalletController extends ChangeNotifier {
 
         final mergedRelays = <String>{
           ...relayUrls,
+          'wss://relay.earthly.city',
+          'wss://relay.damus.io',
+          'wss://nos.lol',
+          'wss://relay.primal.net',
+          ...nip65Relays.map((e) => e.url),
           ...discovery.discoveredRelays,
           ...discovery.nutzapRelays,
           ...walletRelays,

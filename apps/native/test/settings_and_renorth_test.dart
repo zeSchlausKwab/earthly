@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:earthly_native/controllers/account_wallet_controller.dart';
 import 'package:earthly_native/controllers/agent_controller.dart';
@@ -8,7 +9,11 @@ import 'package:earthly_native/controllers/map_layer_cache.dart';
 import 'package:earthly_native/controllers/spaces_sync_controller.dart';
 import 'package:earthly_native/main.dart';
 import 'package:earthly_native/nostr/basemap_config.dart';
+import 'package:earthly_native/nostr/callout_overlay.dart';
 import 'package:earthly_native/nostr/shelf_renderer.dart';
+import 'package:earthly_native/shell/agent_drawer.dart';
+import 'package:earthly_native/shell/settings_sheet.dart';
+import 'package:earthly_native/src/rust/api/nostr_client.dart';
 import 'package:earthly_native/theme/earthly_theme.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maplibre/maplibre.dart';
@@ -290,6 +295,215 @@ void main() {
         await tester.tap(loupeTile);
         await tester.pump();
         expect(draft.loupeEnabled, isFalse);
+      },
+    );
+
+    testWidgets(
+      'SettingsSheet Relays tab probes live quality/NIP-11 badges and discovers/adds NIP-66 relays in 1 tap on narrow phone',
+      (WidgetTester tester) async {
+        _setViewport(tester, const Size(384, 854));
+
+        var relays = <String>[
+          'wss://relay.earthly.city',
+          'wss://relay.damus.io',
+        ];
+        var publicEnabled = true;
+
+        Widget buildSheet() => MaterialApp(
+              theme: buildEarthlyTheme(Brightness.light),
+              home: Scaffold(
+                body: Stack(
+                  children: [
+                    StatefulBuilder(
+                      builder: (context, setModalState) => SettingsSheet(
+                        initialTab: EarthlySettingsTab.relays,
+                        themeMode: ThemeMode.light,
+                        onThemeModeChanged: (_) {},
+                        activeBasemap: BasemapKind.openFreeMapLiberty,
+                        offlineBasemap: null,
+                        onSelectBasemap: (_) {},
+                        onLoadedOfflinePmtiles: (_) {},
+                        backgroundMode: MapBackgroundMode.osm,
+                        satelliteOpacity: 0.75,
+                        onBackgroundModeChanged: (_) {},
+                        onSatelliteOpacityChanged: (_) {},
+                        pointClusteringEnabled: true,
+                        pointClusterRadius: 50,
+                        pointClusterMaxZoom: 14,
+                        onPointClusteringChanged: (_) {},
+                        onPointClusterRadiusChanged: (_) {},
+                        onPointClusterMaxZoomChanged: (_) {},
+                        showLabels: true,
+                        onToggleLabels: (_) {},
+                        calloutMode: CalloutDisplayMode.compact,
+                        onChangeCalloutMode: (_) {},
+                        relayUrls: relays,
+                        relayStreamLive: true,
+                        publicRelaysEnabled: publicEnabled,
+                        onSetPublicRelaysEnabled: (enabled) async {
+                          setModalState(() => publicEnabled = enabled);
+                        },
+                        onRelayUrlsChanged: (next) {
+                          setModalState(() => relays = next);
+                        },
+                        onLoadRelayManagerSnapshot: (urls) async =>
+                            RelayManagerSnapshotDto(
+                          publicRelaysEnabled: publicEnabled,
+                          primaryEarthlyRelay: 'wss://relay.earthly.city',
+                          defaultPublicRelays: const [
+                            'wss://relay.damus.io',
+                            'wss://nos.lol',
+                            'wss://relay.primal.net',
+                          ],
+                          profileDiscoveryRelays: const ['wss://purplepag.es'],
+                          configuredRelays: [
+                            const ManagedRelayStatusDto(
+                              url: 'wss://relay.earthly.city',
+                              read: true,
+                              write: true,
+                              source: 'earthly',
+                              connected: true,
+                            ),
+                            const ManagedRelayStatusDto(
+                              url: 'wss://relay.damus.io',
+                              read: true,
+                              write: false,
+                              source: 'nip65',
+                              connected: true,
+                            ),
+                          ],
+                          nip65Relays: const [
+                            RelayListEntryDto(
+                              url: 'wss://relay.damus.io',
+                              read: true,
+                              write: false,
+                            ),
+                          ],
+                        ),
+                        onProbeRelaysQuality: (urls) async => [
+                          RelayQualityReportDto(
+                            url: 'wss://relay.earthly.city',
+                            reachable: true,
+                            rttMs: 42,
+                            status: 'healthy',
+                            qualityScore: 98,
+                            authRequired: false,
+                            paymentRequired: false,
+                            nip11: RelayNip11InfoDto(
+                              name: 'Earthly City Relay',
+                              software: 'khatru',
+                              version: '0.9.1',
+                              supportedNips: Uint32List.fromList([1, 11, 33, 50]),
+                              authRequired: false,
+                              paymentRequired: false,
+                              restrictedWrites: false,
+                            ),
+                            probedAt: BigInt.from(1750000000),
+                          ),
+                          RelayQualityReportDto(
+                            url: 'wss://relay.damus.io',
+                            reachable: true,
+                            rttMs: 920,
+                            status: 'slow',
+                            qualityScore: 52,
+                            authRequired: false,
+                            paymentRequired: false,
+                            probedAt: BigInt.from(1750000000),
+                          ),
+                        ],
+                        onDiscoverNip66Relays: () async => [
+                          Nip66RelayCandidateDto(
+                            url: 'wss://relay.primal.net',
+                            network: 'clearnet',
+                            rttOpenMs: 55,
+                            supportedNips: Uint32List.fromList([1, 11, 50]),
+                            authRequired: false,
+                            paymentRequired: false,
+                            writesRestricted: false,
+                            software: 'strfry',
+                            countryCode: 'US',
+                            monitorCount: 3,
+                            lastSeenAt: BigInt.from(1750000000),
+                            liveProbe: RelayQualityReportDto(
+                              url: 'wss://relay.primal.net',
+                              reachable: true,
+                              rttMs: 58,
+                              status: 'healthy',
+                              qualityScore: 96,
+                              authRequired: false,
+                              paymentRequired: false,
+                              probedAt: BigInt.from(1750000000),
+                            ),
+                          ),
+                        ],
+                        blossomServerUrl: 'https://blossom.earthly.city',
+                        onBlossomServerChanged: (_) {},
+                        cordnServerPubkey:
+                            'fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37',
+                        onCordnPubkeyChanged: (_) {},
+                        agentSettings: CopilotProviderSettings.offline,
+                        onAgentSettingsChanged: (_) {},
+                        safeEditing: true,
+                        onSafeEditingChanged: (_) {},
+                        visionSupport: 'none',
+                        attachMapView: false,
+                        onAttachMapViewChanged: (_) {},
+                        account: null,
+                        signerModeLabel: 'Signed out',
+                        cashuWalletEnabled: false,
+                        onSetCashuWalletEnabled: (_) {},
+                        onOpenAccount: () {},
+                        onClose: () {},
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+
+        await tester.pumpWidget(buildSheet());
+        await tester.pumpAndSettle();
+
+        // Snapshot loaded roles & profile discovery info cleanly.
+        expect(find.text('R/W'), findsOneWidget);
+        expect(find.text('READ'), findsOneWidget);
+        expect(find.textContaining('wss://purplepag.es'), findsOneWidget);
+
+        // Tap Probe All -> displays HEALTHY / SLOW badges, RTT ms, quality score, and NIP-11 metadata.
+        final probeBtn = find.byKey(const Key('settings-probe-all-relays-btn'));
+        await tester.ensureVisible(probeBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(probeBtn);
+        await tester.pumpAndSettle();
+
+        expect(find.text('HEALTHY'), findsOneWidget);
+        expect(find.text('42 ms · Q98'), findsOneWidget);
+        expect(find.textContaining('Earthly City Relay'), findsOneWidget);
+        expect(find.text('SLOW'), findsOneWidget);
+        expect(find.text('920 ms · Q52'), findsOneWidget);
+
+        // Tap Discover Public Relays (NIP-66) -> shows candidate and adds in 1 tap.
+        final discoverBtn = find.byKey(const Key('settings-discover-nip66-btn'));
+        await tester.ensureVisible(discoverBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(discoverBtn);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('settings-nip66-candidate-wss://relay.primal.net')),
+          findsOneWidget,
+        );
+        expect(find.text('58 ms'), findsOneWidget);
+
+        final addNip66Btn =
+            find.byKey(const Key('settings-nip66-add-wss://relay.primal.net'));
+        await tester.ensureVisible(addNip66Btn);
+        await tester.pumpAndSettle();
+        await tester.tap(addNip66Btn);
+        await tester.pumpAndSettle();
+
+        expect(relays, contains('wss://relay.primal.net'));
+        expect(find.text('ADDED'), findsOneWidget);
       },
     );
   });

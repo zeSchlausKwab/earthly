@@ -23,13 +23,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 const CASHU_HASH_DOMAIN: &[u8] = b"Secp256k1_HashToCurve_Cashu_";
-const DEFAULT_RELAY: &str = "wss://relay.earthly.city";
-const DISCOVERY_RELAYS: &[&str] = &[
-    "wss://relay.damus.io",
-    "wss://nos.lol",
-    "wss://relay.primal.net",
-    "wss://purplepag.es",
-];
 const HTTP_TIMEOUT_SECS: u64 = 20;
 const RELAY_FETCH_TIMEOUT_SECS: u64 = 8;
 
@@ -1582,7 +1575,7 @@ fn default_wallet_for(pubkey_hex: &str, mints: Vec<String>, relays: Vec<String>)
         .into_iter()
         .filter_map(|m| normalize_mint_url(&m).ok())
         .collect();
-    let clean_relays = normalize_relays_with_fallback(&relays);
+    let clean_relays = normalize_persisted_wallet_relays(&relays);
     let default_mint = clean_mints.first().cloned();
     PersistedCashuWallet {
         pubkey_hex: pubkey_hex.trim().to_ascii_lowercase(),
@@ -1599,20 +1592,28 @@ fn default_wallet_for(pubkey_hex: &str, mints: Vec<String>, relays: Vec<String>)
     }
 }
 
-fn normalize_relays_with_fallback(relays: &[String]) -> Vec<String> {
+/// Normalizes explicitly supplied wallet relays for persistence (falling back to
+/// production default relays only when empty, without injecting unrelated global relays).
+fn normalize_persisted_wallet_relays(relays: &[String]) -> Vec<String> {
     let mut seen = BTreeSet::new();
     let mut out = Vec::new();
     for r in relays {
-        let clean = r.trim().to_owned();
-        if (clean.starts_with("wss://") || clean.starts_with("ws://")) && seen.insert(clean.clone())
-        {
-            out.push(clean);
+        if let Some(clean) = earthly_storage::settings::normalize_relay_url(r) {
+            if !super::relay_pool::is_profile_directory_relay(&clean) && seen.insert(clean.clone())
+            {
+                out.push(clean);
+            }
         }
     }
     if out.is_empty() {
-        out.push(DEFAULT_RELAY.to_owned());
+        return earthly_storage::settings::default_production_relay_urls();
     }
     out
+}
+
+/// Resolves full network sync relays (explicit + Earthly + public defaults + user NIP-65).
+fn normalize_relays_with_fallback(relays: &[String]) -> Vec<String> {
+    super::relay_pool::resolve_wallet_relays(relays)
 }
 
 fn load_existing_wallet(
@@ -1791,7 +1792,7 @@ pub fn load_cashu_wallet_state(
             Ok(CashuWalletStateDto {
                 pubkey_hex: clean_pk,
                 mints: Vec::new(),
-                relays: vec![DEFAULT_RELAY.to_owned()],
+                relays: earthly_storage::settings::default_production_relay_urls(),
                 default_mint: None,
                 p2pk_pubkey_hex: String::new(),
                 balance_sats: 0,
@@ -1828,7 +1829,7 @@ pub fn init_cashu_wallet(
                 }
             }
             if !relays.is_empty() {
-                existing.relays = normalize_relays_with_fallback(&relays);
+                existing.relays = normalize_persisted_wallet_relays(&relays);
             }
             if existing.default_mint.is_none() {
                 existing.default_mint = existing.mints.first().cloned();
@@ -2238,35 +2239,24 @@ pub async fn pay_bolt11_via_cashu(
 }
 
 fn merge_relay_urls(target: &mut Vec<String>, extra: &[String]) -> Vec<String> {
-    let mut seen: BTreeSet<String> = target.iter().cloned().collect();
+    let mut seen: BTreeSet<String> = target
+        .iter()
+        .filter_map(|u| earthly_storage::settings::normalize_relay_url(u))
+        .collect();
     let mut added = Vec::new();
     for raw in extra {
-        let clean = raw.trim().to_owned();
-        if (clean.starts_with("wss://") || clean.starts_with("ws://")) && seen.insert(clean.clone())
-        {
+        let Some(clean) = earthly_storage::settings::normalize_relay_url(raw) else {
+            continue;
+        };
+        if super::relay_pool::is_profile_directory_relay(&clean) {
+            continue;
+        }
+        if seen.insert(clean.clone()) {
             target.push(clean.clone());
             added.push(clean);
         }
     }
     added
-}
-
-fn extract_nip65_relays(event: &Event) -> Vec<String> {
-    let mut relays = Vec::new();
-    for tag in event.tags.iter() {
-        let s = tag.as_slice();
-        if s.first().map(String::as_str) == Some("r") {
-            if let Some(raw) = s.get(1) {
-                let clean = raw.trim().to_owned();
-                if (clean.starts_with("wss://") || clean.starts_with("ws://"))
-                    && !relays.contains(&clean)
-                {
-                    relays.push(clean);
-                }
-            }
-        }
-    }
-    relays
 }
 
 fn extract_deleted_event_ids_from_kind5(events: &[Event]) -> Vec<String> {
@@ -2305,9 +2295,7 @@ async fn discover_nip60_wallet_events(
     seed_relays: &[String],
 ) -> Result<(Nip60WalletDiscoveryDto, Option<Event>), String> {
     let user_relays = normalize_relays_with_fallback(seed_relays);
-    let mut phase1_relays = user_relays.clone();
-    let discovery_strings: Vec<String> = DISCOVERY_RELAYS.iter().map(|s| (*s).to_owned()).collect();
-    merge_relay_urls(&mut phase1_relays, &discovery_strings);
+    let phase1_relays = super::relay_pool::resolve_profile_discovery_relays(&user_relays);
 
     let client = super::relay_pool::shared_client(&phase1_relays).await?;
 
@@ -2361,7 +2349,10 @@ async fn discover_nip60_wallet_events(
 
     let mut discovered_relays = user_relays;
     if let Some(ev) = latest_10002.as_ref() {
-        let nip65 = extract_nip65_relays(ev);
+        let raw_tags: Vec<Vec<String>> = ev.tags.iter().map(|t| t.as_slice().to_vec()).collect();
+        let nip65_entries = super::nostr_client::profiles_relays::parse_nip65_tags(&raw_tags);
+        let nip65: Vec<String> = nip65_entries.iter().map(|e| e.url.clone()).collect();
+        super::relay_pool::merge_user_nip65_relays(author_pk.to_hex(), nip65_entries);
         merge_relay_urls(&mut discovered_relays, &nip65);
     }
 
@@ -2497,7 +2488,7 @@ fn apply_decrypted_nip60_to_wallet(
     deleted_event_ids: &[String],
 ) {
     if !relays.is_empty() {
-        wallet.relays = normalize_relays_with_fallback(relays);
+        wallet.relays = normalize_persisted_wallet_relays(relays);
     }
 
     if let Some(raw_wallet_json) = decrypted_wallet_json
@@ -2861,16 +2852,19 @@ pub async fn sync_nip60_wallet(
         }
     }
     if !unsynced_by_mint.is_empty() {
-        if let Ok(client) = super::relay_pool::shared_client(&effective_relays).await {
+        let write_relays = super::relay_pool::resolve_write_relays(&effective_relays, Some(7375));
+        if let Ok(client) = super::relay_pool::shared_client(&write_relays).await {
             for (mint_url, indices) in unsynced_by_mint {
                 let group: Vec<CashuProofRecord> =
                     indices.iter().map(|&i| wallet.proofs[i].clone()).collect();
                 if let Ok(builder) = build_nip60_token_event(&keys, &mint_url, &group, &[]) {
                     if let Ok(signed) = builder.sign_with_keys(&keys) {
-                        if client.send_event(&signed).await.is_ok() {
-                            let ev_hex = signed.id.to_hex();
-                            for idx in indices {
-                                wallet.proofs[idx].token_event_id = Some(ev_hex.clone());
+                        if let Ok(output) = client.send_event_to(&write_relays, &signed).await {
+                            if !output.success.is_empty() {
+                                let ev_hex = signed.id.to_hex();
+                                for idx in indices {
+                                    wallet.proofs[idx].token_event_id = Some(ev_hex.clone());
+                                }
                             }
                         }
                     }
@@ -3054,15 +3048,16 @@ pub async fn publish_nip61_nutzap_info(
     }
 
     let effective_relays = normalize_relays_with_fallback(&wallet.relays);
+    let publish_relays = super::relay_pool::resolve_write_relays(&effective_relays, Some(10_019));
     let builder =
-        build_nip61_nutzap_info_event(&wallet.p2pk_pubkey_hex, &wallet.mints, &effective_relays)?;
+        build_nip61_nutzap_info_event(&wallet.p2pk_pubkey_hex, &wallet.mints, &publish_relays)?;
     let event = builder
         .sign_with_keys(&keys)
         .map_err(|e| format!("Failed to sign NIP-61 Nutzap info event: {e}"))?;
 
-    let client = super::relay_pool::shared_client(&effective_relays).await?;
+    let client = super::relay_pool::shared_client(&publish_relays).await?;
     client
-        .send_event(&event)
+        .send_event_to(&publish_relays, &event)
         .await
         .map_err(|e| format!("Failed to publish NIP-61 Nutzap info event: {e}"))?;
 
@@ -3104,23 +3099,17 @@ pub async fn send_nip61_nutzap(
         load_existing_wallet(&database_path, &sender_pubkey_hex, master_key_b64.as_deref())?;
 
     let mut fetch_relays = normalize_relays_with_fallback(&wallet.relays);
-    for r in relays {
-        let clean = r.trim().to_owned();
-        if (clean.starts_with("wss://") || clean.starts_with("ws://"))
-            && !fetch_relays.contains(&clean)
-        {
-            fetch_relays.push(clean);
-        }
-    }
+    merge_relay_urls(&mut fetch_relays, &relays);
+    let info_lookup_relays = super::relay_pool::resolve_profile_discovery_relays(&fetch_relays);
 
-    let client = super::relay_pool::shared_client(&fetch_relays).await?;
+    let client = super::relay_pool::shared_client(&info_lookup_relays).await?;
     let info_filter = Filter::new()
         .author(recipient_pk)
         .kind(Kind::CashuNutZapInfo)
-        .limit(5);
+        .limit(8);
     let info_events = client
         .fetch_events_from(
-            &fetch_relays,
+            &info_lookup_relays,
             info_filter,
             Duration::from_secs(RELAY_FETCH_TIMEOUT_SECS),
         )
@@ -3186,12 +3175,9 @@ pub async fn send_nip61_nutzap(
         unblind_signatures_to_proofs(&signatures, &blindings, &keyset.keys, &target_mint)?;
     let (nutzap_proofs, change_proofs) = unblinded.split_at(send_split.len());
 
-    let mut publish_relays = fetch_relays;
-    for r in recipient_info.relays {
-        if !publish_relays.contains(&r) {
-            publish_relays.push(r);
-        }
-    }
+    let mut publish_seed = fetch_relays;
+    merge_relay_urls(&mut publish_seed, &recipient_info.relays);
+    let publish_relays = super::relay_pool::resolve_write_relays(&publish_seed, Some(9321));
     let publish_client = super::relay_pool::shared_client(&publish_relays).await?;
     let nutzap_builder = build_nip61_nutzap_event(
         &recipient_info.pubkey_hex,
@@ -3204,7 +3190,7 @@ pub async fn send_nip61_nutzap(
         .sign_with_keys(&keys)
         .map_err(|e| format!("Failed to sign NIP-61 Nutzap event: {e}"))?;
     publish_client
-        .send_event(&nutzap_event)
+        .send_event_to(&publish_relays, &nutzap_event)
         .await
         .map_err(|e| format!("Failed to publish NIP-61 Nutzap event: {e}"))?;
 
@@ -3254,14 +3240,8 @@ pub async fn claim_incoming_nutzaps(
     };
 
     let mut effective_relays = normalize_relays_with_fallback(&wallet.relays);
-    for r in relays {
-        let clean = r.trim().to_owned();
-        if (clean.starts_with("wss://") || clean.starts_with("ws://"))
-            && !effective_relays.contains(&clean)
-        {
-            effective_relays.push(clean);
-        }
-    }
+    merge_relay_urls(&mut effective_relays, &relays);
+    let write_relays = super::relay_pool::resolve_write_relays(&effective_relays, Some(7376));
 
     let client = super::relay_pool::shared_client(&effective_relays).await?;
     let filter = Filter::new()
@@ -3378,7 +3358,9 @@ pub async fn claim_incoming_nutzaps(
             &[ev.id],
         ) {
             if let Ok(signed) = hist_builder.sign_with_keys(&keys) {
-                let _ = client.send_event(&signed).await;
+                if let Ok(write_client) = super::relay_pool::shared_client(&write_relays).await {
+                    let _ = write_client.send_event_to(&write_relays, &signed).await;
+                }
             }
         }
 

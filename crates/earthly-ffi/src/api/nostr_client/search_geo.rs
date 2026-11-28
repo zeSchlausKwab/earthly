@@ -9,7 +9,6 @@ use earthly_domain::{
 };
 use nostr::{Filter, Kind};
 
-use super::DEFAULT_EARTHLY_RELAY;
 use super::catalog::EarthlyCatalogSnapshot;
 use super::entities::{atlas_to_dto, event_to_raw, map_to_dto, story_to_dto};
 
@@ -150,11 +149,7 @@ pub async fn search_relay_catalog_nip50(
             beacons: Vec::new(),
         });
     }
-    let urls = if relay_urls.is_empty() {
-        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
-    } else {
-        relay_urls
-    };
+    let urls = crate::api::relay_pool::resolve_read_relays(&relay_urls);
 
     let client = crate::api::relay_pool::shared_client(&urls).await?;
 

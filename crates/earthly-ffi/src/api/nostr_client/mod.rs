@@ -26,9 +26,12 @@ pub use entities::{
     fetch_maps_by_addresses,
 };
 pub use profiles_relays::{
-    ProfileMetadataDto, RelayHealthDto, RelayListEntryDto, ShoutboxPostDto, ZapInvoiceDto,
-    decode_npub_to_hex, encode_hex_to_npub, fetch_lnurl_zap_invoice, fetch_profiles,
-    fetch_shoutbox_posts, fetch_user_relay_list, probe_relays_health, pubkey_to_npub,
+    ManagedRelayStatusDto, Nip66RelayCandidateDto, ProfileMetadataDto, RelayHealthDto,
+    RelayListEntryDto, RelayManagerSnapshotDto, RelayNip11InfoDto, RelayQualityReportDto,
+    ShoutboxPostDto, ZapInvoiceDto, decode_npub_to_hex, discover_public_relays_nip66,
+    encode_hex_to_npub, fetch_lnurl_zap_invoice, fetch_profiles, fetch_shoutbox_posts,
+    fetch_user_relay_list, get_relay_manager_snapshot, mark_nip66_relay_added,
+    probe_relays_health, probe_relays_quality, pubkey_to_npub, sync_user_nip65_relays,
 };
 pub use search_geo::{
     PlaceSearchResultDto, ReverseGeocodeDto, reverse_geocode_location, search_places,

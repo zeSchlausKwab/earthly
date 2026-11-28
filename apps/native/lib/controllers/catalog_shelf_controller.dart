@@ -31,7 +31,14 @@ class CatalogShelfController extends ChangeNotifier {
   final ChangeNotifier lensListenable = ChangeNotifier();
   final ChangeNotifier overlayListenable = ChangeNotifier();
 
-  List<String> relayUrls = <String>['wss://relay.earthly.city'];
+  static const List<String> defaultProductionRelayUrls = <String>[
+    'wss://relay.earthly.city',
+    'wss://relay.damus.io',
+    'wss://nos.lol',
+    'wss://relay.primal.net',
+  ];
+
+  List<String> relayUrls = List<String>.from(defaultProductionRelayUrls);
   EarthlyCatalogSnapshot? catalog;
   bool catalogLoading = false;
 
@@ -288,11 +295,43 @@ class CatalogShelfController extends ChangeNotifier {
     VoidCallback? onPersist,
     VoidCallback? onSyncRelays,
   }) {
-    relayUrls = next;
+    final normalized = <String>[];
+    for (final raw in next) {
+      final clean = raw.trim().replaceFirst(RegExp(r'/+$'), '');
+      if ((clean.startsWith('wss://') || clean.startsWith('ws://')) &&
+          !normalized.contains(clean)) {
+        normalized.add(clean);
+      }
+    }
+    relayUrls = normalized.isEmpty
+        ? List<String>.from(defaultProductionRelayUrls)
+        : normalized;
     catalog = null;
     notifyListeners();
     onPersist?.call();
     onSyncRelays?.call();
+  }
+
+  /// Merges additional relay URLs (e.g., from NIP-65 or NIP-66 discovery) into
+  /// [relayUrls] without duplicating existing entries. Returns `true` if added.
+  bool mergeRelayUrls(
+    Iterable<String> incoming, {
+    VoidCallback? onPersist,
+    VoidCallback? onSyncRelays,
+  }) {
+    final next = List<String>.from(relayUrls);
+    var changed = false;
+    for (final raw in incoming) {
+      final clean = raw.trim().replaceFirst(RegExp(r'/+$'), '');
+      if ((clean.startsWith('wss://') || clean.startsWith('ws://')) &&
+          !next.contains(clean)) {
+        next.add(clean);
+        changed = true;
+      }
+    }
+    if (!changed) return false;
+    updateRelayUrls(next, onPersist: onPersist, onSyncRelays: onSyncRelays);
+    return true;
   }
 
   void setBlossomServerUrl(String url, {VoidCallback? onPersist}) {

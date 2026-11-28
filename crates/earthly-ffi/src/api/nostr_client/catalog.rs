@@ -10,7 +10,6 @@ use earthly_domain::{
 use nostr::{Filter, Kind, Timestamp};
 use nostr_sdk::RelayPoolNotification;
 
-use super::DEFAULT_EARTHLY_RELAY;
 use super::entities::{
     AtlasSummaryDto, LiveBeaconDto, MapSummaryDto, SightingSummaryDto, StorySummaryDto,
     atlas_to_dto, beacon_to_dto, event_to_raw, map_to_dto, parse_live_relay_event,
@@ -41,16 +40,13 @@ pub struct LiveRelayEventDto {
 }
 
 /// Fetches the latest Earthly Maps, Stories, Atlases, and non-expired Sightings
-/// from the specified relay URLs (defaulting to `wss://relay.earthly.city`).
+/// across the Earthly primary relay AND active public/read relays (deduplicating
+/// addressable `kind:pubkey:d` coordinates keeping the latest `created_at`).
 pub async fn fetch_earthly_catalog(
     relay_urls: Vec<String>,
     limit_per_kind: u32,
 ) -> Result<EarthlyCatalogSnapshot, String> {
-    let urls = if relay_urls.is_empty() {
-        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
-    } else {
-        relay_urls
-    };
+    let urls = crate::api::relay_pool::resolve_read_relays(&relay_urls);
     let limit = (limit_per_kind as usize).clamp(1, 300);
 
     let client = crate::api::relay_pool::shared_client(&urls).await?;
@@ -328,11 +324,7 @@ pub async fn subscribe_earthly_relay_stream(
     relay_urls: Vec<String>,
     sink: crate::frb_generated::StreamSink<LiveRelayEventDto>,
 ) -> Result<(), String> {
-    let urls = if relay_urls.is_empty() {
-        vec![DEFAULT_EARTHLY_RELAY.to_owned()]
-    } else {
-        relay_urls
-    };
+    let urls = crate::api::relay_pool::resolve_read_relays(&relay_urls);
 
     let client = crate::api::relay_pool::shared_client(&urls).await?;
 

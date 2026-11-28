@@ -11,9 +11,10 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`
 
 /// Persists an already-signed Nostr event into the crash-safe SQLite outbox
-/// BEFORE network transmission, delivers it to each target relay via the shared
-/// `nostr-sdk` relay pool, records per-relay acknowledgements, and returns the
-/// live outcome.
+/// BEFORE network transmission, fans out delivery across the Earthly relay AND
+/// all active public/write relays via the shared `nostr-sdk` relay pool (never
+/// leaking private MLS kinds or loopback-only publishes), records per-relay
+/// acknowledgements, and returns the live outcome.
 Future<PublishOutcomeDto> publishSignedEventViaOutbox({
   required String databasePath,
   required String signedEventJson,
