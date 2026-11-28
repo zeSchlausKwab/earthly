@@ -139,12 +139,38 @@ fn normalize_relay_urls(relay_urls: Vec<String>) -> Vec<String> {
 /// `DEFAULT_CIRCLE_RELAY` is always included alongside custom non-loopback relays so
 /// encrypted backups survive relay configuration changes across app updates.
 fn normalize_multi_device_relay_urls(relay_urls: Vec<String>) -> Vec<String> {
-    let mut out = normalize_relay_urls(relay_urls);
-    let is_loopback_only = out
-        .iter()
-        .all(|r| r.starts_with("ws://127.0.0.1") || r.starts_with("ws://localhost"));
+    let filtered: Vec<String> = relay_urls
+        .into_iter()
+        .filter(|r| !crate::api::relay_pool::is_profile_directory_relay(r))
+        .collect();
+    let mut out = normalize_relay_urls(filtered);
+    let is_loopback_only = crate::api::relay_pool::is_all_local_relays(&out);
     if !is_loopback_only && !out.iter().any(|r| r == DEFAULT_CIRCLE_RELAY) {
         out.push(DEFAULT_CIRCLE_RELAY.to_owned());
+    }
+    out
+}
+
+/// Normalizes relay URLs for Cordn MLS coordinator RPCs (`kind 25910`) so private
+/// MLS protocol traffic never leaks to default public Nostr relays (`damus.io`,
+/// `nos.lol`, `primal.net`) or profile directory relays (`purplepag.es`), while
+/// preserving loopback test relays and explicit custom Cordn relays.
+fn normalize_cordn_relay_urls(relay_urls: Vec<String>) -> Vec<String> {
+    let normalized = normalize_relay_urls(relay_urls);
+    if crate::api::relay_pool::is_all_local_relays(&normalized) {
+        return normalized;
+    }
+    let mut out = vec![DEFAULT_CIRCLE_RELAY.to_owned()];
+    for relay in normalized {
+        let is_default_public = earthly_storage::settings::DEFAULT_PUBLIC_RELAYS
+            .iter()
+            .any(|p| *p == relay);
+        if !is_default_public
+            && !crate::api::relay_pool::is_profile_directory_relay(&relay)
+            && !out.iter().any(|existing| existing == &relay)
+        {
+            out.push(relay);
+        }
     }
     out
 }
@@ -2310,16 +2336,17 @@ pub async fn sync_multi_device_direct(
     };
 
     // Best-effort scan for pending or historical Cordn Welcomes matching any local or newly
-    // restored KeyPackage material.
+    // restored KeyPackage material (scoped strictly to Cordn / custom private relays).
     let store = Arc::new(SqlitePrivateWorkspaceStore::open(&database_path)?);
     let has_kp_or_pending = !store.list_pending_joins(&owner_pubkey)?.is_empty()
         || !store.list_key_packages(&owner_pubkey)?.is_empty();
     if has_kp_or_pending {
+        let welcome_relays = normalize_cordn_relay_urls(relays);
         let svc = PrivateWorkspaceService::new(
             signer,
             Arc::clone(&store),
             DEFAULT_CORDN_SERVER_PUBKEY.to_owned(),
-            relays,
+            welcome_relays,
         );
         if let Ok(Ok(welcomed)) = tokio::time::timeout(
             Duration::from_secs(8),
@@ -2366,7 +2393,7 @@ pub async fn create_circle_workspace(
     } else {
         coordinator_pubkey.trim().to_owned()
     };
-    let relays = normalize_relay_urls(relays);
+    let relays = normalize_cordn_relay_urls(relays);
     let svc = PrivateWorkspaceService::new(signer, store, coord_pk, relays);
     let ws = svc.create_workspace(WorkspaceMetadata {
         name,
@@ -3480,5 +3507,39 @@ mod tests {
             .expect("apply tombstone tip on device B");
         assert_eq!(after_delete_b.removed_groups_marked, 1);
         assert_eq!(after_delete_b.workspaces[0].status, "removed");
+    }
+
+    #[test]
+    fn normalize_cordn_and_multi_device_relay_urls_preserve_privacy_and_defaults() {
+        // Production defaults + purplepag.es + custom private relay:
+        // Cordn MLS RPCs must never leak to default public relays or purplepag.es,
+        // while keeping DEFAULT_CIRCLE_RELAY and explicit custom relays.
+        let mixed = vec![
+            "wss://relay.damus.io".to_owned(),
+            "wss://nos.lol".to_owned(),
+            "wss://relay.primal.net".to_owned(),
+            "wss://purplepag.es".to_owned(),
+            "wss://cordn.example.org".to_owned(),
+        ];
+        let cordn = normalize_cordn_relay_urls(mixed.clone());
+        assert_eq!(
+            cordn,
+            vec![
+                DEFAULT_CIRCLE_RELAY.to_owned(),
+                "wss://cordn.example.org".to_owned(),
+            ]
+        );
+
+        // Multi-device kind 30078 encrypted backups strip profile directory relays
+        // (purplepag.es) while preserving user relays + DEFAULT_CIRCLE_RELAY.
+        let md = normalize_multi_device_relay_urls(mixed);
+        assert!(md.iter().any(|r| r == DEFAULT_CIRCLE_RELAY));
+        assert!(md.iter().any(|r| r == "wss://cordn.example.org"));
+        assert!(!md.iter().any(|r| r.contains("purplepag.es")));
+
+        // Loopback-only test configurations remain strictly local.
+        let local = vec!["ws://127.0.0.1:7777".to_owned()];
+        assert_eq!(normalize_cordn_relay_urls(local.clone()), local);
+        assert_eq!(normalize_multi_device_relay_urls(local.clone()), local);
     }
 }

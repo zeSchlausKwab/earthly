@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/earthly_theme.dart';
+import 'earthly_toast.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
 
@@ -195,9 +196,7 @@ class _McpBridgeSheetState extends State<McpBridgeSheet> {
 
   void _copy(String text, String toast) {
     Clipboard.setData(ClipboardData(text: text));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(toast)),
-    );
+    EarthlyToast.success(context, toast);
   }
 
   @override

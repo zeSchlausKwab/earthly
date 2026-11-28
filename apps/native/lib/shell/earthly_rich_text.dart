@@ -7,6 +7,7 @@ import 'package:material_ui/material_ui.dart';
 import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../theme/earthly_theme.dart';
+import 'earthly_toast.dart';
 import 'entity_list_row.dart';
 
 /// Ambient navigation & title-resolution scope inherited by every
@@ -256,9 +257,7 @@ class _EarthlyRichTextState extends State<EarthlyRichText> {
       return;
     }
     Clipboard.setData(ClipboardData(text: norm));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Copied nostr:naddr1… reference')),
-    );
+    EarthlyToast.success(context, 'Copied nostr:naddr1… reference');
   }
 
   void _handleGeoTap(
@@ -302,9 +301,7 @@ class _EarthlyRichTextState extends State<EarthlyRichText> {
       return;
     }
     Clipboard.setData(ClipboardData(text: url));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Copied link: $url')),
-    );
+    EarthlyToast.success(context, 'Copied link: $url');
   }
 
   IconData _iconForDecoded(DecodedNaddrDto? decoded) {

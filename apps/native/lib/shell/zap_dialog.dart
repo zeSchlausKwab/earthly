@@ -5,6 +5,7 @@ import '../runtime/device_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/nwc.dart';
 import '../theme/earthly_theme.dart';
+import 'earthly_toast.dart';
 import 'map_drawer.dart';
 import 'qr_code_view.dart';
 
@@ -148,12 +149,9 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
     if (!opened) {
       await Clipboard.setData(ClipboardData(text: pr));
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'No Lightning wallet handler found — BOLT-11 invoice copied to clipboard.',
-          ),
-        ),
+      EarthlyToast.info(
+        context,
+        'No Lightning wallet handler found — BOLT-11 invoice copied to clipboard.',
       );
     }
   }
@@ -558,12 +556,9 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
                               Clipboard.setData(
                                 ClipboardData(text: _invoice!.pr),
                               );
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'Copied BOLT-11 Lightning invoice',
-                                  ),
-                                ),
+                              EarthlyToast.success(
+                                context,
+                                'Copied BOLT-11 Lightning invoice',
                               );
                             },
                           ),

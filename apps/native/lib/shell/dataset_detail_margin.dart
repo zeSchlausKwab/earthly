@@ -10,6 +10,7 @@ import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/publish.dart';
 import '../theme/earthly_theme.dart';
 import 'earthly_rich_text.dart';
+import 'earthly_toast.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
 import 'raw_event_inspector_dialog.dart';
@@ -127,9 +128,7 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
       );
       await Clipboard.setData(ClipboardData(text: uri));
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Copied nostr:naddr1… link')),
-      );
+      EarthlyToast.success(context, 'Copied nostr:naddr1… link');
     } catch (_) {}
   }
 
@@ -164,9 +163,7 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
       if (mounted) widget.onClose();
     } catch (err) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Delete failed: $err')),
-      );
+      EarthlyToast.error(context, 'Delete failed: $err');
     } finally {
       if (mounted) setState(() => _deleting = false);
     }

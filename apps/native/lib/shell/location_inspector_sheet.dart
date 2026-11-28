@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../theme/earthly_theme.dart';
+import 'earthly_toast.dart';
 import 'map_drawer.dart';
 
 /// Tap-to-inspect Location Inspector margin drawer: reverse-geocodes a
@@ -184,9 +185,7 @@ class _LocationInspectorSheetState extends State<LocationInspectorSheet> {
               visualDensity: VisualDensity.compact,
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: geoUri));
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Copied $geoUri')),
-                );
+                EarthlyToast.success(context, 'Copied $geoUri');
               },
               icon: const Icon(Icons.copy, size: 16),
             ),

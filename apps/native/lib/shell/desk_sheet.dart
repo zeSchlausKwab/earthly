@@ -13,6 +13,7 @@ import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/private_groups.dart';
 import '../src/rust/api/publish.dart';
 import '../theme/earthly_theme.dart';
+import 'earthly_toast.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
 
@@ -373,9 +374,7 @@ class _DeskSheetState extends State<DeskSheet>
       );
       await Clipboard.setData(ClipboardData(text: uri));
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Copied nostr:naddr1… link')),
-      );
+      EarthlyToast.success(context, 'Copied nostr:naddr1… link');
     } catch (_) {}
   }
 

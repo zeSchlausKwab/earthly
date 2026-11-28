@@ -7,6 +7,7 @@ import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../theme/earthly_theme.dart';
 import 'earthly_rich_text.dart';
+import 'earthly_toast.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
 
@@ -283,9 +284,7 @@ class _PersonMarginSheetState extends State<PersonMarginSheet>
                     switch (action) {
                       case 'copy':
                         Clipboard.setData(ClipboardData(text: npub));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Copied author npub')),
-                        );
+                        EarthlyToast.success(context, 'Copied author npub');
                       case 'mute':
                         widget.onToggleMute?.call();
                     }

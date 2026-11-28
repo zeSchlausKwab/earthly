@@ -46,6 +46,7 @@ import 'shell/inbox_sheet.dart';
 import 'shell/location_inspector_sheet.dart';
 import 'shell/map_drawer.dart';
 import 'shell/mcp_bridge_sheet.dart';
+import 'shell/mobile_drawing_bar.dart';
 import 'shell/mobile_drawing_tools_sheet.dart';
 import 'shell/osm_import_sheet.dart';
 import 'shell/outbox_queue_sheet.dart';
@@ -384,6 +385,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         restoredRecentEntityIds: loaded.recentEntityIds,
         restoredBlossomServerUrl: loaded.blossomServerUrl,
         restoredStoryDraftJson: loaded.storyDraftJson,
+        restoredPublicRelaysEnabled: loaded.publicRelaysEnabled,
       );
       _mapLayers.applyRestoredPresentation(
         offlinePacks: loaded.offlinePacks,
@@ -462,6 +464,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           agentProviderType: _agent.settings.providerType,
           agentAutoPayCashu: _agent.settings.autoPayCashu,
           agentCashuMaxSats: _agent.settings.cashuMaxSats,
+          publicRelaysEnabled: _catalog.publicRelaysEnabled,
         ),
       );
     } catch (_) {}
@@ -2361,7 +2364,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
   // --- Drawer Routing & Back Navigation ---
 
   bool _isDrawerAllowedInDrawingMode(EarthlyDrawer target) =>
-      target == EarthlyDrawer.inspector;
+      target == EarthlyDrawer.inspector || target == EarthlyDrawer.desk;
 
   bool _isDrawerOpen(EarthlyDrawer target) => _drawerNav.isOpen(target);
 
@@ -2387,6 +2390,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
   }
 
   void _openDrawer(EarthlyDrawer target, {bool pushHistory = true}) {
+    if (_draft.isDrawingMode && !_isDrawerAllowedInDrawingMode(target)) {
+      _draft.cancelEditingDraftFeature();
+    }
     if (target != EarthlyDrawer.explore && _catalog.galleryModeActive) {
       _catalog.setGalleryModeActive(false);
     }
@@ -2474,22 +2480,21 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       return;
     }
 
-    // 2. Cancel active drawing stroke or exit drawing mode cleanly.
+    // 2. Pop allowed drawing-mode drawer (Desk / Inspector) first, then cancel
+    //    active drawing stroke or exit drawing mode cleanly.
     if (_draft.isDrawingMode) {
       _drawerNav.resetExitConfirmation();
-      if (_draft.isMeasureMode && _draft.draftVertices.isNotEmpty) {
-        _draft.clearMeasureVertices();
-        return;
-      }
-      if (_draft.draftVertices.isEmpty &&
-          _draft.editingDraftFeature == null &&
-          _drawerNav.hasAnyOpenDrawer &&
+      if (_drawerNav.hasAnyOpenDrawer &&
           (_isDrawerAllowedInDrawingMode(_drawer) ||
               _isDrawerAllowedInDrawingMode(_rightStudioDrawer))) {
         final target = _isDrawerAllowedInDrawingMode(_rightStudioDrawer)
             ? _rightStudioDrawer
             : _drawer;
         _popDrawerBack(target);
+        return;
+      }
+      if (_draft.isMeasureMode && _draft.draftVertices.isNotEmpty) {
+        _draft.clearMeasureVertices();
         return;
       }
       _draft.cancelEditingDraftFeature();
@@ -3216,6 +3221,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           ]),
         EarthlyDrawer.desk => Listenable.merge([
             _draft,
+            _draft.modeListenable,
+            _draft.placementListenable,
+            _draft.geometryListenable,
+            _draft.undoRedoListenable,
+            _mapLayers.presentationListenable,
             _catalog,
             _spaces.outboxListenable,
             _spaces.circleLensListenable,
@@ -3383,8 +3393,6 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           onClose: () => _closeDrawer(target),
         );
       case EarthlyDrawer.desk:
-        // Integrator: wire onBack: _backCallbackFor(target) & docked draw mode
-        // once @drawing-ux-desk merges DeskSheet updates.
         return DeskSheet(
           activeDraftId: _draft.activeDraftId,
           savedDrafts: _draft.savedDrafts,
@@ -3521,6 +3529,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               _spaces.refreshOutboxItems(isHeadlessTest: _isHeadlessTest),
             );
           },
+          onBack: _backCallbackFor(target),
+          isDockedUnderDrawingBar: _draft.isDrawingMode,
+          drawingBar: _draft.isDrawingMode
+              ? _buildDrawingModeBottomBar(context, docked: true)
+              : null,
           onClose: () => _closeDrawer(target),
         );
       case EarthlyDrawer.spaces:
@@ -3848,6 +3861,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             return updated;
           },
           onOpenAccount: () => _openDrawer(EarthlyDrawer.account),
+          onBack: _backCallbackFor(target),
           onClose: () {
             _spaces.clearPendingCircleInvite();
             _closeDrawer(target);
@@ -3902,10 +3916,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       case EarthlyDrawer.person:
         final personPk = _catalog.inspectedPersonPubkey;
         if (personPk == null) return null;
-        // Integrator: wire onBack: _backCallbackFor(target) once @ui-layout-cleanup merges.
         return PersonMarginSheet(
           pubkey: personPk,
           relayUrls: _catalog.relayUrls,
+          onBack: _backCallbackFor(target),
           isCurrentUser: _accountWallet.account?.pubkey == personPk,
           initialProfile: _accountWallet.profilesByPubkey[personPk],
           catalogMaps: _catalog.catalog?.maps ?? const <MapSummaryDto>[],
@@ -4323,10 +4337,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           draftFeatures: _draft.features,
           activeStory: _catalog.activeStoryContext,
         ).length;
-        // Integrator: wire onBack: _backCallbackFor(target) once @ui-layout-cleanup merges.
         return StoryReaderMargin(
           story: activeStory,
           relayUrls: _catalog.relayUrls,
+          onBack: _backCallbackFor(target),
           parsed: _catalog.parsedStory!,
           datasetsByAddress: _catalog.storyDatasets,
           decodedRefsByToken: _catalog.storyDecodedRefs,
@@ -4488,10 +4502,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       case EarthlyDrawer.atlasDetail:
         final atlas = _catalog.inspectedAtlas ?? _catalog.activeAtlasLens;
         if (atlas == null) return null;
-        // Integrator: wire onBack: _backCallbackFor(target) once @ui-layout-cleanup merges.
         return AtlasDetailMargin(
           atlas: atlas,
           relayUrls: _catalog.relayUrls,
+          onBack: _backCallbackFor(target),
           catalogMaps: _catalog.catalog?.maps ?? const <MapSummaryDto>[],
           catalogStories:
               _catalog.catalog?.stories ?? const <StorySummaryDto>[],
@@ -4609,10 +4623,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       case EarthlyDrawer.datasetDetail:
         final map = _catalog.inspectedMap;
         if (map == null) return null;
-        // Integrator: wire onBack: _backCallbackFor(target) once @ui-layout-cleanup merges.
         return DatasetDetailMargin(
           map: map,
           relayUrls: _catalog.relayUrls,
+          onBack: _backCallbackFor(target),
           onShelf:
               _catalog.shelfMaps.any((e) => e.summary.address == map.address),
           isOwned: _accountWallet.account != null &&
@@ -4677,6 +4691,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         if (feature == null) return null;
         return FeatureInspectorSheet(
           feature: feature,
+          onBack: _backCallbackFor(target),
           onClose: () => _closeDrawer(target),
           onRenameDraftFeature: (featureId, newName) {
             if (_draft.renameDraftFeature(
@@ -5137,6 +5152,57 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             await RustBridge.ensureInitialized();
             return probeRelaysHealth(relayUrls: urls);
           },
+          onProbeRelaysQuality: (urls) async {
+            await RustBridge.ensureInitialized();
+            return probeRelaysQuality(relayUrls: urls);
+          },
+          onDiscoverNip66Relays: () async {
+            await RustBridge.ensureInitialized();
+            return discoverPublicRelaysNip66(
+              limit: 24,
+              probeCandidates: true,
+            );
+          },
+          onLoadRelayManagerSnapshot: (urls) async {
+            await RustBridge.ensureInitialized();
+            return getRelayManagerSnapshot(configuredRelays: urls);
+          },
+          publicRelaysEnabled: _catalog.publicRelaysEnabled,
+          onSetPublicRelaysEnabled: (enabled) async {
+            _catalog.setPublicRelaysEnabledState(enabled);
+            if (_isHeadlessTest) {
+              final next = List<String>.from(_catalog.relayUrls);
+              if (enabled) {
+                for (final pub
+                    in CatalogShelfController.defaultProductionRelayUrls) {
+                  if (!next.contains(pub)) next.add(pub);
+                }
+              } else {
+                next.removeWhere(
+                  (u) =>
+                      u != 'wss://relay.earthly.city' &&
+                      CatalogShelfController.defaultProductionRelayUrls
+                          .contains(u),
+                );
+                if (next.isEmpty) next.add('wss://relay.earthly.city');
+              }
+              _catalog.updateRelayUrls(next);
+              return;
+            }
+            await RustBridge.ensureInitialized();
+            final dbPath = await _databasePath();
+            final updated = await setPublicRelaysEnabled(
+              databasePath: dbPath,
+              enabled: enabled,
+            );
+            _catalog.setPublicRelaysEnabledState(
+              updated.publicRelaysEnabled ?? enabled,
+            );
+            _catalog.updateRelayUrls(
+              updated.relayUrls,
+              onSyncRelays: () => unawaited(_syncRelayPoolAndRefresh()),
+            );
+          },
           onFetchNip65Relays: () => _spaces.fetchNip65Relays(
             relayUrls: _catalog.relayUrls,
             ensureAccount: _ensureAccount,
@@ -5231,6 +5297,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             _showToast('Refreshing Nostr catalog…');
           },
           onOpenHelp: () => _openDrawer(EarthlyDrawer.help),
+          onBack: _backCallbackFor(target),
           onClose: () => _closeDrawer(EarthlyDrawer.settings),
         );
     }
@@ -5391,14 +5458,6 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     }
   }
 
-  void _selectAuthoringTool(DrawToolMode next) {
-    if (next == DrawToolMode.measure) {
-      _draft.toggleMeasureMode(onCloseDrawers: _closeAllDrawers);
-      return;
-    }
-    _draft.selectMode(next, onCloseDrawers: _closeAllDrawers);
-  }
-
   Future<void> _finishActiveStroke() async {
     if (!_draft.canFinishDraft) return;
     if (_draft.mode == DrawToolMode.splitByLine) {
@@ -5479,112 +5538,6 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       _catalog.setInspectedFeature(null);
       _closeDrawer(EarthlyDrawer.inspector);
     }
-  }
-
-  void _openMobileDrawingToolsSheet() {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) => ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(ctx).height * 0.84,
-        ),
-        child: ListenableBuilder(
-          listenable: Listenable.merge([
-            _draft,
-            _draft.modeListenable,
-            _draft.placementListenable,
-            _draft.geometryListenable,
-            _draft.undoRedoListenable,
-            _mapLayers.presentationListenable,
-          ]),
-          builder: (sheetCtx, _) => MobileDrawingToolsSheet(
-            activeMode: _draft.mode,
-            activePrimitiveShape: _draft.activePrimitiveShape,
-            placementStyle: _draft.placementStyle,
-            loupeEnabled: _draft.loupeEnabled,
-            snappingEnabled: _draft.snappingEnabled,
-            snapToEdgesEnabled: _draft.snapToEdgesEnabled,
-            calloutMode: _mapLayers.calloutMode,
-            drawnFeatures: _draft.features,
-            selectedFeatureIds: _draft.selectedDraftFeatureIds,
-            canUndo: _draft.undoStack.isNotEmpty,
-            canRedo: _draft.redoStack.isNotEmpty,
-            onSelectTool: (mode) {
-              if (mode != _draft.mode) {
-                _selectAuthoringTool(mode);
-              }
-            },
-            onSelectPrimitiveShape: (shape) {
-              _draft.setActivePrimitiveShape(shape);
-              if (_draft.mode != DrawToolMode.shape) {
-                _draft.selectMode(
-                  DrawToolMode.shape,
-                  onCloseDrawers: _closeAllDrawers,
-                );
-              }
-            },
-            onDropPrimitiveAtCenter: (shape, radiusMeters) =>
-                _addPrimitiveShapeUi(shape.name, radiusMeters),
-            onToggleSnapping: _draft.toggleSnapping,
-            onToggleSnapToEdges: _draft.toggleSnapToEdges,
-            onTogglePlacementStyle: _draft.togglePlacementStyle,
-            onToggleLoupe: _draft.toggleLoupeEnabled,
-            onCycleCalloutMode: _mapLayers.cycleCalloutMode,
-            onUndo: () => _draft.undoDraftEdit(
-              onRefreshInspectedFeature: _refreshInspectedDraftFeature,
-              onPersist: _schedulePersistWorkingDraft,
-            ),
-            onRedo: () => _draft.redoDraftEdit(
-              onRefreshInspectedFeature: _refreshInspectedDraftFeature,
-              onPersist: _schedulePersistWorkingDraft,
-            ),
-            onSelectAll: _draft.selectAllFeatures,
-            onClearSelection: _draft.clearSelection,
-            onDuplicateSelected: () => unawaited(
-              _duplicateDraftFeaturesUi(
-                _draft.selectedDraftFeatureIds.toList(),
-              ),
-            ),
-            onDeleteSelected: _deleteSelectedDraftFeatures,
-            onClearDraft: () => _draft.clearDraftFeatures(
-              onPersist: _schedulePersistWorkingDraft,
-            ),
-            onRunGeoAction: (
-              action, {
-              meters,
-              angleDeg,
-              scale,
-            }) =>
-                unawaited(
-              _runGeoActionUi(
-                action,
-                meters: meters,
-                angleDeg: angleDeg,
-                scale: scale,
-              ),
-            ),
-            onPasteGeoJson: () => unawaited(_pasteGeoJsonFromClipboard()),
-            onImportGeoJson: () => unawaited(_importGeoJsonFile()),
-            onImportOsm: () {
-              if (_draft.isDrawingMode) {
-                _draft.cancelEditingDraftFeature();
-              }
-              _openDrawer(EarthlyDrawer.osmImport);
-            },
-            onExportGeoJson: () => unawaited(_exportSpatialFile('geojson')),
-            onOpenDeskAndPublish: () {
-              if (_draft.isDrawingMode) {
-                _draft.cancelEditingDraftFeature();
-              }
-              _openDrawer(EarthlyDrawer.desk);
-            },
-            onExitDrawingMode: _draft.cancelEditingDraftFeature,
-            onClose: () => Navigator.of(sheetCtx).pop(),
-          ),
-        ),
-      ),
-    );
   }
 
   @override
@@ -7293,7 +7246,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                     _SelectionBarAction(
                       label: 'Ops',
                       icon: Icons.build_outlined,
-                      onTap: _openMobileDrawingToolsSheet,
+                      onTap: () => _openDrawer(EarthlyDrawer.desk),
                     ),
                     _SelectionBarAction(
                       label: 'Delete',
@@ -7380,185 +7333,79 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     );
   }
 
-  /// Modular drawing-mode toolbar slot so `@drawing-ux-desk`'s `MobileDrawingBar`
-  /// can be dropped in cleanly without touching `_buildBottomDockScope`.
-  Widget _buildDrawingModeBottomBar(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) => Row(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (final tool in mobileAuthoringTools)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 2),
-                      child: _DockTool(
-                        key: Key('mobile-draw-tool-${tool.mode.name}'),
-                        label: tool.label,
-                        icon: tool.icon,
-                        selected: _draft.mode == tool.mode,
-                        minWidth: 46,
-                        onTap: () => _selectAuthoringTool(tool.mode),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: (constraints.maxWidth * 0.78).clamp(200.0, 460.0),
-            ),
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerRight,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_draft.placementStyle == TouchPlacementStyle.crosshair &&
-                      _draft.mode != DrawToolMode.select &&
-                      _draft.mode != DrawToolMode.editVertices &&
-                      _draft.mode != DrawToolMode.boxSelect &&
-                      _draft.mode != DrawToolMode.freehand &&
-                      _draft.mode != DrawToolMode.shape) ...[
-                    FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 6,
-                        ),
-                        minimumSize: const Size(0, 32),
-                        textStyle: const TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      onPressed: () {
-                        final center = _controller?.camera?.center;
-                        if (_draft.mode == DrawToolMode.annotation) {
-                          if (center != null) {
-                            unawaited(_promptDropMapLabel(center));
-                          }
-                          return;
-                        }
-                        _draft.dropCrosshairPoint(
-                          center,
-                          onPersist: _schedulePersistWorkingDraft,
-                        );
-                      },
-                      icon: const Icon(Icons.add_location_alt, size: 14),
-                      label: const Text('Drop'),
-                    ),
-                    const SizedBox(width: 4),
-                  ],
-                  if (_draft.canFinishDraft) ...[
-                    FilledButton(
-                      style: FilledButton.styleFrom(
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 6,
-                        ),
-                        minimumSize: const Size(0, 32),
-                        textStyle: const TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      onPressed: () => unawaited(_finishActiveStroke()),
-                      child: Text(
-                        _draft.mode == DrawToolMode.splitByLine
-                            ? 'Cut · ${_draft.draftVertices.length}'
-                            : _draft.editingDraftFeature != null
-                                ? 'Save · ${_draft.draftVertices.length}'
-                                : 'Finish · ${_draft.draftVertices.length}',
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                  ],
-                  if (_draft.draftVertices.isNotEmpty)
-                    Tooltip(
-                      message: 'Undo',
-                      child: OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
-                            vertical: 6,
-                          ),
-                          minimumSize: const Size(0, 32),
-                          textStyle: const TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        onPressed: _undoInDrawingMode,
-                        icon: const Icon(Icons.undo, size: 14),
-                        label: const Text('Undo pt'),
-                      ),
-                    )
-                  else
-                    IconButton(
-                      tooltip: 'Undo',
-                      visualDensity: VisualDensity.compact,
-                      constraints: const BoxConstraints(
-                        minWidth: 32,
-                        minHeight: 32,
-                      ),
-                      padding: EdgeInsets.zero,
-                      onPressed: (_draft.undoStack.isNotEmpty ||
-                              _draft.features.isNotEmpty)
-                          ? _undoInDrawingMode
-                          : null,
-                      icon: const Icon(Icons.undo, size: 19),
-                    ),
-                  IconButton(
-                    key: const Key('mobile-drawing-more-tools'),
-                    tooltip: 'More tools',
-                    visualDensity: VisualDensity.compact,
-                    constraints: const BoxConstraints(
-                      minWidth: 32,
-                      minHeight: 32,
-                    ),
-                    padding: EdgeInsets.zero,
-                    onPressed: _openMobileDrawingToolsSheet,
-                    icon: const Icon(Icons.more_horiz, size: 20),
-                  ),
-                  const SizedBox(width: 2),
-                  OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 6,
-                      ),
-                      minimumSize: const Size(0, 32),
-                      textStyle: const TextStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    onPressed: _draft.cancelEditingDraftFeature,
-                    child: Text(
-                      (_draft.editingDraftFeature != null ||
-                              _draft.draftVertices.isNotEmpty)
-                          ? 'Cancel'
-                          : 'Done',
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildDrawingModeBottomBar(
+    BuildContext context, {
+    bool docked = false,
+  }) =>
+      MobileDrawingBar(
+        activeMode: _draft.mode,
+        activePrimitiveShape: _draft.activePrimitiveShape,
+        placementStyle: _draft.placementStyle,
+        loupeEnabled: _draft.loupeEnabled,
+        snappingEnabled: _draft.snappingEnabled,
+        snapToEdgesEnabled: _draft.snapToEdgesEnabled,
+        calloutMode: _mapLayers.calloutMode,
+        draftFeatureCount: _draft.features.length,
+        isDeskOpen: _isDrawerOpen(EarthlyDrawer.desk),
+        canUndo: _draft.undoStack.isNotEmpty,
+        canRedo: _draft.redoStack.isNotEmpty,
+        hasActiveStroke:
+            _draft.draftVertices.isNotEmpty || _draft.editingDraftFeature != null,
+        draftVertexCount: _draft.draftVertices.length,
+        canFinishStroke: _draft.canFinishDraft,
+        isEditingExistingFeature: _draft.editingDraftFeature != null,
+        isDockedAboveDesk: docked,
+        optionsListenable: Listenable.merge([
+          _draft.placementListenable,
+          _draft.undoRedoListenable,
+          _mapLayers.presentationListenable,
+        ]),
+        onSelectTool: (m) {
+          if (m == DrawToolMode.measure) {
+            if (_draft.mode != DrawToolMode.measure) {
+              _draft.toggleMeasureMode();
+            }
+          } else if (m != _draft.mode) {
+            _draft.selectMode(m);
+          }
+        },
+        onSelectPrimitiveShape: (s) {
+          _draft.setActivePrimitiveShape(s);
+          if (_draft.mode != DrawToolMode.shape) {
+            _draft.selectMode(DrawToolMode.shape);
+          }
+        },
+        onDropPrimitiveAtCenter: (s, r) => _addPrimitiveShapeUi(s.name, r),
+        onToggleDesk: () => _toggleDrawer(EarthlyDrawer.desk),
+        onToggleSnapping: _draft.toggleSnapping,
+        onToggleSnapToEdges: _draft.toggleSnapToEdges,
+        onTogglePlacementStyle: _draft.togglePlacementStyle,
+        onToggleLoupe: _draft.toggleLoupeEnabled,
+        onCycleCalloutMode: _mapLayers.cycleCalloutMode,
+        onUndo: () => _draft.undoDraftEdit(
+          onRefreshInspectedFeature: _refreshInspectedDraftFeature,
+          onPersist: _schedulePersistWorkingDraft,
+        ),
+        onRedo: () => _draft.redoDraftEdit(
+          onRefreshInspectedFeature: _refreshInspectedDraftFeature,
+          onPersist: _schedulePersistWorkingDraft,
+        ),
+        onFinishStroke: () => unawaited(_finishActiveStroke()),
+        onUndoPoint: _undoInDrawingMode,
+        onCancelStroke: _draft.cancelEditingDraftFeature,
+        onDropCrosshairPoint: () {
+          final center = _controller?.camera?.center;
+          if (_draft.mode == DrawToolMode.annotation) {
+            if (center != null) unawaited(_promptDropMapLabel(center));
+          } else {
+            _draft.dropCrosshairPoint(
+              center,
+              onPersist: _schedulePersistWorkingDraft,
+            );
+          }
+        },
+        onExitDrawingMode: _draft.cancelEditingDraftFeature,
+      );
 
   Widget _buildBottomDockScope({
     required bool isDesktop,
@@ -7572,6 +7419,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         _draft.placementListenable,
         _draft.geometryListenable,
         _draft.undoRedoListenable,
+        _mapLayers.presentationListenable,
         _spaces.badgeListenable,
       ]),
       builder: (context, _) {
@@ -7581,8 +7429,21 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         final hideBottomDockOnMobile = !isDesktop &&
             leftTarget != EarthlyDrawer.none &&
             !_draft.isDrawingMode;
-        if (hideBottomDockOnMobile || (isDesktop && !_draft.isDrawingMode)) {
+        final deskHostsDrawingBarOnMobile = !isDesktop &&
+            _draft.isDrawingMode &&
+            leftTarget == EarthlyDrawer.desk;
+        if (hideBottomDockOnMobile ||
+            deskHostsDrawingBarOnMobile ||
+            (isDesktop && !_draft.isDrawingMode)) {
           return const SizedBox.shrink();
+        }
+        if (_draft.isDrawingMode) {
+          return Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: _buildDrawingModeBottomBar(context),
+          );
         }
         final theme = Theme.of(context);
         final totalBadge = _spaces.totalSpacesBadgeCount;
@@ -7612,9 +7473,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                   top: false,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(8, 7, 8, 7),
-                    child: _draft.isDrawingMode
-                        ? _buildDrawingModeBottomBar(context)
-                        : Row(
+                    child: Row(
                             children: [
                               Expanded(
                                 child: _DockTool(
@@ -8015,15 +7874,12 @@ class _DockTool extends StatelessWidget {
     required this.icon,
     required this.selected,
     required this.onTap,
-    this.minWidth,
-    super.key,
   });
 
   final String label;
   final IconData icon;
   final bool selected;
   final VoidCallback onTap;
-  final double? minWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -8040,8 +7896,6 @@ class _DockTool extends StatelessWidget {
         onTap: onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
-          constraints:
-              minWidth != null ? BoxConstraints(minWidth: minWidth!) : null,
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
           decoration: BoxDecoration(
             color: selected

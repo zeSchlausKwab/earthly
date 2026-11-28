@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../theme/earthly_theme.dart';
+import 'earthly_toast.dart';
 
 /// Compact NIP-25 Reaction (`kind 7`) & NIP-57 Zap (`kind 9735`) bar displayed
 /// on Map (`37515`), Story (`37520`), and Atlas (`37518`) detail drawers.
@@ -107,9 +108,7 @@ class _EntityReactionBarState extends State<EntityReactionBar> {
     } catch (err) {
       if (!mounted) return;
       setState(() => _counts = previous);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Reaction failed: $err')),
-      );
+      EarthlyToast.error(context, 'Reaction failed: $err');
     } finally {
       if (mounted) setState(() => _toggling = false);
     }

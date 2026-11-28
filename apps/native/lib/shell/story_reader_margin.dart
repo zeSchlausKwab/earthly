@@ -12,6 +12,7 @@ import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../theme/earthly_theme.dart';
 import 'earthly_rich_text.dart';
+import 'earthly_toast.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
 import 'raw_event_inspector_dialog.dart';
@@ -229,10 +230,9 @@ class _StoryReaderMarginState extends State<StoryReaderMargin> {
                           );
                           await Clipboard.setData(ClipboardData(text: uri));
                           if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Copied nostr:naddr1… link'),
-                              ),
+                            EarthlyToast.success(
+                              context,
+                              'Copied nostr:naddr1… link',
                             );
                           }
                         } catch (_) {}

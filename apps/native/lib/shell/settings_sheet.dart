@@ -137,6 +137,7 @@ class SettingsSheet extends StatefulWidget {
     this.onOpenOutbox,
     this.onRefreshCatalog,
     this.onOpenHelp,
+    this.onBack,
     super.key,
   });
 
@@ -231,6 +232,7 @@ class SettingsSheet extends StatefulWidget {
   final VoidCallback? onOpenOutbox;
   final VoidCallback? onRefreshCatalog;
   final VoidCallback? onOpenHelp;
+  final VoidCallback? onBack;
 
   final VoidCallback onClose;
 
@@ -904,9 +906,21 @@ class _SettingsSheetState extends State<SettingsSheet>
         mainAxisSize: MainAxisSize.min,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 8, 2),
+            padding: EdgeInsets.fromLTRB(
+              widget.onBack != null ? 6 : 14,
+              0,
+              8,
+              2,
+            ),
             child: Row(
               children: [
+                if (widget.onBack != null) ...[
+                  EarthlyDrawerBackButton(
+                    key: const Key('settings-back-btn'),
+                    onBack: widget.onBack!,
+                  ),
+                  const SizedBox(width: 2),
+                ],
                 const Icon(
                   Icons.tune,
                   size: 18,

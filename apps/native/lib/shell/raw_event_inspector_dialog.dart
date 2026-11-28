@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'earthly_toast.dart';
+
 /// Opens a monospace Nostr Event & Payload Inspector dialog displaying event
 /// identifiers, coordinate `address`, `dTag`, extra metadata, and pretty JSON.
 Future<void> showRawEventInspectorDialog(
@@ -94,9 +96,7 @@ Future<void> showRawEventInspectorDialog(
           key: const Key('raw-inspector-copy-btn'),
           onPressed: () {
             Clipboard.setData(ClipboardData(text: summaryJson));
-            ScaffoldMessenger.of(ctx).showSnackBar(
-              const SnackBar(content: Text('Copied raw event JSON to clipboard')),
-            );
+            EarthlyToast.success(ctx, 'Copied raw event JSON to clipboard');
           },
           icon: const Icon(Icons.copy, size: 15),
           label: const Text('Copy JSON'),

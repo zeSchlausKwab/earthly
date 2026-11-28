@@ -5,6 +5,7 @@ import '../nostr/shelf_renderer.dart';
 import '../src/rust/api/blossom.dart';
 import '../theme/earthly_theme.dart';
 import 'earthly_rich_text.dart';
+import 'earthly_toast.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
 
@@ -64,10 +65,12 @@ class FeatureInspectorSheet extends StatefulWidget {
     this.onOpenDiscussion,
     this.onCloneDatasetToDraft,
     this.onShareFeature,
+    this.onBack,
     super.key,
   });
 
   final InspectedFeature feature;
+  final VoidCallback? onBack;
   final VoidCallback onClose;
   final void Function(String featureId, String newName)? onRenameDraftFeature;
   final void Function(String featureId, String colorHex)? onRecolorDraftFeature;
@@ -185,8 +188,9 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
     final clean = hex.trim().toUpperCase();
     final normalized = clean.startsWith('#') ? clean : '#$clean';
     if (!RegExp(r'^#[0-9A-F]{6}$').hasMatch(normalized)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a 6-digit hex color like #1F5F8B')),
+      EarthlyToast.warning(
+        context,
+        'Enter a 6-digit hex color like #1F5F8B',
       );
       return;
     }
@@ -211,9 +215,7 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
       setState(() => _calloutPhotoController.text = uploaded.url);
     } catch (err) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Photo upload failed: $err')),
-      );
+      EarthlyToast.error(context, 'Photo upload failed: $err');
     } finally {
       if (mounted) setState(() => _uploadingCalloutPhoto = false);
     }
@@ -251,9 +253,21 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
       initialFraction: 0.50,
       onClose: widget.onClose,
       header: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 0, 8, 6),
+        padding: EdgeInsets.fromLTRB(
+          widget.onBack != null ? 6 : 14,
+          0,
+          8,
+          6,
+        ),
         child: Row(
           children: [
+            if (widget.onBack != null) ...[
+              EarthlyDrawerBackButton(
+                key: const Key('inspector-back-btn'),
+                onBack: widget.onBack!,
+              ),
+              const SizedBox(width: 2),
+            ],
             EarthlyBadge(
               label: f.geometryType.toUpperCase(),
               color: f.isDraft

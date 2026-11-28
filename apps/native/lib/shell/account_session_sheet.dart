@@ -15,6 +15,7 @@ import '../src/rust/api/publish.dart';
 import '../src/rust/api/settings.dart';
 import '../theme/earthly_theme.dart';
 import 'earthly_rich_text.dart';
+import 'earthly_toast.dart';
 import 'map_drawer.dart';
 import 'qr_code_view.dart';
 
@@ -640,10 +641,9 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                       Clipboard.setData(
                         ClipboardData(text: _nostrConnectOffer!.connectUri),
                       );
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Copied nostrconnect:// URI'),
-                        ),
+                      EarthlyToast.success(
+                        context,
+                        'Copied nostrconnect:// URI',
                       );
                     },
                     icon: const Icon(Icons.copy, size: 14),
@@ -923,9 +923,7 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                   label: 'Copy Pubkey',
                   onTap: () {
                     Clipboard.setData(ClipboardData(text: account.pubkey));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Copied public key')),
-                    );
+                    EarthlyToast.success(context, 'Copied public key');
                   },
                 ),
                 if (widget.localNsec != null)

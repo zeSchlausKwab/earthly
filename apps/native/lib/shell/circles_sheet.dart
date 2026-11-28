@@ -102,6 +102,7 @@ class CirclesSheet extends StatefulWidget {
     this.onDownloadMedia,
     this.onBackupMultiDevice,
     this.onPullMultiDevice,
+    this.onBack,
     super.key,
   });
 
@@ -183,6 +184,7 @@ class CirclesSheet extends StatefulWidget {
   final Future<MultiDeviceSyncSummaryDto> Function()? onBackupMultiDevice;
   final Future<MultiDeviceSyncSummaryDto> Function()? onPullMultiDevice;
   final VoidCallback onOpenAccount;
+  final VoidCallback? onBack;
   final VoidCallback onClose;
   final String? initialWorkspaceId;
   final String? initialInviteLink;
@@ -1945,9 +1947,21 @@ class _CirclesSheetState extends State<CirclesSheet>
 
   Widget _buildListHeader(ThemeData theme) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 0, 8, 6),
+      padding: EdgeInsets.fromLTRB(
+        widget.onBack != null ? 6 : 14,
+        0,
+        8,
+        6,
+      ),
       child: Row(
         children: [
+          if (widget.onBack != null) ...[
+            EarthlyDrawerBackButton(
+              key: const Key('circles-back-btn'),
+              onBack: widget.onBack!,
+            ),
+            const SizedBox(width: 2),
+          ],
           const Icon(
             Icons.lock_outline,
             size: 17,

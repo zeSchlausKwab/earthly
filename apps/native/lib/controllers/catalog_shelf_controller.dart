@@ -39,6 +39,7 @@ class CatalogShelfController extends ChangeNotifier {
   ];
 
   List<String> relayUrls = List<String>.from(defaultProductionRelayUrls);
+  bool publicRelaysEnabled = true;
   EarthlyCatalogSnapshot? catalog;
   bool catalogLoading = false;
 
@@ -209,9 +210,13 @@ class CatalogShelfController extends ChangeNotifier {
     required List<String> restoredRecentEntityIds,
     required String restoredBlossomServerUrl,
     required String? restoredStoryDraftJson,
+    bool? restoredPublicRelaysEnabled,
   }) {
     if (restoredRelayUrls.isNotEmpty) {
       relayUrls = List<String>.from(restoredRelayUrls);
+    }
+    if (restoredPublicRelaysEnabled != null) {
+      publicRelaysEnabled = restoredPublicRelaysEnabled;
     }
     pinnedEntityIds
       ..clear()
@@ -332,6 +337,12 @@ class CatalogShelfController extends ChangeNotifier {
     if (!changed) return false;
     updateRelayUrls(next, onPersist: onPersist, onSyncRelays: onSyncRelays);
     return true;
+  }
+
+  void setPublicRelaysEnabledState(bool enabled) {
+    if (publicRelaysEnabled == enabled) return;
+    publicRelaysEnabled = enabled;
+    notifyListeners();
   }
 
   void setBlossomServerUrl(String url, {VoidCallback? onPersist}) {

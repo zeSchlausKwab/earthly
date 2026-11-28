@@ -80,13 +80,13 @@ Widget _buildHome({
 
 void main() {
   testWidgets(
-      'Expanded Mobile Authoring Dock exposes all 12 tools, Snap toggle, and Cut completion',
+      'Contextual MobileDrawingBar exposes grouped Select/Draw/Shapes menus, Snap toggle, and Cut completion',
       (WidgetTester tester) async {
     setTestViewport(tester, const Size(390, 844));
     final draft = DraftWorkbenchController();
     addTearDown(draft.dispose);
 
-    // Seed a line to test Cut (splitByLine) completion from the dock.
+    // Seed a line to test Cut (splitByLine) completion from the contextual bar.
     draft.features.add(
       const DrawnFeature(
         id: 'line-target',
@@ -107,11 +107,16 @@ void main() {
     await tester.pump();
 
     expect(draft.mode, DrawToolMode.line);
-    expect(find.byKey(const Key('mobile-drawing-more-tools')), findsOneWidget);
+    expect(find.byType(MobileDrawingBar), findsOneWidget);
+    expect(find.byKey(const Key('mobile-draw-menu-select')), findsOneWidget);
+    expect(find.byKey(const Key('mobile-draw-menu-draw')), findsOneWidget);
+    expect(find.byKey(const Key('mobile-draw-menu-shapes')), findsOneWidget);
+    expect(find.byKey(const Key('mobile-draw-desk-toggle')), findsOneWidget);
+    expect(find.byKey(const Key('mobile-draw-options-btn')), findsOneWidget);
+    expect(find.byKey(const Key('mobile-draw-done-btn')), findsOneWidget);
     expect(find.byTooltip('Draw-Drag'), findsOneWidget);
     expect(find.byTooltip('Loupe'), findsOneWidget);
     expect(find.byTooltip('Snap'), findsOneWidget);
-    expect(find.text('Done'), findsOneWidget);
 
     // Verify Snap toggle in right thumb rail
     expect(draft.snappingEnabled, isTrue);
@@ -119,40 +124,51 @@ void main() {
     await tester.pump();
     expect(draft.snappingEnabled, isFalse);
 
-    // Verify all 12 tool labels exist inside the scrollable dock
-    const expectedToolModes = [
-      (DrawToolMode.select, 'Select'),
-      (DrawToolMode.editVertices, 'Edit'),
-      (DrawToolMode.boxSelect, 'Box'),
-      (DrawToolMode.point, 'Point'),
-      (DrawToolMode.line, 'Line'),
-      (DrawToolMode.freehand, 'Sketch'),
-      (DrawToolMode.polygon, 'Area'),
-      (DrawToolMode.arrow, 'Arrow'),
-      (DrawToolMode.shape, 'Shape'),
-      (DrawToolMode.annotation, 'Label'),
-      (DrawToolMode.splitByLine, 'Cut'),
-      (DrawToolMode.measure, 'Measure'),
-    ];
-    for (final entry in expectedToolModes) {
-      final toolFinder = find.byKey(Key('mobile-draw-tool-${entry.$1.name}'));
-      await tester.ensureVisible(toolFinder);
-      expect(
-        find.descendant(of: toolFinder, matching: find.text(entry.$2)),
-        findsOneWidget,
-      );
-    }
+    // Verify Select menu exposes Select, Edit Vertices, Box Select
+    await tester.tap(find.byKey(const Key('mobile-draw-menu-select')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('mobile-draw-item-select')), findsOneWidget);
+    expect(
+      find.byKey(const Key('mobile-draw-item-editVertices')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('mobile-draw-item-boxSelect')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('mobile-draw-item-select')));
+    await tester.pumpAndSettle();
+    expect(draft.mode, DrawToolMode.select);
 
-    // Switch to Cut tool & draw 2 cutter points crossing line-target
-    await tester.tap(find.byKey(const Key('mobile-draw-tool-splitByLine')));
-    await tester.pump();
+    // Verify Draw menu exposes Point, Line, Area, Sketch, Arrow, Label
+    await tester.tap(find.byKey(const Key('mobile-draw-menu-draw')));
+    await tester.pumpAndSettle();
+    for (final mode in const [
+      DrawToolMode.point,
+      DrawToolMode.line,
+      DrawToolMode.polygon,
+      DrawToolMode.freehand,
+      DrawToolMode.arrow,
+      DrawToolMode.annotation,
+    ]) {
+      expect(find.byKey(Key('mobile-draw-item-${mode.name}')), findsOneWidget);
+    }
+    await tester.tap(find.byKey(const Key('mobile-draw-item-line')));
+    await tester.pumpAndSettle();
+    expect(draft.mode, DrawToolMode.line);
+
+    // Switch to Cut tool via Shapes & Spatial menu & draw 2 cutter points crossing line-target
+    await tester.tap(find.byKey(const Key('mobile-draw-menu-shapes')));
+    await tester.pumpAndSettle();
+    expect(find.text('SHAPES'), findsOneWidget);
+    expect(find.text('CUT & MEASURE'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('mobile-draw-item-splitByLine')));
+    await tester.pumpAndSettle();
     expect(draft.mode, DrawToolMode.splitByLine);
 
     draft.commitVertex(const Geographic(lon: 16.37, lat: 48.205));
     draft.commitVertex(const Geographic(lon: 16.37, lat: 48.215));
     await tester.pump();
 
-    // Mid-stroke pinned cluster shows Cut · 2, Undo pt, Cancel
+    // Mid-stroke bar shows Cut · 2, Undo pt, Cancel
+    expect(find.byKey(const Key('mobile-drawing-stroke-bar')), findsOneWidget);
     expect(find.text('Cut · 2'), findsOneWidget);
     expect(find.text('Undo pt'), findsOneWidget);
     expect(find.text('Cancel'), findsOneWidget);
@@ -321,7 +337,7 @@ void main() {
   });
 
   testWidgets(
-      'More button opens focused Canvas Options sheet (no catch-all tools/workbench dump)',
+      'Options button in MobileDrawingBar opens focused Canvas Options sheet (no catch-all tools/workbench dump)',
       (WidgetTester tester) async {
     setTestViewport(tester, const Size(412, 915));
     final draft = DraftWorkbenchController();
@@ -333,7 +349,7 @@ void main() {
     await tester.tap(find.text('Draw'));
     await tester.pump();
 
-    await tester.tap(find.byKey(const Key('mobile-drawing-more-tools')));
+    await tester.tap(find.byKey(const Key('mobile-draw-options-btn')));
     await tester.pumpAndSettle();
 
     expect(find.byType(MobileDrawingOptionsSheet), findsOneWidget);
@@ -355,6 +371,76 @@ void main() {
     await tester.tap(find.byKey(const Key('mobile-options-close')));
     await tester.pumpAndSettle();
     expect(find.byType(MobileDrawingOptionsSheet), findsNothing);
+  });
+
+  testWidgets(
+      'EarthlySpikeHome Draw -> Desk stays in draw mode with MobileDrawingBar docked above DeskSheet, and Back pops Desk before exiting draw mode',
+      (WidgetTester tester) async {
+    setTestViewport(tester, const Size(412, 915));
+    final draft = DraftWorkbenchController();
+    addTearDown(draft.dispose);
+
+    draft.features.add(
+      const DrawnFeature(
+        id: 'trail-1',
+        kind: DrawToolMode.line,
+        name: 'Ridge Trail',
+        vertices: [
+          Geographic(lon: 16.36, lat: 48.20),
+          Geographic(lon: 16.38, lat: 48.21),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(_buildHome(draftController: draft));
+    await tester.pump();
+
+    // 1. Enter drawing mode -> MobileDrawingBar appears with Desk count badge "1"
+    await tester.tap(find.text('Draw'));
+    await tester.pump();
+    expect(draft.isDrawingMode, isTrue);
+    expect(find.byType(MobileDrawingBar), findsOneWidget);
+    expect(find.byKey(const Key('mobile-draw-desk-badge')), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
+
+    // 2. Tap Desk inside MobileDrawingBar -> STAYS in drawing mode with bar docked directly above DeskSheet!
+    await tester.tap(find.byKey(const Key('mobile-draw-desk-toggle')));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(draft.isDrawingMode, isTrue);
+    expect(find.byType(DeskSheet), findsOneWidget);
+    expect(find.byKey(const Key('desk-docked-drawing-stack')), findsOneWidget);
+    expect(find.byKey(const Key('desk-drawing-mode-badge')), findsOneWidget);
+    // Standalone bottom bar must be hidden while Desk hosts the docked bar
+    expect(find.byType(MobileDrawingBar), findsOneWidget);
+
+    final barRect = tester.getRect(find.byKey(const Key('mobile-drawing-bar')));
+    final deskTabRect = tester.getRect(find.byKey(const Key('desk-tab-draft')));
+    expect(barRect.top, greaterThan(160));
+    expect(barRect.bottom, lessThanOrEqualTo(deskTabRect.top + 8));
+
+    // 3. Switch drawing tool from docked bar -> stays in draw mode AND keeps Desk docked!
+    await tester.tap(find.byKey(const Key('mobile-draw-menu-draw')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('mobile-draw-item-point')));
+    await tester.pumpAndSettle();
+    expect(draft.mode, DrawToolMode.point);
+    expect(draft.isDrawingMode, isTrue);
+    expect(find.byType(DeskSheet), findsOneWidget);
+
+    // 4. First system Back closes Desk FIRST while staying in Draw mode!
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(DeskSheet), findsNothing);
+    expect(draft.isDrawingMode, isTrue);
+    expect(find.byType(MobileDrawingBar), findsOneWidget);
+
+    // 5. Second system Back exits Draw mode cleanly back to browse map!
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(draft.isDrawingMode, isFalse);
+    expect(find.byType(MobileDrawingBar), findsNothing);
+    expect(find.byKey(const Key('earthly-bottom-dock')), findsOneWidget);
   });
 
   testWidgets(

@@ -3,6 +3,7 @@ import 'package:earthly_native/controllers/draft_workbench_controller.dart';
 import 'package:earthly_native/main.dart';
 import 'package:earthly_native/shell/atlas_detail_margin.dart';
 import 'package:earthly_native/shell/cashu_wallet_sheet.dart';
+import 'package:earthly_native/shell/circles_sheet.dart';
 import 'package:earthly_native/shell/dataset_detail_margin.dart';
 import 'package:earthly_native/shell/desk_sheet.dart';
 import 'package:earthly_native/shell/drawer_navigation.dart';
@@ -12,6 +13,7 @@ import 'package:earthly_native/shell/feature_inspector_sheet.dart';
 import 'package:earthly_native/shell/inbox_sheet.dart';
 import 'package:earthly_native/shell/outbox_queue_sheet.dart';
 import 'package:earthly_native/shell/place_search_sheet.dart';
+import 'package:earthly_native/shell/settings_sheet.dart';
 import 'package:earthly_native/shell/spaces_sheet.dart';
 import 'package:earthly_native/shell/story_reader_margin.dart';
 import 'package:earthly_native/src/rust/api/nostr_client.dart';
@@ -545,10 +547,24 @@ void main() {
         // 4) Spaces -> Cashu Wallet shows visible Back button and pops back to Spaces
         await tester.tap(find.byKey(const Key('spaces-tab-network')));
         await tester.pumpAndSettle();
-        await scrollAndTap(
-          tester,
-          find.byKey(const Key('spaces-cashu-wallet-btn')),
+        final cashuBtn = find.byKey(const Key('spaces-cashu-wallet-btn'));
+        await tester.scrollUntilVisible(
+          cashuBtn,
+          180,
+          scrollable: find
+              .descendant(
+                of: find.byType(SpacesSheet),
+                matching: find.byWidgetPredicate(
+                  (w) =>
+                      w is Scrollable && w.axisDirection == AxisDirection.down,
+                ),
+              )
+              .last,
         );
+        await tester.ensureVisible(cashuBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(cashuBtn);
+        await tester.pumpAndSettle();
         expect(find.byType(CashuWalletSheet), findsOneWidget);
         expect(find.byKey(const Key('cashu-back-btn')), findsOneWidget);
 
@@ -584,6 +600,68 @@ void main() {
       await tester.pump();
       expect(backTapped, isTrue);
     });
+
+    testWidgets(
+      'Cross-branch header Back arrows work for Explore -> Pill -> Settings, Spaces -> Circles, and Explore -> Detail margins',
+      (WidgetTester tester) async {
+        setTestViewport(tester, const Size(412, 915));
+        final catalog = CatalogShelfController()..setCatalog(makeRichCatalog());
+        final drawerNav = DrawerNavigationController();
+        addTearDown(() {
+          catalog.dispose();
+          drawerNav.dispose();
+        });
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildEarthlyTheme(Brightness.light),
+            home: EarthlySpikeHome(
+              mapBuilder: (context, gestures, onMapCreated, onCameraMove) =>
+                  const ColoredBox(color: Color(0xFFEDF0EA)),
+              catalogController: catalog,
+              drawerNavigationController: drawerNav,
+            ),
+          ),
+        );
+        await tester.pump();
+
+        // 1. Explore -> DatasetDetailMargin shows header Back arrow returning to Explore
+        await tester.tap(find.text('Explore'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Danube River Loop'));
+        await tester.pumpAndSettle();
+        expect(find.byType(DatasetDetailMargin), findsOneWidget);
+        expect(find.byKey(const Key('drawer-back-btn')), findsOneWidget);
+        await tester.tap(find.byKey(const Key('drawer-back-btn')));
+        await tester.pumpAndSettle();
+        expect(find.byType(ExploreSheet), findsOneWidget);
+
+        // 2. Explore -> Pill -> Settings shows header Back arrow returning to Explore
+        await tester.tap(find.byKey(const Key('earthly-brand-pill')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('earthly-pill-settings-btn')));
+        await tester.pumpAndSettle();
+        expect(find.byType(SettingsSheet), findsOneWidget);
+        expect(find.byKey(const Key('settings-back-btn')), findsOneWidget);
+        await tester.tap(find.byKey(const Key('settings-back-btn')));
+        await tester.pumpAndSettle();
+        expect(find.byType(ExploreSheet), findsOneWidget);
+
+        // 3. Spaces -> Circles shows header Back arrow returning to Spaces
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Spaces'));
+        await tester.pumpAndSettle();
+        expect(find.byType(SpacesSheet), findsOneWidget);
+        drawerNav.open(EarthlyDrawer.circles, isWideStudio: false);
+        await tester.pumpAndSettle();
+        expect(find.byType(CirclesSheet), findsOneWidget);
+        expect(find.byKey(const Key('circles-back-btn')), findsOneWidget);
+        await tester.tap(find.byKey(const Key('circles-back-btn')));
+        await tester.pumpAndSettle();
+        expect(find.byType(SpacesSheet), findsOneWidget);
+      },
+    );
   });
 
   group('Immediate map display & camera fly-to on Search / Explore entity tap',

@@ -10,6 +10,7 @@ import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/publish.dart';
 import '../theme/earthly_theme.dart';
 import 'earthly_rich_text.dart';
+import 'earthly_toast.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
 import 'raw_event_inspector_dialog.dart';
@@ -179,9 +180,7 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
       );
       await Clipboard.setData(ClipboardData(text: uri));
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Copied Atlas nostr:naddr1… link')),
-      );
+      EarthlyToast.success(context, 'Copied Atlas nostr:naddr1… link');
     } catch (_) {}
   }
 
@@ -192,9 +191,7 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
       await widget.onBlessContribution!(entityAddress);
     } catch (err) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not curate item: $err')),
-      );
+      EarthlyToast.error(context, 'Could not curate item: $err');
     } finally {
       if (mounted) setState(() => _blessingAddress = null);
     }
@@ -227,9 +224,7 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
       await widget.onLockDownAtlas!();
     } catch (err) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not lock down Atlas: $err')),
-      );
+      EarthlyToast.error(context, 'Could not lock down Atlas: $err');
     } finally {
       if (mounted) setState(() => _lockingDown = false);
     }

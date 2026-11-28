@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../runtime/device_bridge.dart';
 import '../runtime/rust_bridge.dart';
+import '../shell/earthly_toast.dart';
 import '../src/rust/api/nostr_client.dart';
 
 /// Builds a canonical public https://earthly.city web URL matching Web's
@@ -47,16 +48,12 @@ Future<void> shareEarthlyEntity({
     if (!shared) {
       await Clipboard.setData(ClipboardData(text: webUrl));
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Copied share link $webUrl')),
-        );
+        EarthlyToast.success(context, 'Copied share link $webUrl');
       }
     }
   } catch (err) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not share link: $err')),
-      );
+      EarthlyToast.error(context, 'Could not share link: $err');
     }
   }
 }
