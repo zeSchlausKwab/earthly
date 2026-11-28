@@ -101,6 +101,7 @@ class OutboxQueueSheet extends StatelessWidget {
     required this.onFlushAll,
     required this.onRetryItem,
     required this.onDiscardItem,
+    this.onBack,
     required this.onClose,
     super.key,
   });
@@ -110,6 +111,7 @@ class OutboxQueueSheet extends StatelessWidget {
   final VoidCallback onFlushAll;
   final ValueChanged<String> onRetryItem;
   final ValueChanged<String> onDiscardItem;
+  final VoidCallback? onBack;
   final VoidCallback onClose;
 
   static String kindLabel(int kind) => switch (kind) {
@@ -169,9 +171,17 @@ class OutboxQueueSheet extends StatelessWidget {
       accentTopBorder: true,
       onClose: onClose,
       header: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 0, 8, 8),
+        padding: EdgeInsets.fromLTRB(onBack != null ? 4 : 14, 0, 8, 8),
         child: Row(
           children: [
+            if (onBack != null)
+              IconButton(
+                key: const Key('outbox-back-btn'),
+                tooltip: 'Back',
+                visualDensity: VisualDensity.compact,
+                onPressed: onBack,
+                icon: const Icon(Icons.arrow_back, size: 18),
+              ),
             const Icon(
               Icons.outbox_outlined,
               size: 18,

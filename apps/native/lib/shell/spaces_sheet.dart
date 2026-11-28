@@ -14,6 +14,7 @@ import '../src/rust/api/private_groups.dart';
 import '../src/rust/api/publish.dart';
 import '../src/rust/api/spike.dart';
 import '../theme/earthly_theme.dart';
+import 'earthly_toast.dart';
 import 'map_drawer.dart';
 import 'qr_code_view.dart';
 
@@ -33,6 +34,7 @@ class SpacesSheet extends StatefulWidget {
     required this.onSessionStateChanged,
     required this.onNearbySynced,
     required this.onBroadcastBeacon,
+    this.onBack,
     required this.onClose,
     this.circles = const <CircleWorkspaceDto>[],
     this.pendingCircleJoinsCount = 0,
@@ -93,6 +95,7 @@ class SpacesSheet extends StatefulWidget {
   final bool cashuWalletEnabled;
   final VoidCallback? onOpenMcpBridge;
   final bool mcpBridgeRunning;
+  final VoidCallback? onBack;
   final VoidCallback onClose;
 
   @override
@@ -591,9 +594,17 @@ class _SpacesSheetState extends State<SpacesSheet>
       initialFraction: 0.56,
       onClose: widget.onClose,
       header: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 0, 4, 0),
+        padding: EdgeInsets.fromLTRB(widget.onBack != null ? 4 : 8, 0, 4, 0),
         child: Row(
           children: [
+            if (widget.onBack != null)
+              IconButton(
+                key: const Key('spaces-back-btn'),
+                tooltip: 'Back',
+                visualDensity: VisualDensity.compact,
+                onPressed: widget.onBack,
+                icon: const Icon(Icons.arrow_back, size: 18),
+              ),
             Expanded(
               child: TabBar(
                 controller: _tabs,
@@ -1148,11 +1159,9 @@ class _SpacesSheetState extends State<SpacesSheet>
                           tooltip: 'Copy pairing link',
                           onPressed: () {
                             Clipboard.setData(ClipboardData(text: pairingUri));
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content:
-                                    Text('Copied Field Session pairing link'),
-                              ),
+                            EarthlyToast.success(
+                              context,
+                              'Copied Field Session pairing link',
                             );
                           },
                           icon: const Icon(Icons.copy, size: 18),
