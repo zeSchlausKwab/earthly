@@ -42,6 +42,7 @@ class InboxSheet extends StatefulWidget {
     required this.onOpenCircles,
     required this.onOpenSpaces,
     required this.onOpenAccount,
+    this.onBack,
     required this.onClose,
     super.key,
   });
@@ -62,6 +63,7 @@ class InboxSheet extends StatefulWidget {
   final VoidCallback onOpenCircles;
   final VoidCallback onOpenSpaces;
   final VoidCallback onOpenAccount;
+  final VoidCallback? onBack;
   final VoidCallback onClose;
 
   static bool isItemRead(
@@ -140,9 +142,17 @@ class _InboxSheetState extends State<InboxSheet> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 8, 6),
+            padding: EdgeInsets.fromLTRB(widget.onBack != null ? 4 : 14, 0, 8, 6),
             child: Row(
               children: [
+                if (widget.onBack != null)
+                  IconButton(
+                    key: const Key('inbox-back-btn'),
+                    tooltip: 'Back',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: widget.onBack,
+                    icon: const Icon(Icons.arrow_back, size: 18),
+                  ),
                 const Icon(
                   Icons.inbox_outlined,
                   size: 18,

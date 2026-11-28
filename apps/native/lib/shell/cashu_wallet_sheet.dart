@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/earthly_theme.dart';
+import 'earthly_toast.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
 import 'qr_code_view.dart';
@@ -180,6 +181,7 @@ class CashuWalletSheet extends StatefulWidget {
     required this.onWithdrawBolt11,
     required this.onToggleNutzaps,
     required this.onClaimNutzaps,
+    this.onBack,
     required this.onClose,
     this.walletEnabled = true,
     this.onSetWalletEnabled,
@@ -205,6 +207,7 @@ class CashuWalletSheet extends StatefulWidget {
       onWithdrawBolt11;
   final FutureOr<void> Function() onToggleNutzaps;
   final FutureOr<void> Function() onClaimNutzaps;
+  final VoidCallback? onBack;
   final VoidCallback onClose;
   final bool walletEnabled;
   final FutureOr<void> Function(bool enabled)? onSetWalletEnabled;
@@ -447,9 +450,7 @@ class _CashuWalletSheetState extends State<CashuWalletSheet> {
 
   void _copyToClipboard(String text, String message) {
     Clipboard.setData(ClipboardData(text: text));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    EarthlyToast.success(context, message);
   }
 
   void _togglePanel(_CashuActionPanel panel) {
@@ -505,9 +506,17 @@ class _CashuWalletSheetState extends State<CashuWalletSheet> {
       desktopSide: EarthlyDrawerSide.right,
       onClose: widget.onClose,
       header: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 0, 8, 8),
+        padding: EdgeInsets.fromLTRB(widget.onBack != null ? 4 : 14, 0, 8, 8),
         child: Row(
           children: [
+            if (widget.onBack != null)
+              IconButton(
+                key: const Key('cashu-back-btn'),
+                tooltip: 'Back',
+                visualDensity: VisualDensity.compact,
+                onPressed: widget.onBack,
+                icon: const Icon(Icons.arrow_back, size: 18),
+              ),
             const Icon(
               Icons.account_balance_wallet_outlined,
               size: 18,

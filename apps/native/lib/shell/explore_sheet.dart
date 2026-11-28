@@ -7,6 +7,7 @@ import '../runtime/rust_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../theme/earthly_theme.dart';
 import 'earthly_rich_text.dart';
+import 'earthly_toast.dart';
 import 'entity_list_row.dart';
 import 'map_drawer.dart';
 
@@ -59,6 +60,7 @@ class ExploreSheet extends StatefulWidget {
     this.onPreviewGalleryStory,
     this.onPreviewGalleryAtlas,
     this.onClearGalleryPreview,
+    this.onBack,
     required this.onClose,
     super.key,
   });
@@ -99,6 +101,7 @@ class ExploreSheet extends StatefulWidget {
   final ValueChanged<StorySummaryDto>? onPreviewGalleryStory;
   final ValueChanged<AtlasSummaryDto>? onPreviewGalleryAtlas;
   final VoidCallback? onClearGalleryPreview;
+  final VoidCallback? onBack;
   final VoidCallback onClose;
 
   @override
@@ -422,6 +425,18 @@ class _ExploreSheetState extends State<ExploreSheet>
     return list;
   }
 
+  List<SightingSummaryDto> _filteredSightings(
+    List<SightingSummaryDto> sightings,
+  ) {
+    final list = sightings
+        .where(
+          (s) => _matchesQuery([s.title, s.note, s.dTag, _authorLabel(s.pubkey)]),
+        )
+        .toList();
+    list.sort((a, b) => b.start.compareTo(a.start));
+    return list;
+  }
+
   Future<void> _copyNaddr({
     required int kind,
     required String pubkey,
@@ -437,9 +452,7 @@ class _ExploreSheetState extends State<ExploreSheet>
       );
       await Clipboard.setData(ClipboardData(text: uri));
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Copied nostr:naddr1… link')),
-      );
+      EarthlyToast.success(context, 'Copied nostr:naddr1… link');
     } catch (_) {}
   }
 
@@ -475,6 +488,8 @@ class _ExploreSheetState extends State<ExploreSheet>
     final visibleMaps = _filteredMaps(catalog?.maps ?? const []);
     final visibleStories = _filteredStories(catalog?.stories ?? const []);
     final visibleAtlases = _filteredAtlases(catalog?.atlases ?? const []);
+    final visibleSightings =
+        _filteredSightings(catalog?.sightings ?? const []);
     final visiblePeople = _filteredPeople(catalog);
     final unstackedMaps = visibleMaps
         .where((m) => !widget.shelfAddresses.contains(m.address))
@@ -500,6 +515,14 @@ class _ExploreSheetState extends State<ExploreSheet>
         children: [
           Row(
             children: [
+              if (widget.onBack != null)
+                IconButton(
+                  key: const Key('explore-back-btn'),
+                  tooltip: 'Back',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: widget.onBack,
+                  icon: const Icon(Icons.arrow_back, size: 18),
+                ),
               Expanded(
                 child: TabBar(
                   controller: _tabs,
@@ -510,7 +533,7 @@ class _ExploreSheetState extends State<ExploreSheet>
                     Tab(text: 'Maps (${visibleMaps.length})'),
                     Tab(text: 'Stories (${visibleStories.length})'),
                     Tab(text: 'Atlases (${visibleAtlases.length})'),
-                    Tab(text: 'Sightings (${catalog?.sightings.length ?? 0})'),
+                    Tab(text: 'Sightings (${visibleSightings.length})'),
                     Tab(text: 'Live (${catalog?.beacons.length ?? 0})'),
                     Tab(
                       key: const Key('explore-tab-people'),
@@ -792,7 +815,7 @@ class _ExploreSheetState extends State<ExploreSheet>
                       _buildMapsList(visibleMaps),
                       _buildStoriesList(visibleStories),
                       _buildAtlasesList(visibleAtlases),
-                      _buildSightingsList(catalog?.sightings ?? const []),
+                      _buildSightingsList(visibleSightings),
                       _buildBeaconsList(catalog?.beacons ?? const []),
                       _buildPeopleList(visiblePeople),
                     ],
@@ -899,9 +922,27 @@ class _ExploreSheetState extends State<ExploreSheet>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(10, 8, 6, 4),
+                      padding: EdgeInsets.fromLTRB(
+                        widget.onBack != null ? 4 : 10,
+                        8,
+                        6,
+                        4,
+                      ),
                       child: Row(
                         children: [
+                          if (widget.onBack != null)
+                            IconButton(
+                              key: const Key('explore-back-btn'),
+                              tooltip: 'Back',
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 30,
+                                minHeight: 30,
+                              ),
+                              onPressed: widget.onBack,
+                              icon: const Icon(Icons.arrow_back, size: 17),
+                            ),
                           Expanded(
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -1495,13 +1536,7 @@ class _ExploreSheetState extends State<ExploreSheet>
           meta: metaParts.join(' · '),
           selected: onShelf,
           starred: isStarred,
-          onTap: () {
-            if (!onShelf) {
-              widget.onToggleMapOnShelf(map);
-            } else {
-              widget.onFocusMap(map);
-            }
-          },
+          onTap: () => widget.onInspectMap(map),
           primaryAction: IconButton(
             tooltip: onShelf ? 'Remove from map' : 'Show on map',
             visualDensity: VisualDensity.compact,

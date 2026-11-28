@@ -36,7 +36,9 @@ import 'shell/circles_sheet.dart';
 import 'shell/dataset_detail_margin.dart';
 import 'shell/desk_sheet.dart';
 import 'shell/discussion_margin_sheet.dart';
+import 'shell/drawer_navigation.dart';
 import 'shell/earthly_rich_text.dart';
+import 'shell/earthly_toast.dart';
 import 'shell/explore_sheet.dart';
 import 'shell/feature_inspector_sheet.dart';
 import 'shell/help_shortcuts_sheet.dart';
@@ -81,35 +83,6 @@ void main() {
     ),
   );
   runApp(const EarthlyNativeApp());
-}
-
-enum _ActiveDrawer {
-  none,
-  explore,
-  desk,
-  spaces,
-  circles,
-  inbox,
-  outbox,
-  person,
-  account,
-  cashuWallet,
-  mcpBridge,
-  search,
-  agent,
-  storyReader,
-  storyComposer,
-  atlasComposer,
-  atlasDetail,
-  datasetDetail,
-  inspector,
-  discussion,
-  locationInspector,
-  osmImport,
-  routing,
-  shoutbox,
-  help,
-  settings,
 }
 
 class EarthlyNativeApp extends StatefulWidget {
@@ -159,8 +132,14 @@ class EarthlySpikeHome extends StatefulWidget {
     this.accountController,
     this.catalogController,
     this.spacesController,
+    this.toastController,
+    this.drawerNavigationController,
     this.cameraOrientationNotifier,
     this.onReNorthRequested,
+    this.onFlyToBoundsRequested,
+    this.onCameraPositionRequested,
+    this.onExitAppRequested,
+    this.clock,
     super.key,
   });
 
@@ -178,9 +157,16 @@ class EarthlySpikeHome extends StatefulWidget {
   final AccountWalletController? accountController;
   final CatalogShelfController? catalogController;
   final SpacesSyncController? spacesController;
+  final EarthlyToastController? toastController;
+  final DrawerNavigationController? drawerNavigationController;
   final ValueNotifier<({double bearing, double pitch})>?
       cameraOrientationNotifier;
   final VoidCallback? onReNorthRequested;
+  final ValueChanged<GeoBox>? onFlyToBoundsRequested;
+  final void Function(double lon, double lat, double zoom)?
+      onCameraPositionRequested;
+  final VoidCallback? onExitAppRequested;
+  final DateTime Function()? clock;
 
   @override
   State<EarthlySpikeHome> createState() => _EarthlySpikeHomeState();
@@ -194,6 +180,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
   late final AccountWalletController _accountWallet;
   late final CatalogShelfController _catalog;
   late final SpacesSyncController _spaces;
+  late final EarthlyToastController _toast;
+  late final DrawerNavigationController _drawerNav;
 
   late final bool _ownsMapLayers;
   late final bool _ownsAgent;
@@ -201,24 +189,22 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
   late final bool _ownsAccountWallet;
   late final bool _ownsCatalog;
   late final bool _ownsSpaces;
+  late final bool _ownsToast;
+  late final bool _ownsDrawerNav;
   late final ValueNotifier<({double bearing, double pitch})>
       _cameraOrientationNotifier;
   late final bool _ownsCameraOrientationNotifier;
   EarthlySettingsTab _settingsInitialTab = EarthlySettingsTab.map;
   int _lastClusteredSyncRevision = -1;
+  String _lastSearchQuery = '';
 
   final ValueNotifier<MapController?> _controllerNotifier =
       ValueNotifier<MapController?>(null);
-  final ValueNotifier<({_ActiveDrawer left, _ActiveDrawer right})>
-      _drawerNotifier =
-      ValueNotifier<({_ActiveDrawer left, _ActiveDrawer right})>(
-    (left: _ActiveDrawer.none, right: _ActiveDrawer.none),
-  );
   final GlobalKey _mapRepaintBoundaryKey = GlobalKey();
 
   MapController? get _controller => _controllerNotifier.value;
-  _ActiveDrawer get _drawer => _drawerNotifier.value.left;
-  _ActiveDrawer get _rightStudioDrawer => _drawerNotifier.value.right;
+  EarthlyDrawer get _drawer => _drawerNav.left;
+  EarthlyDrawer get _rightStudioDrawer => _drawerNav.right;
   bool get _isHeadlessTest => widget.mapBuilder != null;
   bool get _isWideStudio => mounted && MediaQuery.sizeOf(context).width >= 1100;
 
@@ -231,6 +217,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     _ownsAccountWallet = widget.accountController == null;
     _ownsCatalog = widget.catalogController == null;
     _ownsSpaces = widget.spacesController == null;
+    _ownsToast = widget.toastController == null;
+    _ownsDrawerNav = widget.drawerNavigationController == null;
     _ownsCameraOrientationNotifier = widget.cameraOrientationNotifier == null;
 
     _mapLayers = widget.mapLayerCache ?? MapLayerCache();
@@ -239,6 +227,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     _accountWallet = widget.accountController ?? AccountWalletController();
     _catalog = widget.catalogController ?? CatalogShelfController();
     _spaces = widget.spacesController ?? SpacesSyncController();
+    _toast = widget.toastController ?? EarthlyToastController();
+    _drawerNav = widget.drawerNavigationController ??
+        DrawerNavigationController(clock: widget.clock);
     _cameraOrientationNotifier = widget.cameraOrientationNotifier ??
         ValueNotifier<({double bearing, double pitch})>(
           (bearing: 0.0, pitch: 0.0),
@@ -267,7 +258,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _controllerNotifier.dispose();
-    _drawerNotifier.dispose();
+    if (_ownsDrawerNav) _drawerNav.dispose();
+    if (_ownsToast) _toast.dispose();
     if (_ownsCameraOrientationNotifier) _cameraOrientationNotifier.dispose();
     if (_ownsMapLayers) _mapLayers.dispose();
     if (_ownsAgent) _agent.dispose();
@@ -515,18 +507,71 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
 
   // --- Coordinated Cross-Controller Helpers ---
 
-  void _showSnack(String message, {SnackBarAction? action, Duration? duration}) {
+  void _showToast(
+    String message, {
+    EarthlyToastSeverity severity = EarthlyToastSeverity.info,
+    String? actionLabel,
+    VoidCallback? onAction,
+    Duration? duration,
+    String? copyText,
+  }) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        action: action,
-        duration: duration ?? const Duration(milliseconds: 4000),
-      ),
+    _toast.show(
+      message,
+      severity: severity,
+      actionLabel: actionLabel,
+      onAction: onAction,
+      duration: duration,
+      copyText: copyText,
     );
   }
 
+  void _showSuccessToast(
+    String message, {
+    String? actionLabel,
+    VoidCallback? onAction,
+    Duration? duration,
+  }) =>
+      _showToast(
+        message,
+        severity: EarthlyToastSeverity.success,
+        actionLabel: actionLabel,
+        onAction: onAction,
+        duration: duration,
+      );
+
+  void _showWarningToast(
+    String message, {
+    String? actionLabel,
+    VoidCallback? onAction,
+    Duration? duration,
+  }) =>
+      _showToast(
+        message,
+        severity: EarthlyToastSeverity.warning,
+        actionLabel: actionLabel,
+        onAction: onAction,
+        duration: duration,
+      );
+
+  void _showErrorToast(
+    String message, {
+    String? copyText,
+    String? actionLabel,
+    VoidCallback? onAction,
+    Duration? duration,
+  }) =>
+      _showToast(
+        message,
+        severity: EarthlyToastSeverity.error,
+        copyText: copyText,
+        actionLabel: actionLabel,
+        onAction: onAction,
+        duration: duration,
+      );
+
   void _animateCameraPosition(double lon, double lat, double zoom) {
+    widget.onCameraPositionRequested?.call(lon, lat, zoom);
     _controller?.animateCamera(
       CameraUpdate.position(
         center: Geographic(lon: lon, lat: lat),
@@ -582,7 +627,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
 
   void _openSettings({EarthlySettingsTab tab = EarthlySettingsTab.map}) {
     setState(() => _settingsInitialTab = tab);
-    _openDrawer(_ActiveDrawer.settings);
+    _openDrawer(EarthlyDrawer.settings);
   }
 
   String _signerModeLabel() {
@@ -628,15 +673,15 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
   EdgeInsets _cameraPadding() {
     final width = MediaQuery.sizeOf(context).width;
     if (width >= 1100) {
-      final leftPad = _drawer != _ActiveDrawer.none ? 440.0 : 40.0;
-      final rightPad = _rightStudioDrawer != _ActiveDrawer.none ? 440.0 : 40.0;
+      final leftPad = _drawer != EarthlyDrawer.none ? 440.0 : 40.0;
+      final rightPad = _rightStudioDrawer != EarthlyDrawer.none ? 440.0 : 40.0;
       return EdgeInsets.fromLTRB(leftPad, 72, rightPad, 48);
     }
-    if (width >= 880 && _drawer != _ActiveDrawer.none) {
+    if (width >= 880 && _drawer != EarthlyDrawer.none) {
       return const EdgeInsets.fromLTRB(440, 72, 40, 48);
     }
     if (width < 880 &&
-        _drawer == _ActiveDrawer.explore &&
+        _drawer == EarthlyDrawer.explore &&
         _catalog.galleryModeActive) {
       return const EdgeInsets.fromLTRB(28, 72, 28, 250);
     }
@@ -644,38 +689,31 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       36,
       72,
       36,
-      _drawer != _ActiveDrawer.none ? 320 : 96,
+      _drawer != EarthlyDrawer.none ? 320 : 96,
     );
   }
 
   void _flyToBounds(GeoBox bounds) {
+    widget.onFlyToBoundsRequested?.call(bounds);
     _controller?.animateCamera(
       CameraUpdate.bounds(bounds, padding: _cameraPadding()),
     );
   }
 
   void _flyToMap(MapSummaryDto map) {
-    final controller = _controller;
-    if (controller == null) return;
-    if (map.west != null &&
-        map.south != null &&
-        map.east != null &&
-        map.north != null) {
-      controller.animateCamera(
-        CameraUpdate.bounds(
-          GeoBox(
-            west: map.west!,
-            south: map.south!,
-            east: map.east!,
-            north: map.north!,
-          ),
-          padding: _cameraPadding(),
-        ),
-      );
+    final shelfEntry = _catalog.shelfMaps
+        .where((e) => e.summary.address == map.address)
+        .firstOrNull;
+    final bounds = computeCombinedBounds([
+      shelfEntry ?? CatalogShelfController.entryFromSummary(map),
+    ]);
+    if (bounds != null) {
+      _flyToBounds(bounds);
     }
   }
 
   void _flyToStoryCamera(StoryCameraTarget camera) {
+    widget.onCameraPositionRequested?.call(camera.lon, camera.lat, camera.zoom);
     _controller?.animateCamera(
       CameraUpdate.position(
         center: Geographic(lon: camera.lon, lat: camera.lat),
@@ -730,7 +768,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           if (!mounted) return;
           _handleCircleWorkspaceUpdated(ws);
         },
-        isCirclesDrawerOpen: () => _isDrawerOpen(_ActiveDrawer.circles),
+        isCirclesDrawerOpen: () => _isDrawerOpen(EarthlyDrawer.circles),
         isHeadlessTest: _isHeadlessTest,
       );
 
@@ -773,12 +811,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           _catalog.mergeLiveRelayEvent(event);
           if (event.beacon != null) {
             final b = event.beacon!;
-            _showSnack(
+            _showToast(
               'Live Beacon: ${b.status?.isNotEmpty == true ? b.status : b.dTag}',
-              action: SnackBarAction(
-                label: 'Locate',
-                onPressed: () => _focusBeacon(b),
-              ),
+              actionLabel: 'Locate',
+              onAction: () => _focusBeacon(b),
             );
           }
         },
@@ -793,16 +829,15 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           final latest = newlyArrivedMaps.first;
           final alreadyOnShelf = _catalog.shelfMaps
               .any((e) => e.summary.address == latest.address);
-          _showSnack(
+          _showToast(
             alreadyOnShelf
                 ? 'Live update: "${latest.title}" refreshed on map'
                 : 'New Nearby Map received: "${latest.title}"',
-            action: alreadyOnShelf
-                ? null
-                : SnackBarAction(
-                    label: 'Show',
-                    onPressed: () => _toggleMapOnShelf(latest),
-                  ),
+            severity: alreadyOnShelf
+                ? EarthlyToastSeverity.success
+                : EarthlyToastSeverity.info,
+            actionLabel: alreadyOnShelf ? null : 'Show',
+            onAction: alreadyOnShelf ? null : () => _toggleMapOnShelf(latest),
           );
         },
       );
@@ -845,7 +880,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       if (workspaceId.isNotEmpty) {
         _spaces.clearPendingCircleInvite();
         _spaces.setSelectedCircleId(workspaceId);
-        _openDrawer(_ActiveDrawer.circles);
+        _openDrawer(EarthlyDrawer.circles, pushHistory: false);
         return;
       }
     }
@@ -855,19 +890,19 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         lower.contains('/privategroup/') ||
         lower.contains('/private-group/')) {
       _spaces.setPendingDeepLinkCircleInvite(trimmed);
-      _openDrawer(_ActiveDrawer.circles);
+      _openDrawer(EarthlyDrawer.circles, pushHistory: false);
       return;
     }
     if (lower.startsWith('earthly://pair') ||
         lower.contains('earthly-pair-v1:')) {
       _spaces.setPendingDeepLinkPairing(trimmed);
-      _openDrawer(_ActiveDrawer.spaces);
+      _openDrawer(EarthlyDrawer.spaces, pushHistory: false);
       return;
     }
     if (lower.contains('naddr1')) {
       unawaited(
         _jumpToNaddr(trimmed).catchError((Object err) {
-          _showSnack('Deep link error: $err');
+          _showErrorToast('Deep link error: $err');
         }),
       );
       return;
@@ -910,9 +945,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           h.centerLat,
           h.centerZoom.toDouble().clamp(2.0, 18.0),
         );
-        _showSnack('Loaded offline PMTiles "${file.name}"');
+        _showSuccessToast('Loaded offline PMTiles "${file.name}"');
       } catch (err) {
-        _showSnack('PMTiles drop failed: $err');
+        _showErrorToast('PMTiles drop failed: $err');
       }
       return;
     }
@@ -926,18 +961,18 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         onPersist: _schedulePersistWorkingDraft,
       );
       if (res.imported.isEmpty) {
-        _showSnack(
+        _showWarningToast(
           'No Point, LineString, or Polygon features found in file',
         );
         return;
       }
       if (res.bounds != null) _flyToBounds(res.bounds!);
-      _showSnack(
+      _showSuccessToast(
         'Imported ${res.imported.length} feature${res.imported.length == 1 ? '' : 's'} (${res.format}) from ${picked.name}',
       );
     } catch (err) {
       if (err.toString().contains('cancelled')) return;
-      _showSnack('Import failed: $err');
+      _showErrorToast('Import failed: $err');
     }
   }
 
@@ -947,17 +982,17 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       await _importSpatialPickedFile(picked);
     } catch (err) {
       if (err.toString().contains('cancelled')) return;
-      _showSnack('Import failed: $err');
+      _showErrorToast('Import failed: $err');
     }
   }
 
   Future<void> _exportSpatialFile(String format) async {
     try {
       final savedName = await _draft.exportSpatialFile(format);
-      if (savedName != null) _showSnack('Exported $savedName');
+      if (savedName != null) _showSuccessToast('Exported $savedName');
     } catch (err) {
       if (err.toString().contains('cancelled')) return;
-      _showSnack('Export failed: $err');
+      _showErrorToast('Export failed: $err');
     }
   }
 
@@ -965,18 +1000,18 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     try {
       final savedName = await _draft.exportShapefileZip();
       if (savedName != null) {
-        _showSnack('Exported Shapefile bundle "$savedName"');
+        _showSuccessToast('Exported Shapefile bundle "$savedName"');
       }
     } catch (err) {
       if (err.toString().contains('cancelled')) return;
-      _showSnack('Shapefile export failed: $err');
+      _showErrorToast('Shapefile export failed: $err');
     }
   }
 
   void _copyGeoJsonToClipboard() {
     final count = _draft.copyGeoJsonToClipboard();
     if (count > 0) {
-      _showSnack('Copied GeoJSON ($count features) to clipboard');
+      _showSuccessToast('Copied GeoJSON ($count features) to clipboard');
     }
   }
 
@@ -986,19 +1021,19 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         onPersist: _schedulePersistWorkingDraft,
       );
       if (res == null) {
-        _showSnack('Clipboard is empty');
+        _showWarningToast('Clipboard is empty');
         return;
       }
       if (res.count == 0) {
-        _showSnack('No valid GeoJSON, GPX, or KML features on clipboard');
+        _showWarningToast('No valid GeoJSON, GPX, or KML features on clipboard');
         return;
       }
       if (res.bounds != null) _flyToBounds(res.bounds!);
-      _showSnack(
+      _showSuccessToast(
         'Pasted ${res.count} ${res.formatLabel} feature${res.count == 1 ? '' : 's'} into draft',
       );
     } catch (err) {
-      _showSnack('Paste failed: $err');
+      _showErrorToast('Paste failed: $err');
     }
   }
 
@@ -1032,10 +1067,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         bytes: bytes,
         mimeType: 'image/png',
       );
-      _showSnack('Saved poster $saved');
+      _showSuccessToast('Saved poster $saved');
     } catch (err) {
       if (err.toString().contains('cancelled')) return;
-      _showSnack('Poster export failed: $err');
+      _showErrorToast('Poster export failed: $err');
     }
   }
 
@@ -1100,7 +1135,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     final parsed = parseDraftFeaturesFromGeoJson(pending.proposedGeojson);
     HapticFeedback.mediumImpact();
     _draft.applyAiFeatures(parsed, onPersist: _schedulePersistWorkingDraft);
-    _showSnack('Applied AI edit to Working Draft');
+    _showSuccessToast('Applied AI edit to Working Draft');
   }
 
   void _extractResearchSourceToMap(ResearchSourceDto src) {
@@ -1135,7 +1170,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         pubkey: _accountWallet.account?.pubkey ?? '',
       ),
     );
-    _openDrawer(_ActiveDrawer.storyComposer);
+    _openDrawer(EarthlyDrawer.storyComposer);
   }
 
   Future<void> _mountAtlasWorkspace(AtlasBundleInspectionDto bundle) async {
@@ -1179,7 +1214,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       } catch (_) {}
     }
 
-    _showSnack('Mounted .atlas workspace "${bundle.name}"');
+    _showSuccessToast('Mounted .atlas workspace "${bundle.name}"');
   }
 
   void _toggleMapOnShelf(MapSummaryDto map) {
@@ -1191,12 +1226,22 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     if (added) _flyToMap(map);
   }
 
+  void _ensureMapVisibleOnShelf(MapSummaryDto map) {
+    _catalog.ensureMapOnShelf(map);
+    final idx =
+        _catalog.shelfMaps.indexWhere((e) => e.summary.address == map.address);
+    if (idx >= 0 && !_catalog.shelfMaps[idx].visible) {
+      _catalog.toggleShelfVisibility(map.address);
+    }
+    _syncMcpWorkspaceIfRunning();
+  }
+
   void _addMapsBulkToShelf(List<MapSummaryDto> maps) {
     final added = _catalog.addMapsBulkToShelf(maps);
     if (added.isNotEmpty) {
       final bounds = computeCombinedBounds(added);
       if (bounds != null) _flyToBounds(bounds);
-      _showSnack(
+      _showSuccessToast(
         'Added ${added.length} map${added.length == 1 ? '' : 's'} to Shelf',
       );
     }
@@ -1234,11 +1279,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       onPersist: _schedulePersistWorkingDraft,
     );
     if (count == 0) {
-      _showSnack('No editable features found to copy');
+      _showWarningToast('No editable features found to copy');
       return;
     }
-    _openDrawer(_ActiveDrawer.desk);
-    _showSnack(
+    _openDrawer(EarthlyDrawer.desk);
+    _showSuccessToast(
       'Created editable copy ($count feature${count == 1 ? '' : 's'}) in Desk',
     );
   }
@@ -1247,7 +1292,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     final resolvedMap = map.blobRefs.isNotEmpty
         ? await _catalog.ensureMapBlobsResolved(
             map,
-            onError: _showSnack,
+            onError: _showErrorToast,
           )
         : map;
     if (!mounted) return;
@@ -1256,7 +1301,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             resolvedMap.pubkey.toLowerCase();
     final cloned = parseDraftFeaturesFromGeoJson(resolvedMap.geojson);
     if (cloned.isEmpty) {
-      _showSnack('No editable features found in map');
+      _showWarningToast('No editable features found in map');
       return;
     }
     _draft.loadForkOrOwnedMap(
@@ -1270,8 +1315,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       targetEventId: resolvedMap.eventId,
       onPersist: _schedulePersistWorkingDraft,
     );
-    _openDrawer(_ActiveDrawer.desk);
-    _showSnack(
+    _openDrawer(EarthlyDrawer.desk);
+    _showSuccessToast(
       isOwned
           ? 'Loaded "${resolvedMap.title}" to update in place'
           : 'Created editable copy of "${resolvedMap.title}" in Desk',
@@ -1282,13 +1327,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     final resolvedMap = map.blobRefs.isNotEmpty
         ? await _catalog.ensureMapBlobsResolved(
             map,
-            onError: _showSnack,
+            onError: _showErrorToast,
           )
         : map;
     if (!mounted) return;
     final parsed = parseDraftFeaturesFromGeoJson(resolvedMap.geojson);
     if (parsed.isEmpty) {
-      _showSnack('No editable features found in map');
+      _showWarningToast('No editable features found in map');
       return;
     }
     _draft.loadPublicMapForProposal(
@@ -1301,8 +1346,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       targetAuthorLabel: _authorLabelForPubkey(resolvedMap.pubkey),
       onPersist: _schedulePersistWorkingDraft,
     );
-    _openDrawer(_ActiveDrawer.desk);
-    _showSnack(
+    _openDrawer(EarthlyDrawer.desk);
+    _showToast(
       'Loaded "${resolvedMap.title}" in Desk to propose an edit',
     );
   }
@@ -1340,17 +1385,44 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
   }
 
   Future<void> _openStory(StorySummaryDto story) async {
+    var flewToCameraOrBounds = false;
     await _catalog.openStory(
       story,
       onPrepareDrawer: () {
         if (_draft.isDrawingMode) {
           _draft.cancelEditingDraftFeature();
         }
-        _openDrawer(_ActiveDrawer.storyReader);
+        _openDrawer(EarthlyDrawer.storyReader);
       },
-      onFlyToCamera: _flyToStoryCamera,
-      onFlyToBounds: _flyToBounds,
+      onFlyToCamera: (cam) {
+        flewToCameraOrBounds = true;
+        _flyToStoryCamera(cam);
+      },
+      onFlyToBounds: (bounds) {
+        flewToCameraOrBounds = true;
+        _flyToBounds(bounds);
+      },
     );
+    if (!mounted || flewToCameraOrBounds) return;
+    final pins = _catalog.storyGeoPins;
+    if (_catalog.activeStory?.address == story.address && pins.isNotEmpty) {
+      if (pins.length == 1) {
+        final p = pins.first.position;
+        _animateCameraPosition(p.lon, p.lat, 14.5);
+      } else {
+        var west = pins.first.position.lon;
+        var east = pins.first.position.lon;
+        var south = pins.first.position.lat;
+        var north = pins.first.position.lat;
+        for (final pin in pins) {
+          west = math.min(west, pin.position.lon);
+          east = math.max(east, pin.position.lon);
+          south = math.min(south, pin.position.lat);
+          north = math.max(north, pin.position.lat);
+        }
+        _flyToBounds(GeoBox(west: west, south: south, east: east, north: north));
+      }
+    }
   }
 
   Future<void> _jumpToNaddr(String naddrUri) async {
@@ -1435,7 +1507,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       _catalog.ensureMapOnShelf(map);
     }
     if (map.blobRefs.isNotEmpty) {
-      unawaited(_catalog.ensureMapBlobsResolved(map, onError: _showSnack));
+      unawaited(_catalog.ensureMapBlobsResolved(map, onError: _showErrorToast));
     }
     if (featureId != null && featureId.isNotEmpty) {
       final shape =
@@ -1445,24 +1517,56 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         return;
       }
     }
-    _flyToMap(map);
     _inspectMap(map);
   }
 
+  /// Immediately pins/shows [map] on the map canvas, opens its detail drawer
+  /// (preserving navigation history), and flies/fits the camera to its bounds.
   void _inspectMap(MapSummaryDto map) {
+    _ensureMapVisibleOnShelf(map);
     _catalog.setInspectedMap(
       map,
       onPersist: () => unawaited(_persistAppSettings()),
     );
-    _openDrawer(_ActiveDrawer.datasetDetail);
+    _openDrawer(EarthlyDrawer.datasetDetail);
+    final initialEntry = _catalog.shelfMaps
+            .where((e) => e.summary.address == map.address)
+            .firstOrNull ??
+        CatalogShelfController.entryFromSummary(map);
+    final initialBounds = computeCombinedBounds([initialEntry]);
+    if (initialBounds != null) {
+      _flyToBounds(initialBounds);
+    } else if (map.blobRefs.isNotEmpty) {
+      unawaited(
+        _catalog
+            .ensureMapBlobsResolved(map, onError: _showErrorToast)
+            .then((resolved) {
+          if (!mounted || _catalog.inspectedMap?.address != map.address) return;
+          _flyToMap(resolved);
+        }),
+      );
+    }
   }
 
+  /// Immediately opens [atlas] details AND pins/displays its linked maps on
+  /// the map canvas while fitting the camera to their combined bounds.
   void _inspectAtlas(AtlasSummaryDto atlas) {
     _catalog.setInspectedAtlas(
       atlas,
       onPersist: () => unawaited(_persistAppSettings()),
     );
-    _openDrawer(_ActiveDrawer.atlasDetail);
+    _openDrawer(EarthlyDrawer.atlasDetail);
+    unawaited(_openAtlas(atlas));
+  }
+
+  /// Ensures [sighting] is rendered on the map, opens its inspector detail
+  /// drawer (preserving navigation history), and flies the camera to it.
+  void _openSightingFromCatalog(SightingSummaryDto sighting) {
+    if (!_catalog.allSightings.any((e) => e.address == sighting.address)) {
+      _catalog.addLocalSighting(sighting);
+    }
+    _inspectSighting(sighting);
+    _focusSighting(sighting);
   }
 
   void _enterAtlasLens(AtlasSummaryDto atlas) {
@@ -1495,7 +1599,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       return;
     }
     _catalog.setInspectedFeature(feature);
-    _openDrawer(_ActiveDrawer.inspector);
+    _openDrawer(EarthlyDrawer.inspector);
   }
 
   InspectedFeature _buildInspectedDraftFeature(DrawnFeature f) {
@@ -1599,17 +1703,17 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
 
   void _openDiscussion(DiscussionTarget target) {
     _catalog.setDiscussionTarget(target);
-    _openDrawer(_ActiveDrawer.discussion);
+    _openDrawer(EarthlyDrawer.discussion);
   }
 
   void _openPerson(String pubkey) {
     _catalog.setInspectedPersonPubkey(pubkey);
-    _openDrawer(_ActiveDrawer.person);
+    _openDrawer(EarthlyDrawer.person);
   }
 
   void _openLocationInspector(Geographic pt) {
     _catalog.setInspectedLocation(pt);
-    _openDrawer(_ActiveDrawer.locationInspector);
+    _openDrawer(EarthlyDrawer.locationInspector);
   }
 
   Future<BlossomUploadDto?> _pickAndUploadBlossomImage(String purpose) async {
@@ -1622,7 +1726,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         ensureAccount: _ensureAccount,
         signUnsignedEvent: _accountWallet.signUnsignedEvent,
       );
-      _showSnack('Uploaded to Blossom: ${uploaded.url}');
+      _showSuccessToast('Uploaded to Blossom: ${uploaded.url}');
       return uploaded;
     } catch (err) {
       if (err.toString().contains('cancelled')) return null;
@@ -1630,31 +1734,23 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     }
   }
 
-  void _showPublishedSnack({
+  void _showPublishedToast({
     required String message,
     VoidCallback? onReopen,
   }) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 7),
-          content: Text(message),
-          action: onReopen != null
-              ? SnackBarAction(
-                  label: 'Reopen',
-                  onPressed: onReopen,
-                )
-              : null,
-        ),
-      );
+    _toast.showSuccess(
+      message,
+      duration: const Duration(seconds: 4),
+      actionLabel: onReopen != null ? 'Reopen' : null,
+      onAction: onReopen,
+    );
   }
 
   void _releaseDeskAfterPublish() {
     _draft.releaseAfterPublish(onPersist: _schedulePersistWorkingDraft);
     if (mounted && MediaQuery.sizeOf(context).width < 880) {
-      _closeDrawer(_ActiveDrawer.desk);
+      _closeDrawer(EarthlyDrawer.desk);
     }
   }
 
@@ -1697,7 +1793,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         );
         _handleCircleWorkspaceUpdated(updated);
         _releaseDeskAfterPublish();
-        _showPublishedSnack(
+        _showPublishedToast(
           message:
               'Sent edit proposal for "${publishedProvenance.sourceTitle ?? title}" to "${updated.name}"',
         );
@@ -1735,7 +1831,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         final outcome =
             await _deliverForAudience(DraftAudienceChoice.publicRelay, signed);
         _releaseDeskAfterPublish();
-        _showPublishedSnack(
+        _showPublishedToast(
           message:
               'Published edit proposal (37519) for "${publishedProvenance.sourceTitle ?? title}"',
         );
@@ -1789,7 +1885,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           : publishedProvenance.isCopyingOther
               ? 'Published copy'
               : 'Published';
-      _showPublishedSnack(
+      _showPublishedToast(
         message: '$verb "$title" in "${updated.name}"',
         onReopen: () {
           _spaces.setSelectedCircleId(updated.workspaceId);
@@ -1803,7 +1899,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             circleName: updated.name,
             onPersist: _schedulePersistWorkingDraft,
           );
-          _openDrawer(_ActiveDrawer.desk);
+          _openDrawer(EarthlyDrawer.desk);
         },
       );
       return PublishOutcomeDto(
@@ -1839,7 +1935,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         sha256: uploaded.sha256,
         sizeBytes: uploaded.sizeBytes,
       );
-      _showSnack(
+      _showSuccessToast(
         'Uploaded ${(rawBytes.length / 1024).toStringAsFixed(0)} KB GeoJSON to Blossom blob',
       );
     }
@@ -1895,7 +1991,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         : publishedProvenance.isCopyingOther
             ? 'Published copy'
             : 'Published';
-    _showPublishedSnack(
+    _showPublishedToast(
       message: '$verb "$title" (${outcome.outboxState})',
       onReopen: () {
         _draft.loadForkOrOwnedMap(
@@ -1909,7 +2005,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           audience: audience,
           onPersist: _schedulePersistWorkingDraft,
         );
-        _openDrawer(_ActiveDrawer.desk);
+        _openDrawer(EarthlyDrawer.desk);
       },
     );
     return outcome;
@@ -1987,7 +2083,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       final fix = await DeviceBridge.getCurrentLocation();
       _animateCameraPosition(fix.lon, fix.lat, 15.5);
     } catch (err) {
-      _showSnack('GPS unavailable: $err');
+      _showErrorToast('GPS unavailable: $err');
     }
   }
 
@@ -2262,48 +2358,44 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     } catch (_) {}
   }
 
-  // --- Drawer Routing ---
+  // --- Drawer Routing & Back Navigation ---
 
-  bool _isRightStudioDrawer(_ActiveDrawer d) => switch (d) {
-        _ActiveDrawer.agent ||
-        _ActiveDrawer.inspector ||
-        _ActiveDrawer.discussion ||
-        _ActiveDrawer.datasetDetail ||
-        _ActiveDrawer.storyReader ||
-        _ActiveDrawer.storyComposer ||
-        _ActiveDrawer.atlasComposer ||
-        _ActiveDrawer.atlasDetail ||
-        _ActiveDrawer.person ||
-        _ActiveDrawer.account ||
-        _ActiveDrawer.cashuWallet ||
-        _ActiveDrawer.mcpBridge ||
-        _ActiveDrawer.search ||
-        _ActiveDrawer.locationInspector ||
-        _ActiveDrawer.osmImport ||
-        _ActiveDrawer.routing ||
-        _ActiveDrawer.help ||
-        _ActiveDrawer.settings =>
-          true,
-        _ => false,
-      };
+  bool _isDrawerAllowedInDrawingMode(EarthlyDrawer target) =>
+      target == EarthlyDrawer.inspector;
 
-  bool _isDrawerOpen(_ActiveDrawer target) =>
-      _drawer == target || _rightStudioDrawer == target;
+  bool _isDrawerOpen(EarthlyDrawer target) => _drawerNav.isOpen(target);
 
-  void _openDrawer(_ActiveDrawer target) {
-    if (target != _ActiveDrawer.explore && _catalog.galleryModeActive) {
+  void _cleanupDiscardedDrawers(Iterable<EarthlyDrawer> discarded) {
+    for (final drawer in discarded) {
+      switch (drawer) {
+        case EarthlyDrawer.storyReader:
+          _catalog.closeStory();
+        case EarthlyDrawer.explore:
+          if (_catalog.galleryModeActive) {
+            _catalog.setGalleryModeActive(false);
+          }
+        case EarthlyDrawer.circles:
+          _spaces.clearPendingCircleInvite();
+        case EarthlyDrawer.storyComposer:
+          _catalog.setEditingStory(null);
+        case EarthlyDrawer.atlasComposer:
+          _catalog.setEditingAtlas(null);
+        default:
+          break;
+      }
+    }
+  }
+
+  void _openDrawer(EarthlyDrawer target, {bool pushHistory = true}) {
+    if (target != EarthlyDrawer.explore && _catalog.galleryModeActive) {
       _catalog.setGalleryModeActive(false);
     }
-    final cur = _drawerNotifier.value;
-    if (_isWideStudio && _isRightStudioDrawer(target)) {
-      _drawerNotifier.value = (left: cur.left, right: target);
-    } else {
-      _drawerNotifier.value = (
-        left: target,
-        right: _isWideStudio ? cur.right : _ActiveDrawer.none,
-      );
-    }
-    if (target == _ActiveDrawer.cashuWallet) {
+    _drawerNav.open(
+      target,
+      isWideStudio: _isWideStudio,
+      pushHistory: pushHistory,
+    );
+    if (target == EarthlyDrawer.cashuWallet) {
       if (_accountWallet.nip60WalletEnabled) {
         unawaited(() async {
           await _accountWallet.refreshCashuWalletState(
@@ -2327,64 +2419,105 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           }
         }());
       }
-    } else if (target == _ActiveDrawer.circles) {
+    } else if (target == EarthlyDrawer.circles) {
       unawaited(
         _accountWallet.syncExternalCircleSigner(isHeadlessTest: _isHeadlessTest),
       );
-    } else if (target == _ActiveDrawer.mcpBridge) {
+    } else if (target == EarthlyDrawer.mcpBridge) {
       unawaited(
         _agent.refreshMcpBridgeStatus(
           isHeadlessTest: _isHeadlessTest,
           onTick: _pollMcpBridgeTick,
         ),
       );
-    } else if (target == _ActiveDrawer.agent) {
+    } else if (target == EarthlyDrawer.agent) {
       unawaited(_agent.refreshVisionSupport(isHeadlessTest: _isHeadlessTest));
     }
   }
 
-  void _closeDrawer(_ActiveDrawer target) {
-    if (target == _ActiveDrawer.explore && _catalog.galleryModeActive) {
-      _catalog.setGalleryModeActive(false);
-    }
-    final cur = _drawerNotifier.value;
-    final nextLeft = cur.left == target ? _ActiveDrawer.none : cur.left;
-    final nextRight = cur.right == target ? _ActiveDrawer.none : cur.right;
-    if (nextLeft != cur.left || nextRight != cur.right) {
-      _drawerNotifier.value = (left: nextLeft, right: nextRight);
-    }
+  void _closeDrawer(EarthlyDrawer target) {
+    final removed = _drawerNav.closeDrawer(target);
+    _cleanupDiscardedDrawers(removed);
   }
 
   void _closeAllDrawers() {
-    if (_catalog.galleryModeActive) {
-      _catalog.setGalleryModeActive(false);
-    }
-    if (_drawer == _ActiveDrawer.none &&
-        _rightStudioDrawer == _ActiveDrawer.none) {
-      return;
-    }
-    _drawerNotifier.value =
-        (left: _ActiveDrawer.none, right: _ActiveDrawer.none);
+    final removed = _drawerNav.closeAll();
+    _cleanupDiscardedDrawers(removed);
   }
 
-  void _toggleDrawer(_ActiveDrawer next) {
-    final cur = _drawerNotifier.value;
-    final willLeaveExplore = !(_isWideStudio && _isRightStudioDrawer(next)) &&
-        cur.left == _ActiveDrawer.explore &&
-        _catalog.galleryModeActive;
-    if (willLeaveExplore) {
-      _catalog.setGalleryModeActive(false);
+  void _toggleDrawer(EarthlyDrawer next) {
+    final removed = _drawerNav.toggleRoot(next, isWideStudio: _isWideStudio);
+    _cleanupDiscardedDrawers(removed);
+  }
+
+  VoidCallback? _backCallbackFor(EarthlyDrawer target) {
+    if (!_drawerNav.canGoBackFrom(target, isWideStudio: _isWideStudio)) {
+      return null;
     }
-    if (_isWideStudio && _isRightStudioDrawer(next)) {
-      _drawerNotifier.value = (
-        left: cur.left,
-        right: cur.right == next ? _ActiveDrawer.none : next,
-      );
-    } else {
-      _drawerNotifier.value = (
-        left: cur.left == next ? _ActiveDrawer.none : next,
-        right: _isWideStudio ? cur.right : _ActiveDrawer.none,
-      );
+    return () => _popDrawerBack(target);
+  }
+
+  void _popDrawerBack(EarthlyDrawer target) {
+    final res = _drawerNav.popBackFor(target, isWideStudio: _isWideStudio);
+    if (res.leavingDrawer != EarthlyDrawer.none &&
+        !_drawerNav.isRetained(res.leavingDrawer)) {
+      _cleanupDiscardedDrawers([res.leavingDrawer]);
+    }
+  }
+
+  void _handleBackNavigation({bool allowExitPrompt = true}) {
+    if (!mounted) return;
+    // 1. Pop any open Navigator modal, dialog, or menu first.
+    final nav = Navigator.maybeOf(context);
+    if (nav != null && nav.canPop()) {
+      nav.pop();
+      return;
+    }
+
+    // 2. Cancel active drawing stroke or exit drawing mode cleanly.
+    if (_draft.isDrawingMode) {
+      _drawerNav.resetExitConfirmation();
+      if (_draft.isMeasureMode && _draft.draftVertices.isNotEmpty) {
+        _draft.clearMeasureVertices();
+        return;
+      }
+      if (_draft.draftVertices.isEmpty &&
+          _draft.editingDraftFeature == null &&
+          _drawerNav.hasAnyOpenDrawer &&
+          (_isDrawerAllowedInDrawingMode(_drawer) ||
+              _isDrawerAllowedInDrawingMode(_rightStudioDrawer))) {
+        final target = _isDrawerAllowedInDrawingMode(_rightStudioDrawer)
+            ? _rightStudioDrawer
+            : _drawer;
+        _popDrawerBack(target);
+        return;
+      }
+      _draft.cancelEditingDraftFeature();
+      return;
+    }
+
+    // 3–5. Pop drawer stack -> close root drawer -> double-back to exit.
+    final result = _drawerNav.handleBack(
+      isWideStudio: _isWideStudio,
+      allowExitPrompt: allowExitPrompt,
+    );
+    switch (result.action) {
+      case DrawerBackAction.poppedToPreviousDrawer:
+      case DrawerBackAction.closedRootDrawer:
+        if (result.leavingDrawer != EarthlyDrawer.none &&
+            !_drawerNav.isRetained(result.leavingDrawer)) {
+          _cleanupDiscardedDrawers([result.leavingDrawer]);
+        }
+      case DrawerBackAction.armExitToast:
+        if (allowExitPrompt) {
+          _toast.showInfo(
+            'Press back again to exit',
+            duration: const Duration(milliseconds: 2500),
+          );
+        }
+      case DrawerBackAction.exitApp:
+        _toast.dismiss();
+        (widget.onExitAppRequested ?? SystemNavigator.pop)();
     }
   }
 
@@ -2456,7 +2589,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                     _animateCameraPosition(center.lon, center.lat, zoom),
               );
             } catch (err) {
-              _showSnack('Could not mount offline pack: $err');
+              _showErrorToast('Could not mount offline pack: $err');
             }
           },
           onRemoveSavedPack: (sha) {
@@ -2589,7 +2722,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                       onPressed: () {
                         Navigator.of(ctx).pop();
                         unawaited(_preloadCatalog());
-                        _showSnack('Refreshing Nostr catalog…');
+                        _showToast('Refreshing Nostr catalog…');
                       },
                       icon: const Icon(Icons.refresh, size: 15),
                       label: const Text('Sync'),
@@ -2792,7 +2925,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                         onPressed: () {
                           Clipboard.setData(ClipboardData(text: geoUri));
                           Navigator.of(ctx).pop();
-                          _showSnack('Copied $geoUri');
+                          _showSuccessToast('Copied $geoUri');
                         },
                         child: const Text('Copy geo:'),
                       ),
@@ -2871,7 +3004,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                               : null,
                           () {
                             Navigator.of(ctx).pop();
-                            _openDrawer(_ActiveDrawer.inbox);
+                            _openDrawer(EarthlyDrawer.inbox);
                             unawaited(_refreshInbox());
                           },
                         ),
@@ -2883,7 +3016,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                               : null,
                           () {
                             Navigator.of(ctx).pop();
-                            _openDrawer(_ActiveDrawer.circles);
+                            _openDrawer(EarthlyDrawer.circles);
                           },
                         ),
                         (
@@ -2892,7 +3025,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                           null as String?,
                           () {
                             Navigator.of(ctx).pop();
-                            _openDrawer(_ActiveDrawer.help);
+                            _openDrawer(EarthlyDrawer.help);
                           },
                         ),
                       ].indexed) ...[
@@ -2963,13 +3096,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       await _draft.startGpsTrack(
         fallbackCenter: _controller?.camera?.center,
       );
-      _showSnack(
+      _showToast(
         Platform.isAndroid
             ? 'Background GPS track started (foreground notification active)'
             : 'GPS Track recorder started — pan & tap +Pt to log waypoints',
       );
     } catch (err) {
-      _showSnack('Could not start GPS track: $err');
+      _showErrorToast('Could not start GPS track: $err');
     }
   }
 
@@ -2978,8 +3111,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       onPersist: _schedulePersistWorkingDraft,
     );
     if (res == null) return;
-    _openDrawer(_ActiveDrawer.desk);
-    _showSnack(
+    _openDrawer(EarthlyDrawer.desk);
+    _showSuccessToast(
       'Saved GPS Track (${res.pointCount} pts · ${DrawingMath.formatDistance(res.distanceMeters)}) to Working Draft',
     );
   }
@@ -3031,12 +3164,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       onPersist: _schedulePersistWorkingDraft,
     );
     if (res.imported.isEmpty) {
-      _showSnack('No Point, LineString, or Polygon features found to import');
+      _showWarningToast('No Point, LineString, or Polygon features found to import');
       return;
     }
-    _openDrawer(_ActiveDrawer.desk);
+    _openDrawer(EarthlyDrawer.desk);
     if (res.bounds != null) _flyToBounds(res.bounds!);
-    _showSnack(
+    _showSuccessToast(
       'Added ${res.imported.length} feature(s) to Working Draft ($snackLabel)',
     );
   }
@@ -3070,51 +3203,51 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     );
   }
 
-  Listenable _listenableForDrawer(_ActiveDrawer target) => switch (target) {
-        _ActiveDrawer.agent => Listenable.merge([
+  Listenable _listenableForDrawer(EarthlyDrawer target) => switch (target) {
+        EarthlyDrawer.agent => Listenable.merge([
             _agent,
             _agent.streamListenable,
             _agent.ghostListenable,
             _catalog.shelfListenable,
           ]),
-        _ActiveDrawer.explore => Listenable.merge([
+        EarthlyDrawer.explore => Listenable.merge([
             _catalog,
             _accountWallet.profilesListenable,
           ]),
-        _ActiveDrawer.desk => Listenable.merge([
+        EarthlyDrawer.desk => Listenable.merge([
             _draft,
             _catalog,
             _spaces.outboxListenable,
             _spaces.circleLensListenable,
             _accountWallet.accountListenable,
           ]),
-        _ActiveDrawer.spaces => Listenable.merge([
+        EarthlyDrawer.spaces => Listenable.merge([
             _spaces,
             _accountWallet.accountListenable,
             _accountWallet.walletListenable,
             _agent.mcpListenable,
             _catalog,
           ]),
-        _ActiveDrawer.circles => Listenable.merge([
+        EarthlyDrawer.circles => Listenable.merge([
             _spaces,
             _catalog.shelfListenable,
             _catalog.overlayListenable,
             _draft.geometryListenable,
             _accountWallet,
           ]),
-        _ActiveDrawer.inbox => Listenable.merge([
+        EarthlyDrawer.inbox => Listenable.merge([
             _spaces.inboxListenable,
             _spaces.badgeListenable,
             _accountWallet,
           ]),
-        _ActiveDrawer.outbox => _spaces.outboxListenable,
-        _ActiveDrawer.cashuWallet => Listenable.merge([
+        EarthlyDrawer.outbox => _spaces.outboxListenable,
+        EarthlyDrawer.cashuWallet => Listenable.merge([
             _accountWallet.walletListenable,
             _accountWallet.accountListenable,
           ]),
-        _ActiveDrawer.mcpBridge => _agent.mcpListenable,
-        _ActiveDrawer.account => Listenable.merge([_accountWallet, _catalog]),
-        _ActiveDrawer.settings => Listenable.merge([
+        EarthlyDrawer.mcpBridge => _agent.mcpListenable,
+        EarthlyDrawer.account => Listenable.merge([_accountWallet, _catalog]),
+        EarthlyDrawer.settings => Listenable.merge([
             _mapLayers,
             _catalog,
             _spaces,
@@ -3127,7 +3260,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         _ => Listenable.merge([_catalog, _draft, _accountWallet]),
       };
 
-  Widget _buildScopedDrawerSlot(_ActiveDrawer target) {
+  Widget _buildScopedDrawerSlot(EarthlyDrawer target) {
     return ListenableBuilder(
       listenable: _listenableForDrawer(target),
       builder: (context, _) =>
@@ -3135,12 +3268,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     );
   }
 
-  Widget? _buildDrawerFor(_ActiveDrawer target) {
-    if (_draft.isDrawingMode && target != _ActiveDrawer.inspector) return null;
+  Widget? _buildDrawerFor(EarthlyDrawer target) {
+    if (_draft.isDrawingMode && !_isDrawerAllowedInDrawingMode(target)) {
+      return null;
+    }
     switch (target) {
-      case _ActiveDrawer.none:
+      case EarthlyDrawer.none:
         return null;
-      case _ActiveDrawer.explore:
+      case EarthlyDrawer.explore:
         return ExploreSheet(
           initialCatalog: _catalog.catalog,
           catalogLoading: _catalog.catalogLoading,
@@ -3207,18 +3342,18 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           onOpenAtlas: (atlas) => unawaited(_openAtlas(atlas)),
           onEnterAtlasLens: _enterAtlasLens,
           onLeaveAtlasLens: _catalog.leaveAtlasLens,
-          onFocusSighting: _focusSighting,
+          onFocusSighting: _openSightingFromCatalog,
           onFocusBeacon: _focusBeacon,
           onCreateSighting: _openSightingComposer,
           onComposeStory: () {
             _catalog.setEditingStory(null);
-            _openDrawer(_ActiveDrawer.storyComposer);
+            _openDrawer(EarthlyDrawer.storyComposer);
           },
           onCreateAtlas: () {
             _catalog.setEditingAtlas(null);
-            _openDrawer(_ActiveDrawer.atlasComposer);
+            _openDrawer(EarthlyDrawer.atlasComposer);
           },
-          onOpenBeaconBroadcaster: () => _openDrawer(_ActiveDrawer.spaces),
+          onOpenBeaconBroadcaster: () => _openDrawer(EarthlyDrawer.spaces),
           onOpenPerson: _openPerson,
           galleryMode: _catalog.galleryModeActive,
           galleryPreviewLoading: _catalog.galleryPreviewLoading,
@@ -3244,9 +3379,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             ),
           ),
           onClearGalleryPreview: _catalog.clearGalleryPreview,
+          onBack: _backCallbackFor(target),
           onClose: () => _closeDrawer(target),
         );
-      case _ActiveDrawer.desk:
+      case EarthlyDrawer.desk:
+        // Integrator: wire onBack: _backCallbackFor(target) & docked draw mode
+        // once @drawing-ux-desk merges DeskSheet updates.
         return DeskSheet(
           activeDraftId: _draft.activeDraftId,
           savedDrafts: _draft.savedDrafts,
@@ -3263,7 +3401,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           selectedCircleId:
               _spaces.selectedCircleId ?? _spaces.activeCircleLensId,
           onSelectedCircleChanged: _spaces.setSelectedCircleId,
-          onOpenCircles: () => _openDrawer(_ActiveDrawer.circles),
+          onOpenCircles: () => _openDrawer(EarthlyDrawer.circles),
           canUndo: _draft.undoStack.isNotEmpty,
           canRedo: _draft.redoStack.isNotEmpty,
           onUndo: () => _draft.undoDraftEdit(
@@ -3333,17 +3471,17 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           onPublishDraft: _publishDraft,
           onComposeStory: () {
             _catalog.setEditingStory(null);
-            _openDrawer(_ActiveDrawer.storyComposer);
+            _openDrawer(EarthlyDrawer.storyComposer);
           },
           onCreateAtlas: () {
             _catalog.setEditingAtlas(null);
-            _openDrawer(_ActiveDrawer.atlasComposer);
+            _openDrawer(EarthlyDrawer.atlasComposer);
           },
           onImportGeoJson: () => unawaited(_importGeoJsonFile()),
-          onImportOsm: () => _openDrawer(_ActiveDrawer.osmImport),
+          onImportOsm: () => _openDrawer(EarthlyDrawer.osmImport),
           onOpenRouting: () {
             _catalog.setRoutingOrigin(null);
-            _openDrawer(_ActiveDrawer.routing);
+            _openDrawer(EarthlyDrawer.routing);
           },
           onExportGeoJsonFile: () => unawaited(_exportSpatialFile('geojson')),
           onExportGpxFile: () => unawaited(_exportSpatialFile('gpx')),
@@ -3371,21 +3509,21 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             if (inspected?.draftFeatureId != null &&
                 deleted.contains(inspected!.draftFeatureId)) {
               _catalog.setInspectedFeature(null);
-              _closeDrawer(_ActiveDrawer.inspector);
+              _closeDrawer(EarthlyDrawer.inspector);
             }
           },
           onClearDraftFeatures: () =>
               _draft.clearDraftFeatures(onPersist: _schedulePersistWorkingDraft),
           pendingOutboxCount: _spaces.pendingOutboxCount,
           onOpenOutbox: () {
-            _openDrawer(_ActiveDrawer.outbox);
+            _openDrawer(EarthlyDrawer.outbox);
             unawaited(
               _spaces.refreshOutboxItems(isHeadlessTest: _isHeadlessTest),
             );
           },
           onClose: () => _closeDrawer(target),
         );
-      case _ActiveDrawer.spaces:
+      case EarthlyDrawer.spaces:
         return SpacesSheet(
           account: _accountWallet.account,
           localNsec: _accountWallet.localNsec,
@@ -3396,20 +3534,20 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           activeCircleId: _spaces.activeCircleLensId,
           inboxUnreadCount: _spaces.inboxUnreadCount,
           onOpenInbox: () {
-            _openDrawer(_ActiveDrawer.inbox);
+            _openDrawer(EarthlyDrawer.inbox);
             unawaited(_refreshInbox());
           },
           pendingOutboxCount: _spaces.pendingOutboxCount,
           onOpenOutbox: () {
-            _openDrawer(_ActiveDrawer.outbox);
+            _openDrawer(EarthlyDrawer.outbox);
             unawaited(
               _spaces.refreshOutboxItems(isHeadlessTest: _isHeadlessTest),
             );
           },
-          onOpenCircles: () => _openDrawer(_ActiveDrawer.circles),
+          onOpenCircles: () => _openDrawer(EarthlyDrawer.circles),
           onSelectCircle: (ws) {
             _spaces.setSelectedCircleId(ws.workspaceId);
-            _openDrawer(_ActiveDrawer.circles);
+            _openDrawer(EarthlyDrawer.circles);
           },
           onRelayUrlsChanged: (next) => _catalog.updateRelayUrls(
             next,
@@ -3426,23 +3564,24 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             ensureAccount: _ensureAccount,
             signUnsignedEvent: _accountWallet.signUnsignedEvent,
           ),
-          onOpenShoutbox: () => _openDrawer(_ActiveDrawer.shoutbox),
-          onOpenHelp: () => _openDrawer(_ActiveDrawer.help),
-          onOpenCashuWallet: () => _openDrawer(_ActiveDrawer.cashuWallet),
+          onOpenShoutbox: () => _openDrawer(EarthlyDrawer.shoutbox),
+          onOpenHelp: () => _openDrawer(EarthlyDrawer.help),
+          onOpenCashuWallet: () => _openDrawer(EarthlyDrawer.cashuWallet),
           cashuWalletEnabled: _accountWallet.nip60WalletEnabled,
           cashuBalanceSats: _accountWallet.nip60WalletEnabled
               ? _accountWallet.cashuWalletState?.balanceSats.toInt()
               : null,
-          onOpenMcpBridge: () => _openDrawer(_ActiveDrawer.mcpBridge),
+          onOpenMcpBridge: () => _openDrawer(EarthlyDrawer.mcpBridge),
           mcpBridgeRunning: _agent.mcpBridgeStatus?.running ?? false,
           onAccountChanged: _onAmberAccountChanged,
           onLocalKeyChanged: _onLocalKeyChanged,
           onSessionStateChanged: _spaces.setSessionState,
           onNearbySynced: () => _catalog.setCatalog(null),
           onBroadcastBeacon: _broadcastLiveBeacon,
+          onBack: _backCallbackFor(target),
           onClose: () => _closeDrawer(target),
         );
-      case _ActiveDrawer.circles:
+      case EarthlyDrawer.circles:
         return CirclesSheet(
           account: _accountWallet.account,
           localNsec: _accountWallet.localNsec,
@@ -3546,7 +3685,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               circleName: ws.name,
               onPersist: _schedulePersistWorkingDraft,
             );
-            _openDrawer(_ActiveDrawer.desk);
+            _openDrawer(EarthlyDrawer.desk);
           },
           onCopyDatasetToDraft: (ws, ds) {
             final parsed = parseDraftFeaturesFromGeoJson(ds.geojsonJson);
@@ -3563,8 +3702,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               circleName: ws.name,
               onPersist: _schedulePersistWorkingDraft,
             );
-            _openDrawer(_ActiveDrawer.desk);
-            _showSnack(
+            _openDrawer(EarthlyDrawer.desk);
+            _showSuccessToast(
               'Created editable copy of "${ds.title}" in Desk',
             );
           },
@@ -3582,8 +3721,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               parsed: parsed,
               onPersist: _schedulePersistWorkingDraft,
             );
-            _openDrawer(_ActiveDrawer.desk);
-            _showSnack(
+            _openDrawer(EarthlyDrawer.desk);
+            _showToast(
               'Loaded "${ds.title}" to propose an edit to "${ws.name}"',
             );
           },
@@ -3636,7 +3775,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               circleName: ws.name,
               onPersist: _schedulePersistWorkingDraft,
             );
-            _openDrawer(_ActiveDrawer.desk);
+            _openDrawer(EarthlyDrawer.desk);
           },
           onToggleCommentGeometry: (msg) {
             if (_catalog.activeCommentOverlayId == msg.envelopeId) {
@@ -3708,13 +3847,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             _handleCircleWorkspaceUpdated(updated);
             return updated;
           },
-          onOpenAccount: () => _openDrawer(_ActiveDrawer.account),
+          onOpenAccount: () => _openDrawer(EarthlyDrawer.account),
           onClose: () {
             _spaces.clearPendingCircleInvite();
             _closeDrawer(target);
           },
         );
-      case _ActiveDrawer.inbox:
+      case EarthlyDrawer.inbox:
         return InboxSheet(
           account: _accountWallet.account,
           items: _spaces.inboxItems,
@@ -3734,12 +3873,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           ),
           onOpenItem: (item) => unawaited(_openInboxItem(item)),
           onOpenPerson: _openPerson,
-          onOpenCircles: () => _openDrawer(_ActiveDrawer.circles),
-          onOpenSpaces: () => _openDrawer(_ActiveDrawer.spaces),
-          onOpenAccount: () => _openDrawer(_ActiveDrawer.account),
+          onOpenCircles: () => _openDrawer(EarthlyDrawer.circles),
+          onOpenSpaces: () => _openDrawer(EarthlyDrawer.spaces),
+          onOpenAccount: () => _openDrawer(EarthlyDrawer.account),
+          onBack: _backCallbackFor(target),
           onClose: () => _closeDrawer(target),
         );
-      case _ActiveDrawer.outbox:
+      case EarthlyDrawer.outbox:
         return OutboxQueueSheet(
           items: _spaces.outboxItems,
           flushing: _spaces.outboxFlushing,
@@ -3748,19 +3888,21 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           ),
           onRetryItem: (id) => unawaited(
             _spaces.retryOutboxEntry(id).catchError((Object err) {
-              _showSnack('Outbox retry failed: $err');
+              _showErrorToast('Outbox retry failed: $err');
             }),
           ),
           onDiscardItem: (id) => unawaited(
             _spaces.discardOutboxEntry(id).catchError((Object err) {
-              _showSnack('Outbox discard failed: $err');
+              _showErrorToast('Outbox discard failed: $err');
             }),
           ),
-          onClose: () => _closeDrawer(_ActiveDrawer.outbox),
+          onBack: _backCallbackFor(target),
+          onClose: () => _closeDrawer(EarthlyDrawer.outbox),
         );
-      case _ActiveDrawer.person:
+      case EarthlyDrawer.person:
         final personPk = _catalog.inspectedPersonPubkey;
         if (personPk == null) return null;
+        // Integrator: wire onBack: _backCallbackFor(target) once @ui-layout-cleanup merges.
         return PersonMarginSheet(
           pubkey: personPk,
           relayUrls: _catalog.relayUrls,
@@ -3799,7 +3941,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           },
           onClose: () => _closeDrawer(target),
         );
-      case _ActiveDrawer.account:
+      case EarthlyDrawer.account:
         return AccountSessionSheet(
           account: _accountWallet.account,
           localNsec: _accountWallet.localNsec,
@@ -3813,7 +3955,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               session,
               onSessionActivated: _onSessionActivated,
             );
-            _showSnack('Switched account to $name');
+            _showSuccessToast('Switched account to $name');
           },
           onRemoveSession: (id) => _accountWallet.removeSavedSession(
             id,
@@ -3869,7 +4011,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             uri,
             onPersistSettings: () => unawaited(_persistAppSettings()),
           ),
-          onOpenCashuWallet: () => _openDrawer(_ActiveDrawer.cashuWallet),
+          onOpenCashuWallet: () => _openDrawer(EarthlyDrawer.cashuWallet),
           cashuWalletEnabled: _accountWallet.nip60WalletEnabled,
           cashuBalanceSats: _accountWallet.nip60WalletEnabled
               ? _accountWallet.cashuWalletState?.balanceSats.toInt()
@@ -3879,10 +4021,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             relayUrls: _catalog.relayUrls,
             onSessionActivated: _onSessionActivated,
           ),
-          onOpenSpaces: () => _openDrawer(_ActiveDrawer.spaces),
+          onOpenSpaces: () => _openDrawer(EarthlyDrawer.spaces),
           onClose: () => _closeDrawer(target),
         );
-      case _ActiveDrawer.cashuWallet:
+      case EarthlyDrawer.cashuWallet:
         return CashuWalletSheet(
           state: _accountWallet.cashuWalletViewState,
           walletEnabled: _accountWallet.nip60WalletEnabled,
@@ -4075,9 +4217,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             );
             _accountWallet.updateCashuWalletState(res.walletState);
           },
+          onBack: _backCallbackFor(target),
           onClose: () => _closeDrawer(target),
         );
-      case _ActiveDrawer.mcpBridge:
+      case EarthlyDrawer.mcpBridge:
         return McpBridgeSheet(
           state: _agent.mcpBridgeViewState,
           busy: _agent.mcpBridgeBusy,
@@ -4089,23 +4232,19 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           onStop: _agent.stopMcpBridgeServer,
           onClose: () => _closeDrawer(target),
         );
-      case _ActiveDrawer.search:
+      case EarthlyDrawer.search:
         return PlaceSearchSheet(
+          initialQuery: _lastSearchQuery,
+          onQueryChanged: (q) => _lastSearchQuery = q,
           catalogMaps: _catalog.catalog?.maps ?? const <MapSummaryDto>[],
           catalogStories:
               _catalog.catalog?.stories ?? const <StorySummaryDto>[],
           catalogAtlases:
               _catalog.catalog?.atlases ?? const <AtlasSummaryDto>[],
+          catalogSightings: _catalog.allSightings,
           profilesByPubkey: _accountWallet.profilesByPubkey,
           relayUrls: _catalog.relayUrls,
-          onSelectMap: (map) {
-            _catalog.recordRecentEntity(
-              'map:${map.address}',
-              onPersist: () => unawaited(_persistAppSettings()),
-            );
-            _inspectMap(map);
-            _flyToMap(map);
-          },
+          onSelectMap: _inspectMap,
           onSelectStory: (story) {
             _catalog.recordRecentEntity(
               'story:${story.address}',
@@ -4114,12 +4253,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             unawaited(_openStory(story));
           },
           onSelectAtlas: _inspectAtlas,
+          onSelectSighting: _openSightingFromCatalog,
           onSelectPerson: _openPerson,
           onJumpToPlace: _jumpToPlace,
           onJumpToNaddr: _jumpToNaddr,
+          onBack: _backCallbackFor(target),
           onClose: () => _closeDrawer(target),
         );
-      case _ActiveDrawer.agent:
+      case EarthlyDrawer.agent:
         return AgentDrawer(
           messages: _agent.messages,
           threads: _agent.threads,
@@ -4146,7 +4287,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           pendingAttachment: _agent.pendingAttachment,
           onPickAttachment: () => unawaited(
             _agent.pickAttachment().then((err) {
-              if (err != null) _showSnack(err);
+              if (err != null) _showErrorToast(err);
             }),
           ),
           onClearAttachment: _agent.clearPendingAttachment,
@@ -4172,7 +4313,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           ),
           onClose: () => _closeDrawer(target),
         );
-      case _ActiveDrawer.storyReader:
+      case EarthlyDrawer.storyReader:
         if (_catalog.activeStory == null || _catalog.parsedStory == null) {
           return null;
         }
@@ -4182,6 +4323,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           draftFeatures: _draft.features,
           activeStory: _catalog.activeStoryContext,
         ).length;
+        // Integrator: wire onBack: _backCallbackFor(target) once @ui-layout-cleanup merges.
         return StoryReaderMargin(
           story: activeStory,
           relayUrls: _catalog.relayUrls,
@@ -4203,7 +4345,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           onActivateNaddrRef: (ref) {
             final dataset = _catalog.activateStoryNaddrRef(ref);
             if (dataset == null) {
-              _showSnack('Referenced map ${ref.dTag} is not on relay');
+              _showWarningToast('Referenced map ${ref.dTag} is not on relay');
               return;
             }
             if (ref.featureId != null) {
@@ -4240,7 +4382,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           ),
           onKeepOnShelf: () {
             final count = _catalog.keepStoryMapsOnShelf();
-            _showSnack(
+            _showSuccessToast(
               'Pinned $count Story map${count == 1 ? '' : 's'} to Shelf',
             );
           },
@@ -4268,7 +4410,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           onOpenPerson: _openPerson,
           onEditStory: () {
             _catalog.setEditingStory(activeStory);
-            _openDrawer(_ActiveDrawer.storyComposer);
+            _openDrawer(EarthlyDrawer.storyComposer);
           },
           onDeleteStory: () async {
             final outcome = await _catalog.deleteOwnedStory(
@@ -4277,17 +4419,17 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               signUnsignedEvent: _accountWallet.signUnsignedEvent,
               deliverForAudience: _deliverForAudience,
             );
-            _closeDrawer(_ActiveDrawer.storyReader);
-            _showSnack(
+            _closeDrawer(EarthlyDrawer.storyReader);
+            _showSuccessToast(
               'Published NIP-09 deletion for "${activeStory.title}" (${outcome.outboxState})',
             );
           },
           onClose: () {
-            _closeDrawer(_ActiveDrawer.storyReader);
+            _closeDrawer(EarthlyDrawer.storyReader);
             _catalog.closeStory();
           },
         );
-      case _ActiveDrawer.storyComposer:
+      case EarthlyDrawer.storyComposer:
         return StoryComposerDrawer(
           key: ValueKey(_catalog.editingStory?.address ?? 'new-story'),
           shelfMaps: _catalog.shelfMaps,
@@ -4322,7 +4464,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             _closeDrawer(target);
           },
         );
-      case _ActiveDrawer.atlasComposer:
+      case EarthlyDrawer.atlasComposer:
         return AtlasComposerSheet(
           key: ValueKey(_catalog.editingAtlas?.address ?? 'new-atlas'),
           shelfMaps: _catalog.shelfMaps,
@@ -4343,9 +4485,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             _closeDrawer(target);
           },
         );
-      case _ActiveDrawer.atlasDetail:
+      case EarthlyDrawer.atlasDetail:
         final atlas = _catalog.inspectedAtlas ?? _catalog.activeAtlasLens;
         if (atlas == null) return null;
+        // Integrator: wire onBack: _backCallbackFor(target) once @ui-layout-cleanup merges.
         return AtlasDetailMargin(
           atlas: atlas,
           relayUrls: _catalog.relayUrls,
@@ -4396,7 +4539,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               signUnsignedEvent: _accountWallet.signUnsignedEvent,
               deliverForAudience: _deliverForAudience,
             );
-            _showSnack('Added to Curated in "${atlas.name}"');
+            _showSuccessToast('Added to Curated in "${atlas.name}"');
           },
           onLockDownAtlas: () async {
             await _catalog.publishAtlas(
@@ -4415,13 +4558,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               signUnsignedEvent: _accountWallet.signUnsignedEvent,
               deliverForAudience: _deliverForAudience,
             );
-            _showSnack('Locked down "${atlas.name}" to Author Picks only');
+            _showSuccessToast('Locked down "${atlas.name}" to Author Picks only');
           },
           onMuteAuthor: _mutePubkeyUi,
           onOpenPerson: _openPerson,
           onEditAtlas: () {
             _catalog.setEditingAtlas(atlas);
-            _openDrawer(_ActiveDrawer.atlasComposer);
+            _openDrawer(EarthlyDrawer.atlasComposer);
           },
           onDeleteAtlas: () async {
             final outcome = await _catalog.deleteOwnedAtlas(
@@ -4430,8 +4573,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               signUnsignedEvent: _accountWallet.signUnsignedEvent,
               deliverForAudience: _deliverForAudience,
             );
-            _closeDrawer(_ActiveDrawer.atlasDetail);
-            _showSnack(
+            _closeDrawer(EarthlyDrawer.atlasDetail);
+            _showSuccessToast(
               'Published NIP-09 deletion for "${atlas.name}" (${outcome.outboxState})',
             );
           },
@@ -4463,9 +4606,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           ),
           onClose: () => _closeDrawer(target),
         );
-      case _ActiveDrawer.datasetDetail:
+      case EarthlyDrawer.datasetDetail:
         final map = _catalog.inspectedMap;
         if (map == null) return null;
+        // Integrator: wire onBack: _backCallbackFor(target) once @ui-layout-cleanup merges.
         return DatasetDetailMargin(
           map: map,
           relayUrls: _catalog.relayUrls,
@@ -4520,7 +4664,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               signUnsignedEvent: _accountWallet.signUnsignedEvent,
               deliverForAudience: _deliverForAudience,
             );
-            _showSnack(
+            _showSuccessToast(
               'Published NIP-09 deletion for "${m.title}" (${outcome.outboxState})',
             );
             return outcome;
@@ -4528,7 +4672,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           onOpenPerson: _openPerson,
           onClose: () => _closeDrawer(target),
         );
-      case _ActiveDrawer.inspector:
+      case EarthlyDrawer.inspector:
         final feature = _catalog.inspectedFeature;
         if (feature == null) return null;
         return FeatureInspectorSheet(
@@ -4676,13 +4820,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                         featureId: feature.featureId,
                       );
                       await Clipboard.setData(ClipboardData(text: uri));
-                      _showSnack('Copied nostr:naddr1… link');
+                      _showSuccessToast('Copied nostr:naddr1… link');
                     }),
                   );
                 }
               : null,
         );
-      case _ActiveDrawer.discussion:
+      case EarthlyDrawer.discussion:
         final dTarget = _catalog.discussionTarget;
         if (dTarget == null) return null;
         return DiscussionMarginSheet(
@@ -4810,9 +4954,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           onUploadBlossomImage: () async =>
               (await _pickAndUploadBlossomImage('Upload comment photo'))?.url ??
               '',
-          onClose: () => _closeDrawer(_ActiveDrawer.discussion),
+          onClose: () => _closeDrawer(EarthlyDrawer.discussion),
         );
-      case _ActiveDrawer.locationInspector:
+      case EarthlyDrawer.locationInspector:
         final pt = _catalog.inspectedLocation;
         if (pt == null) return null;
         return LocationInspectorSheet(
@@ -4827,25 +4971,25 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             );
             _inspectMap(map);
           },
-          onFocusSighting: _focusSighting,
+          onFocusSighting: _openSightingFromCatalog,
           onDropPointHere: () {
             final feat = _draft.dropDraftPointAt(
               pt,
               onPersist: _schedulePersistWorkingDraft,
             );
-            _showSnack(
+            _showSuccessToast(
               'Added ${feat.name} at ${pt.lat.toStringAsFixed(5)}, ${pt.lon.toStringAsFixed(5)}',
             );
           },
           onCreateSightingHere: () => _openSightingComposer(initialLocation: pt),
-          onImportOsmHere: () => _openDrawer(_ActiveDrawer.osmImport),
+          onImportOsmHere: () => _openDrawer(EarthlyDrawer.osmImport),
           onIsochroneHere: () {
             _catalog.setRoutingOrigin(pt);
-            _openDrawer(_ActiveDrawer.routing);
+            _openDrawer(EarthlyDrawer.routing);
           },
-          onClose: () => _closeDrawer(_ActiveDrawer.locationInspector),
+          onClose: () => _closeDrawer(EarthlyDrawer.locationInspector),
         );
-      case _ActiveDrawer.osmImport:
+      case EarthlyDrawer.osmImport:
         final bbox = _currentImportBounds();
         return OsmImportSheet(
           west: bbox.west,
@@ -4857,9 +5001,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             prefix: 'osm',
             snackLabel: res.querySummary,
           ),
-          onClose: () => _closeDrawer(_ActiveDrawer.osmImport),
+          onClose: () => _closeDrawer(EarthlyDrawer.osmImport),
         );
-      case _ActiveDrawer.routing:
+      case EarthlyDrawer.routing:
         final draftPoints = _draft.features
             .where((f) => f.kind == DrawToolMode.point && f.vertices.isNotEmpty)
             .map((f) => f.vertices.first)
@@ -4875,9 +5019,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             prefix: 'route',
             snackLabel: summaryLabel,
           ),
-          onClose: () => _closeDrawer(_ActiveDrawer.routing),
+          onClose: () => _closeDrawer(EarthlyDrawer.routing),
         );
-      case _ActiveDrawer.shoutbox:
+      case EarthlyDrawer.shoutbox:
         return ShoutboxSheet(
           relayUrls: _catalog.relayUrls,
           profilesByPubkey: _accountWallet.profilesByPubkey,
@@ -4891,13 +5035,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             ensureAccount: _ensureAccount,
             signUnsignedEvent: _accountWallet.signUnsignedEvent,
           ),
-          onClose: () => _closeDrawer(_ActiveDrawer.shoutbox),
+          onClose: () => _closeDrawer(EarthlyDrawer.shoutbox),
         );
-      case _ActiveDrawer.help:
+      case EarthlyDrawer.help:
         return HelpShortcutsSheet(
-          onClose: () => _closeDrawer(_ActiveDrawer.help),
+          onClose: () => _closeDrawer(EarthlyDrawer.help),
         );
-      case _ActiveDrawer.settings:
+      case EarthlyDrawer.settings:
         return SettingsSheet(
           initialTab: _settingsInitialTab,
           themeMode: widget.themeMode,
@@ -4952,7 +5096,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                     _animateCameraPosition(center.lon, center.lat, zoom),
               );
             } catch (err) {
-              _showSnack('Could not mount offline pack: $err');
+              _showErrorToast('Could not mount offline pack: $err');
             }
           },
           onRemoveSavedPack: (sha) {
@@ -5022,7 +5166,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             );
           },
           mcpBridgeRunning: _agent.mcpBridgeStatus?.running ?? false,
-          onOpenMcpBridge: () => _openDrawer(_ActiveDrawer.mcpBridge),
+          onOpenMcpBridge: () => _openDrawer(EarthlyDrawer.mcpBridge),
           account: _accountWallet.account,
           signerModeLabel: _signerModeLabel(),
           cashuWalletEnabled: _accountWallet.nip60WalletEnabled,
@@ -5050,8 +5194,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           cashuBalanceSats: _accountWallet.nip60WalletEnabled
               ? _accountWallet.cashuWalletState?.balanceSats.toInt()
               : null,
-          onOpenCashuWallet: () => _openDrawer(_ActiveDrawer.cashuWallet),
-          onOpenAccount: () => _openDrawer(_ActiveDrawer.account),
+          onOpenCashuWallet: () => _openDrawer(EarthlyDrawer.cashuWallet),
+          onOpenAccount: () => _openDrawer(EarthlyDrawer.account),
           mutedPubkeys: _accountWallet.mutedPubkeys.toList(growable: false),
           onUnmutePubkey: (pk) => _accountWallet.unmutePubkey(
             pk,
@@ -5077,17 +5221,17 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
             );
           },
           onOpenOutbox: () {
-            _openDrawer(_ActiveDrawer.outbox);
+            _openDrawer(EarthlyDrawer.outbox);
             unawaited(
               _spaces.refreshOutboxItems(isHeadlessTest: _isHeadlessTest),
             );
           },
           onRefreshCatalog: () {
             unawaited(_preloadCatalog());
-            _showSnack('Refreshing Nostr catalog…');
+            _showToast('Refreshing Nostr catalog…');
           },
-          onOpenHelp: () => _openDrawer(_ActiveDrawer.help),
-          onClose: () => _closeDrawer(_ActiveDrawer.settings),
+          onOpenHelp: () => _openDrawer(EarthlyDrawer.help),
+          onClose: () => _closeDrawer(EarthlyDrawer.settings),
         );
     }
   }
@@ -5146,21 +5290,15 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       onPersistSettings: () => unawaited(_persistAppSettings()),
     );
     if (label == null || !mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 10),
-          content: Text('Muted $label on this device'),
-          action: SnackBarAction(
-            label: 'Undo',
-            onPressed: () => _accountWallet.unmutePubkey(
-              pubkey.trim(),
-              onPersistSettings: () => unawaited(_persistAppSettings()),
-            ),
-          ),
-        ),
-      );
+    _toast.showWarning(
+      'Muted $label on this device',
+      duration: const Duration(seconds: 6),
+      actionLabel: 'Undo',
+      onAction: () => _accountWallet.unmutePubkey(
+        pubkey.trim(),
+        onPersistSettings: () => unawaited(_persistAppSettings()),
+      ),
+    );
   }
 
   Future<PublishOutcomeDto> _submitProposalStatus(
@@ -5191,7 +5329,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       onPersist: _schedulePersistWorkingDraft,
     );
     if (count > 0) {
-      _showSnack('Duplicated $count feature${count == 1 ? '' : 's'}');
+      _showSuccessToast('Duplicated $count feature${count == 1 ? '' : 's'}');
     }
   }
 
@@ -5205,9 +5343,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         center: center,
         onPersist: _schedulePersistWorkingDraft,
       );
-      if (label != null) _showSnack('Added $label at map center');
+      if (label != null) _showSuccessToast('Added $label at map center');
     } catch (err) {
-      _showSnack('Primitive shape failed: $err');
+      _showErrorToast('Primitive shape failed: $err');
     }
   }
 
@@ -5229,7 +5367,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       );
       if (ok) _refreshInspectedDraftFeature(featureId);
     } catch (err) {
-      _showSnack('Transform failed: $err');
+      _showErrorToast('Transform failed: $err');
     }
   }
 
@@ -5249,7 +5387,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       );
       _refreshInspectedDraftFeature('');
     } catch (err) {
-      _showSnack('Geo operation failed: $err');
+      _showErrorToast('Geo operation failed: $err');
     }
   }
 
@@ -5267,7 +5405,12 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       final res = await _draft.finishSplitByLine(
         onPersist: _schedulePersistWorkingDraft,
       );
-      _showSnack(res.message);
+      _showToast(
+        res.message,
+        severity: res.ok
+            ? EarthlyToastSeverity.success
+            : EarthlyToastSeverity.warning,
+      );
       return;
     }
     _draft.finishDraft(onPersist: _schedulePersistWorkingDraft);
@@ -5297,7 +5440,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       label,
       onPersist: _schedulePersistWorkingDraft,
     );
-    _showSnack('Added label "${created.name ?? 'Label'}"');
+    _showSuccessToast('Added label "${created.name ?? 'Label'}"');
   }
 
   DrawnFeature? _primarySelectedDraftFeature() {
@@ -5323,7 +5466,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     final target = _primarySelectedDraftFeature();
     if (target == null) return;
     _catalog.setInspectedFeature(_buildInspectedDraftFeature(target));
-    _openDrawer(_ActiveDrawer.inspector);
+    _openDrawer(EarthlyDrawer.inspector);
   }
 
   void _deleteSelectedDraftFeatures() {
@@ -5334,7 +5477,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     if (inspected?.draftFeatureId != null &&
         deleted.contains(inspected!.draftFeatureId)) {
       _catalog.setInspectedFeature(null);
-      _closeDrawer(_ActiveDrawer.inspector);
+      _closeDrawer(EarthlyDrawer.inspector);
     }
   }
 
@@ -5427,14 +5570,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               if (_draft.isDrawingMode) {
                 _draft.cancelEditingDraftFeature();
               }
-              _openDrawer(_ActiveDrawer.osmImport);
+              _openDrawer(EarthlyDrawer.osmImport);
             },
             onExportGeoJson: () => unawaited(_exportSpatialFile('geojson')),
             onOpenDeskAndPublish: () {
               if (_draft.isDrawingMode) {
                 _draft.cancelEditingDraftFeature();
               }
-              _openDrawer(_ActiveDrawer.desk);
+              _openDrawer(EarthlyDrawer.desk);
             },
             onExitDrawingMode: _draft.cancelEditingDraftFeature,
             onClose: () => Navigator.of(sheetCtx).pop(),
@@ -5456,17 +5599,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
 
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
-        const SingleActivator(LogicalKeyboardKey.escape): () {
-          if (_draft.isDrawingMode) {
-            _draft.cancelEditingDraftFeature();
-          } else if (_rightStudioDrawer != _ActiveDrawer.none) {
-            _drawerNotifier.value =
-                (left: _drawer, right: _ActiveDrawer.none);
-          } else if (_drawer != _ActiveDrawer.none) {
-            _drawerNotifier.value =
-                (left: _ActiveDrawer.none, right: _rightStudioDrawer);
-          }
-        },
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            _handleBackNavigation(allowExitPrompt: false),
         const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): () {
           if (_draft.isDrawingMode) {
             _draft.undoLastPoint(onPersist: _schedulePersistWorkingDraft);
@@ -5541,70 +5675,83 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       },
       child: Focus(
         autofocus: true,
-        child: EarthlyReferenceScope(
-          onOpenNaddr: (uri) async {
-            try {
-              await _jumpToNaddr(uri);
-            } catch (err) {
-              _showSnack('Could not open reference: $err');
-            }
-          },
-          onOpenGeo: (lat, lon, label) {
-            _catalog.addStoryGeoPin(lat, lon, label);
-            _animateCameraPosition(lon, lat, 15.5);
-          },
-          onOpenPerson: _openPerson,
-          resolveNaddrTitle: _catalog.resolveNaddrTitle,
-          resolvePersonLabel: (pk) =>
-              _accountWallet.profilesByPubkey[pk]?.displayName ??
-              _accountWallet.profilesByPubkey[pk]?.name,
-          child: Scaffold(
-            body: Stack(
-              fit: StackFit.expand,
-              children: [
-                // 1. Isolated Map Surface + Memoized GeoJSON/GPU Layer Scope
-                _buildIsolatedMapSurface(
-                  systemIsDark: systemIsDark,
-                  isDesktop: isDesktop,
-                  isWideStudio: isWideStudio,
-                  bottomSafeInset: bottomSafeInset,
+        child: EarthlyToastScope(
+          controller: _toast,
+          child: EarthlyReferenceScope(
+            onOpenNaddr: (uri) async {
+              try {
+                await _jumpToNaddr(uri);
+              } catch (err) {
+                _showErrorToast('Could not open reference: $err');
+              }
+            },
+            onOpenGeo: (lat, lon, label) {
+              _catalog.addStoryGeoPin(lat, lon, label);
+              _animateCameraPosition(lon, lat, 15.5);
+            },
+            onOpenPerson: _openPerson,
+            resolveNaddrTitle: _catalog.resolveNaddrTitle,
+            resolvePersonLabel: (pk) =>
+                _accountWallet.profilesByPubkey[pk]?.displayName ??
+                _accountWallet.profilesByPubkey[pk]?.name,
+            child: PopScope(
+              canPop: false,
+              onPopInvokedWithResult: (didPop, _) {
+                if (didPop) return;
+                _handleBackNavigation();
+              },
+              child: Scaffold(
+                body: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    // 1. Isolated Map Surface + Memoized GeoJSON/GPU Layer Scope
+                    _buildIsolatedMapSurface(
+                      systemIsDark: systemIsDark,
+                      isDesktop: isDesktop,
+                      isWideStudio: isWideStudio,
+                      bottomSafeInset: bottomSafeInset,
+                    ),
+
+                    // 2. Touch Draw Overlay Scope (does not rebuild on AI tokens/drawer)
+                    _buildTouchDrawOverlayScope(),
+
+                    // 3. Top Instrument Bar Scope
+                    _buildTopBarScope(isDesktop: isDesktop),
+
+                    // 4. Mobile Right-Thumb Controls Rail Scope
+                    if (!isDesktop)
+                      _buildRightThumbRailScope(
+                        screenHeight: screenHeight,
+                        bottomSafeInset: bottomSafeInset,
+                        isWideStudio: isWideStudio,
+                      ),
+
+                    // 5. Contextual Map HUD Bars Scope (Lens, Measure, Ghost, GPS)
+                    _buildHudOverlaysScope(
+                      isDesktop: isDesktop,
+                      isWideStudio: isWideStudio,
+                      systemIsDark: systemIsDark,
+                      bottomSafeInset: bottomSafeInset,
+                    ),
+
+                    // 6. Left / Mobile Drawer Scope
+                    _buildLeftDrawerScope(isWideStudio: isWideStudio),
+
+                    // 7. Wide Studio Right Margin Drawer Scope
+                    if (isWideStudio) _buildRightDrawerScope(),
+
+                    // 8. Bottom Dock Scope
+                    _buildBottomDockScope(
+                      isDesktop: isDesktop,
+                      isWideStudio: isWideStudio,
+                      systemIsDark: systemIsDark,
+                    ),
+
+                    // 9. Auto-Decaying Toast Overlay Scope (always above drawers & dock)
+                    EarthlyToastOverlay(controller: _toast),
+                  ],
                 ),
-
-                // 2. Touch Draw Overlay Scope (does not rebuild on AI tokens/drawer)
-                _buildTouchDrawOverlayScope(),
-
-                // 3. Top Instrument Bar Scope
-                _buildTopBarScope(isDesktop: isDesktop),
-
-                // 4. Mobile Right-Thumb Controls Rail Scope
-                if (!isDesktop)
-                  _buildRightThumbRailScope(
-                    screenHeight: screenHeight,
-                    bottomSafeInset: bottomSafeInset,
-                    isWideStudio: isWideStudio,
-                  ),
-
-                // 5. Contextual Map HUD Bars Scope (Lens, Measure, Ghost, GPS)
-                _buildHudOverlaysScope(
-                  isDesktop: isDesktop,
-                  isWideStudio: isWideStudio,
-                  systemIsDark: systemIsDark,
-                  bottomSafeInset: bottomSafeInset,
-                ),
-
-                // 6. Left / Mobile Drawer Scope
-                _buildLeftDrawerScope(isWideStudio: isWideStudio),
-
-                // 7. Wide Studio Right Margin Drawer Scope
-                if (isWideStudio) _buildRightDrawerScope(),
-
-                // 8. Bottom Dock Scope
-                _buildBottomDockScope(
-                  isDesktop: isDesktop,
-                  isWideStudio: isWideStudio,
-                  systemIsDark: systemIsDark,
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -5693,20 +5840,20 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                   ListenableBuilder(
                     listenable: Listenable.merge([
                       _mapLayers.presentationListenable,
-                      _drawerNotifier,
+                      _drawerNav,
                       _catalog.shelfListenable,
                     ]),
                     builder: (context, _) {
-                      final leftTarget = _drawer != _ActiveDrawer.none
+                      final leftTarget = _drawer != EarthlyDrawer.none
                           ? _drawer
                           : (!isWideStudio
                               ? _rightStudioDrawer
-                              : _ActiveDrawer.none);
+                              : EarthlyDrawer.none);
                       final galleryOpen = !isDesktop &&
-                          leftTarget == _ActiveDrawer.explore &&
+                          leftTarget == EarthlyDrawer.explore &&
                           _catalog.galleryModeActive;
                       final hideBottomDockOnMobile = !isDesktop &&
-                          leftTarget != _ActiveDrawer.none &&
+                          leftTarget != EarthlyDrawer.none &&
                           !_draft.isDrawingMode;
                       return EarthlyCalloutOverlay(
                         callouts: snapshot.visibleCallouts,
@@ -5715,7 +5862,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                         arrowheads: snapshot.visibleArrowheads,
                         commentPins: _catalog.activeCommentPins,
                         onInspectComment: (_) =>
-                            _openDrawer(_ActiveDrawer.discussion),
+                            _openDrawer(EarthlyDrawer.discussion),
                         onRepositionDraftCallout: (fid, cid, off) {
                           if (_draft.repositionDraftCallout(
                             fid,
@@ -5810,10 +5957,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
               rect,
               controller.toScreenLocation,
             );
-            _showSnack(
+            _showToast(
               count == 0
                   ? 'No draft features inside selection box'
                   : 'Selected $count feature${count == 1 ? '' : 's'}',
+              severity: count == 0
+                  ? EarthlyToastSeverity.warning
+                  : EarthlyToastSeverity.info,
             );
           },
           onCommitFreehand: (pts) => _draft.commitFreehandStroke(
@@ -5894,7 +6044,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
           child: ListenableBuilder(
             listenable: Listenable.merge([
-              _drawerNotifier,
+              _drawerNav,
               _catalog.shelfListenable,
               _catalog.beaconsListenable,
               _draft.geometryListenable,
@@ -6013,8 +6163,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                             _MiniToggle(
                               label: 'Explore',
                               icon: Icons.explore_outlined,
-                              active: _isDrawerOpen(_ActiveDrawer.explore),
-                              onTap: () => _toggleDrawer(_ActiveDrawer.explore),
+                              active: _isDrawerOpen(EarthlyDrawer.explore),
+                              onTap: () => _toggleDrawer(EarthlyDrawer.explore),
                             ),
                             const SizedBox(width: 6),
                             _MiniToggle(
@@ -6022,10 +6172,10 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                                   ? 'Desk (${_spaces.pendingOutboxCount})'
                                   : 'Desk',
                               icon: Icons.layers_outlined,
-                              active: _isDrawerOpen(_ActiveDrawer.desk) ||
-                                  _isDrawerOpen(_ActiveDrawer.outbox) ||
+                              active: _isDrawerOpen(EarthlyDrawer.desk) ||
+                                  _isDrawerOpen(EarthlyDrawer.outbox) ||
                                   _spaces.pendingOutboxCount > 0,
-                              onTap: () => _toggleDrawer(_ActiveDrawer.desk),
+                              onTap: () => _toggleDrawer(EarthlyDrawer.desk),
                             ),
                             const SizedBox(width: 6),
                             _MiniToggle(
@@ -6033,9 +6183,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                                   ? 'Spaces (${_spaces.pendingClaimCount})'
                                   : 'Spaces',
                               icon: Icons.hub_outlined,
-                              active: _isDrawerOpen(_ActiveDrawer.spaces) ||
+                              active: _isDrawerOpen(EarthlyDrawer.spaces) ||
                                   _spaces.pendingClaimCount > 0,
-                              onTap: () => _toggleDrawer(_ActiveDrawer.spaces),
+                              onTap: () => _toggleDrawer(EarthlyDrawer.spaces),
                             ),
                             const SizedBox(width: 6),
                             _MiniToggle(
@@ -6043,9 +6193,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                                   ? 'Circles (${_spaces.circlePendingJoins.length})'
                                   : 'Circles',
                               icon: Icons.lock_outline,
-                              active: _isDrawerOpen(_ActiveDrawer.circles) ||
+                              active: _isDrawerOpen(EarthlyDrawer.circles) ||
                                   _spaces.activeCircleLensId != null,
-                              onTap: () => _toggleDrawer(_ActiveDrawer.circles),
+                              onTap: () => _toggleDrawer(EarthlyDrawer.circles),
                             ),
                             const SizedBox(width: 6),
                             _MiniToggle(
@@ -6053,11 +6203,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                                   ? 'Inbox (${_spaces.inboxUnreadCount})'
                                   : 'Inbox',
                               icon: Icons.inbox_outlined,
-                              active: _isDrawerOpen(_ActiveDrawer.inbox) ||
+                              active: _isDrawerOpen(EarthlyDrawer.inbox) ||
                                   _spaces.inboxUnreadCount > 0,
                               onTap: () {
-                                _toggleDrawer(_ActiveDrawer.inbox);
-                                if (_isDrawerOpen(_ActiveDrawer.inbox)) {
+                                _toggleDrawer(EarthlyDrawer.inbox);
+                                if (_isDrawerOpen(EarthlyDrawer.inbox)) {
                                   unawaited(_refreshInbox());
                                 }
                               },
@@ -6066,8 +6216,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                             _MiniToggle(
                               label: 'Agent',
                               icon: Icons.auto_awesome,
-                              active: _isDrawerOpen(_ActiveDrawer.agent),
-                              onTap: () => _toggleDrawer(_ActiveDrawer.agent),
+                              active: _isDrawerOpen(EarthlyDrawer.agent),
+                              onTap: () => _toggleDrawer(EarthlyDrawer.agent),
                             ),
                             const SizedBox(width: 6),
                             _MiniToggle(
@@ -6155,8 +6305,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                     _MiniIconButton(
                       tooltip: 'Search Place / Coords / naddr',
                       icon: Icons.search,
-                      active: _isDrawerOpen(_ActiveDrawer.search),
-                      onTap: () => _toggleDrawer(_ActiveDrawer.search),
+                      active: _isDrawerOpen(EarthlyDrawer.search),
+                      onTap: () => _toggleDrawer(EarthlyDrawer.search),
                     ),
                     if (isDesktop) ...[
                       const SizedBox(width: 6),
@@ -6216,8 +6366,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                         key: const Key('earthly-desktop-settings-btn'),
                         tooltip: 'Settings',
                         icon: Icons.settings_outlined,
-                        active: _isDrawerOpen(_ActiveDrawer.settings),
-                        onTap: () => _toggleDrawer(_ActiveDrawer.settings),
+                        active: _isDrawerOpen(EarthlyDrawer.settings),
+                        onTap: () => _toggleDrawer(EarthlyDrawer.settings),
                       ),
                     ],
                     const SizedBox(width: 6),
@@ -6227,8 +6377,8 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                         icon: _accountWallet.account != null
                             ? Icons.verified_user
                             : Icons.account_circle_outlined,
-                        active: _isDrawerOpen(_ActiveDrawer.account),
-                        onTap: () => _toggleDrawer(_ActiveDrawer.account),
+                        active: _isDrawerOpen(EarthlyDrawer.account),
+                        onTap: () => _toggleDrawer(EarthlyDrawer.account),
                       )
                     else
                       _MiniIconButton(
@@ -6238,9 +6388,9 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                         icon: _accountWallet.account != null
                             ? Icons.verified_user
                             : Icons.account_circle_outlined,
-                        active: _isDrawerOpen(_ActiveDrawer.account) ||
+                        active: _isDrawerOpen(EarthlyDrawer.account) ||
                             _accountWallet.account != null,
-                        onTap: () => _toggleDrawer(_ActiveDrawer.account),
+                        onTap: () => _toggleDrawer(EarthlyDrawer.account),
                       ),
                   ],
                 ],
@@ -6259,20 +6409,20 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
   }) {
     return ListenableBuilder(
       listenable: Listenable.merge([
-        _drawerNotifier,
+        _drawerNav,
         _draft.placementListenable,
         _draft.gpsTrackListenable,
         _mapLayers.presentationListenable,
         _catalog.mapContentListenable,
       ]),
       builder: (context, _) {
-        final leftTarget = _drawer != _ActiveDrawer.none
+        final leftTarget = _drawer != EarthlyDrawer.none
             ? _drawer
-            : (!isWideStudio ? _rightStudioDrawer : _ActiveDrawer.none);
+            : (!isWideStudio ? _rightStudioDrawer : EarthlyDrawer.none);
         final galleryOpen =
-            leftTarget == _ActiveDrawer.explore && _catalog.galleryModeActive;
+            leftTarget == EarthlyDrawer.explore && _catalog.galleryModeActive;
         final hideBottomDockOnMobile =
-            leftTarget != _ActiveDrawer.none && !_draft.isDrawingMode;
+            leftTarget != EarthlyDrawer.none && !_draft.isDrawingMode;
         final rightThumbRailBottom = galleryOpen
             ? bottomSafeInset + 226.0
             : hideBottomDockOnMobile
@@ -6416,7 +6566,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
   }) {
     return ListenableBuilder(
       listenable: Listenable.merge([
-        _drawerNotifier,
+        _drawerNav,
         _catalog.lensListenable,
         _catalog.overlayListenable,
         _spaces.circleLensListenable,
@@ -6428,14 +6578,14 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         _agent.ghostListenable,
       ]),
       builder: (context, _) {
-        final leftTarget = _drawer != _ActiveDrawer.none
+        final leftTarget = _drawer != EarthlyDrawer.none
             ? _drawer
-            : (!isWideStudio ? _rightStudioDrawer : _ActiveDrawer.none);
+            : (!isWideStudio ? _rightStudioDrawer : EarthlyDrawer.none);
         final hasLeft =
-            !_draft.isDrawingMode && leftTarget != _ActiveDrawer.none;
+            !_draft.isDrawingMode && leftTarget != EarthlyDrawer.none;
         final hasRight = !_draft.isDrawingMode &&
             isWideStudio &&
-            _rightStudioDrawer != _ActiveDrawer.none;
+            _rightStudioDrawer != EarthlyDrawer.none;
         final hudLeftInset = isDesktop && hasLeft ? 440.0 : 12.0;
         final hudRightInset = isWideStudio && hasRight ? 440.0 : 12.0;
         final activeAtlas = _catalog.activeAtlasLens;
@@ -6600,7 +6750,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                             onPressed: () {
                               _spaces
                                   .setSelectedCircleId(activeCircle.workspaceId);
-                              _openDrawer(_ActiveDrawer.circles);
+                              _openDrawer(EarthlyDrawer.circles);
                             },
                             child: const Text('Open'),
                           ),
@@ -7033,7 +7183,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                           onPersist: _schedulePersistWorkingDraft,
                         );
                         if (!removed) {
-                          _showSnack(
+                          _showWarningToast(
                             'Minimum vertices required for this geometry',
                           );
                         }
@@ -7197,13 +7347,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
 
   Widget _buildLeftDrawerScope({required bool isWideStudio}) {
     return ListenableBuilder(
-      listenable: Listenable.merge([_drawerNotifier, _draft.modeListenable]),
+      listenable: Listenable.merge([_drawerNav, _draft.modeListenable]),
       builder: (context, _) {
-        final leftTarget = _drawer != _ActiveDrawer.none
+        final leftTarget = _drawer != EarthlyDrawer.none
             ? _drawer
-            : (!isWideStudio ? _rightStudioDrawer : _ActiveDrawer.none);
-        if (leftTarget == _ActiveDrawer.none) return const SizedBox.shrink();
-        if (_draft.isDrawingMode && leftTarget != _ActiveDrawer.inspector) {
+            : (!isWideStudio ? _rightStudioDrawer : EarthlyDrawer.none);
+        if (leftTarget == EarthlyDrawer.none) return const SizedBox.shrink();
+        if (_draft.isDrawingMode && !_isDrawerAllowedInDrawingMode(leftTarget)) {
           return const SizedBox.shrink();
         }
         return _buildScopedDrawerSlot(leftTarget);
@@ -7213,13 +7363,13 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
 
   Widget _buildRightDrawerScope() {
     return ListenableBuilder(
-      listenable: Listenable.merge([_drawerNotifier, _draft.modeListenable]),
+      listenable: Listenable.merge([_drawerNav, _draft.modeListenable]),
       builder: (context, _) {
-        if (_rightStudioDrawer == _ActiveDrawer.none) {
+        if (_rightStudioDrawer == EarthlyDrawer.none) {
           return const SizedBox.shrink();
         }
         if (_draft.isDrawingMode &&
-            _rightStudioDrawer != _ActiveDrawer.inspector) {
+            !_isDrawerAllowedInDrawingMode(_rightStudioDrawer)) {
           return const SizedBox.shrink();
         }
         return EarthlyDrawerPlacement(
@@ -7230,6 +7380,186 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
     );
   }
 
+  /// Modular drawing-mode toolbar slot so `@drawing-ux-desk`'s `MobileDrawingBar`
+  /// can be dropped in cleanly without touching `_buildBottomDockScope`.
+  Widget _buildDrawingModeBottomBar(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => Row(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final tool in mobileAuthoringTools)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 2),
+                      child: _DockTool(
+                        key: Key('mobile-draw-tool-${tool.mode.name}'),
+                        label: tool.label,
+                        icon: tool.icon,
+                        selected: _draft.mode == tool.mode,
+                        minWidth: 46,
+                        onTap: () => _selectAuthoringTool(tool.mode),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: (constraints.maxWidth * 0.78).clamp(200.0, 460.0),
+            ),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_draft.placementStyle == TouchPlacementStyle.crosshair &&
+                      _draft.mode != DrawToolMode.select &&
+                      _draft.mode != DrawToolMode.editVertices &&
+                      _draft.mode != DrawToolMode.boxSelect &&
+                      _draft.mode != DrawToolMode.freehand &&
+                      _draft.mode != DrawToolMode.shape) ...[
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 6,
+                        ),
+                        minimumSize: const Size(0, 32),
+                        textStyle: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      onPressed: () {
+                        final center = _controller?.camera?.center;
+                        if (_draft.mode == DrawToolMode.annotation) {
+                          if (center != null) {
+                            unawaited(_promptDropMapLabel(center));
+                          }
+                          return;
+                        }
+                        _draft.dropCrosshairPoint(
+                          center,
+                          onPersist: _schedulePersistWorkingDraft,
+                        );
+                      },
+                      icon: const Icon(Icons.add_location_alt, size: 14),
+                      label: const Text('Drop'),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                  if (_draft.canFinishDraft) ...[
+                    FilledButton(
+                      style: FilledButton.styleFrom(
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 6,
+                        ),
+                        minimumSize: const Size(0, 32),
+                        textStyle: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      onPressed: () => unawaited(_finishActiveStroke()),
+                      child: Text(
+                        _draft.mode == DrawToolMode.splitByLine
+                            ? 'Cut · ${_draft.draftVertices.length}'
+                            : _draft.editingDraftFeature != null
+                                ? 'Save · ${_draft.draftVertices.length}'
+                                : 'Finish · ${_draft.draftVertices.length}',
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                  if (_draft.draftVertices.isNotEmpty)
+                    Tooltip(
+                      message: 'Undo',
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 6,
+                          ),
+                          minimumSize: const Size(0, 32),
+                          textStyle: const TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        onPressed: _undoInDrawingMode,
+                        icon: const Icon(Icons.undo, size: 14),
+                        label: const Text('Undo pt'),
+                      ),
+                    )
+                  else
+                    IconButton(
+                      tooltip: 'Undo',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
+                      ),
+                      padding: EdgeInsets.zero,
+                      onPressed: (_draft.undoStack.isNotEmpty ||
+                              _draft.features.isNotEmpty)
+                          ? _undoInDrawingMode
+                          : null,
+                      icon: const Icon(Icons.undo, size: 19),
+                    ),
+                  IconButton(
+                    key: const Key('mobile-drawing-more-tools'),
+                    tooltip: 'More tools',
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
+                    padding: EdgeInsets.zero,
+                    onPressed: _openMobileDrawingToolsSheet,
+                    icon: const Icon(Icons.more_horiz, size: 20),
+                  ),
+                  const SizedBox(width: 2),
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                      minimumSize: const Size(0, 32),
+                      textStyle: const TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    onPressed: _draft.cancelEditingDraftFeature,
+                    child: Text(
+                      (_draft.editingDraftFeature != null ||
+                              _draft.draftVertices.isNotEmpty)
+                          ? 'Cancel'
+                          : 'Done',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildBottomDockScope({
     required bool isDesktop,
     required bool isWideStudio,
@@ -7237,7 +7567,7 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
   }) {
     return ListenableBuilder(
       listenable: Listenable.merge([
-        _drawerNotifier,
+        _drawerNav,
         _draft.modeListenable,
         _draft.placementListenable,
         _draft.geometryListenable,
@@ -7245,11 +7575,11 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
         _spaces.badgeListenable,
       ]),
       builder: (context, _) {
-        final leftTarget = _drawer != _ActiveDrawer.none
+        final leftTarget = _drawer != EarthlyDrawer.none
             ? _drawer
-            : (!isWideStudio ? _rightStudioDrawer : _ActiveDrawer.none);
+            : (!isWideStudio ? _rightStudioDrawer : EarthlyDrawer.none);
         final hideBottomDockOnMobile = !isDesktop &&
-            leftTarget != _ActiveDrawer.none &&
+            leftTarget != EarthlyDrawer.none &&
             !_draft.isDrawingMode;
         if (hideBottomDockOnMobile || (isDesktop && !_draft.isDrawingMode)) {
           return const SizedBox.shrink();
@@ -7283,251 +7613,26 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(8, 7, 8, 7),
                     child: _draft.isDrawingMode
-                        ? LayoutBuilder(
-                            builder: (context, constraints) => Row(
-                              children: [
-                                Expanded(
-                                  child: SingleChildScrollView(
-                                    scrollDirection: Axis.horizontal,
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        for (final tool in mobileAuthoringTools)
-                                          Padding(
-                                            padding: const EdgeInsets.only(
-                                              right: 2,
-                                            ),
-                                            child: _DockTool(
-                                              key: Key(
-                                                'mobile-draw-tool-${tool.mode.name}',
-                                              ),
-                                              label: tool.label,
-                                              icon: tool.icon,
-                                              selected: _draft.mode == tool.mode,
-                                              minWidth: 46,
-                                              onTap: () =>
-                                                  _selectAuthoringTool(tool.mode),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                ConstrainedBox(
-                                  constraints: BoxConstraints(
-                                    maxWidth: (constraints.maxWidth * 0.78)
-                                        .clamp(200.0, 460.0),
-                                  ),
-                                  child: FittedBox(
-                                    fit: BoxFit.scaleDown,
-                                    alignment: Alignment.centerRight,
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        if (_draft.placementStyle ==
-                                                TouchPlacementStyle.crosshair &&
-                                            _draft.mode != DrawToolMode.select &&
-                                            _draft.mode !=
-                                                DrawToolMode.editVertices &&
-                                            _draft.mode !=
-                                                DrawToolMode.boxSelect &&
-                                            _draft.mode !=
-                                                DrawToolMode.freehand &&
-                                            _draft.mode !=
-                                                DrawToolMode.shape) ...[
-                                          FilledButton.icon(
-                                            style: FilledButton.styleFrom(
-                                              tapTargetSize:
-                                                  MaterialTapTargetSize
-                                                      .shrinkWrap,
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 8,
-                                                vertical: 6,
-                                              ),
-                                              minimumSize: const Size(0, 32),
-                                              textStyle: const TextStyle(
-                                                fontSize: 11.5,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                            onPressed: () {
-                                              final center =
-                                                  _controller?.camera?.center;
-                                              if (_draft.mode ==
-                                                  DrawToolMode.annotation) {
-                                                if (center != null) {
-                                                  unawaited(
-                                                    _promptDropMapLabel(center),
-                                                  );
-                                                }
-                                                return;
-                                              }
-                                              _draft.dropCrosshairPoint(
-                                                center,
-                                                onPersist:
-                                                    _schedulePersistWorkingDraft,
-                                              );
-                                            },
-                                            icon: const Icon(
-                                              Icons.add_location_alt,
-                                              size: 14,
-                                            ),
-                                            label: const Text('Drop'),
-                                          ),
-                                          const SizedBox(width: 4),
-                                        ],
-                                        if (_draft.canFinishDraft) ...[
-                                          FilledButton(
-                                            style: FilledButton.styleFrom(
-                                              tapTargetSize:
-                                                  MaterialTapTargetSize
-                                                      .shrinkWrap,
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 8,
-                                                vertical: 6,
-                                              ),
-                                              minimumSize: const Size(0, 32),
-                                              textStyle: const TextStyle(
-                                                fontSize: 11.5,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                            onPressed: () => unawaited(
-                                              _finishActiveStroke(),
-                                            ),
-                                            child: Text(
-                                              _draft.mode ==
-                                                      DrawToolMode.splitByLine
-                                                  ? 'Cut · ${_draft.draftVertices.length}'
-                                                  : _draft.editingDraftFeature !=
-                                                          null
-                                                      ? 'Save · ${_draft.draftVertices.length}'
-                                                      : 'Finish · ${_draft.draftVertices.length}',
-                                            ),
-                                          ),
-                                          const SizedBox(width: 4),
-                                        ],
-                                        if (_draft.draftVertices.isNotEmpty)
-                                          Tooltip(
-                                            message: 'Undo',
-                                            child: OutlinedButton.icon(
-                                              style: OutlinedButton.styleFrom(
-                                                tapTargetSize:
-                                                    MaterialTapTargetSize
-                                                        .shrinkWrap,
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                  horizontal: 7,
-                                                  vertical: 6,
-                                                ),
-                                                minimumSize: const Size(0, 32),
-                                                textStyle: const TextStyle(
-                                                  fontSize: 11.5,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                              onPressed: _undoInDrawingMode,
-                                              icon: const Icon(
-                                                Icons.undo,
-                                                size: 14,
-                                              ),
-                                              label: const Text('Undo pt'),
-                                            ),
-                                          )
-                                        else
-                                          IconButton(
-                                            tooltip: 'Undo',
-                                            visualDensity:
-                                                VisualDensity.compact,
-                                            constraints: const BoxConstraints(
-                                              minWidth: 32,
-                                              minHeight: 32,
-                                            ),
-                                            padding: EdgeInsets.zero,
-                                            onPressed:
-                                                (_draft.undoStack.isNotEmpty ||
-                                                        _draft
-                                                            .features.isNotEmpty)
-                                                    ? _undoInDrawingMode
-                                                    : null,
-                                            icon: const Icon(
-                                              Icons.undo,
-                                              size: 19,
-                                            ),
-                                          ),
-                                        IconButton(
-                                          key: const Key(
-                                            'mobile-drawing-more-tools',
-                                          ),
-                                          tooltip: 'More tools',
-                                          visualDensity: VisualDensity.compact,
-                                          constraints: const BoxConstraints(
-                                            minWidth: 32,
-                                            minHeight: 32,
-                                          ),
-                                          padding: EdgeInsets.zero,
-                                          onPressed:
-                                              _openMobileDrawingToolsSheet,
-                                          icon: const Icon(
-                                            Icons.more_horiz,
-                                            size: 20,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 2),
-                                        OutlinedButton(
-                                          style: OutlinedButton.styleFrom(
-                                            tapTargetSize:
-                                                MaterialTapTargetSize
-                                                    .shrinkWrap,
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 6,
-                                            ),
-                                            minimumSize: const Size(0, 32),
-                                            textStyle: const TextStyle(
-                                              fontSize: 11.5,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                          onPressed:
-                                              _draft.cancelEditingDraftFeature,
-                                          child: Text(
-                                            (_draft.editingDraftFeature !=
-                                                        null ||
-                                                    _draft.draftVertices
-                                                        .isNotEmpty)
-                                                ? 'Cancel'
-                                                : 'Done',
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
+                        ? _buildDrawingModeBottomBar(context)
                         : Row(
                             children: [
                               Expanded(
                                 child: _DockTool(
                                   label: 'Explore',
                                   icon: Icons.explore_outlined,
-                                  selected: _isDrawerOpen(_ActiveDrawer.explore),
+                                  selected:
+                                      _isDrawerOpen(EarthlyDrawer.explore),
                                   onTap: () =>
-                                      _toggleDrawer(_ActiveDrawer.explore),
+                                      _toggleDrawer(EarthlyDrawer.explore),
                                 ),
                               ),
                               Expanded(
                                 child: _DockTool(
                                   label: 'Desk',
                                   icon: Icons.layers_outlined,
-                                  selected: _isDrawerOpen(_ActiveDrawer.desk),
+                                  selected: _isDrawerOpen(EarthlyDrawer.desk),
                                   onTap: () =>
-                                      _toggleDrawer(_ActiveDrawer.desk),
+                                      _toggleDrawer(EarthlyDrawer.desk),
                                 ),
                               ),
                               Expanded(
@@ -7537,22 +7642,22 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
                                       : 'Spaces',
                                   icon: Icons.hub_outlined,
                                   selected:
-                                      _isDrawerOpen(_ActiveDrawer.spaces) ||
-                                          _isDrawerOpen(_ActiveDrawer.circles) ||
-                                          _isDrawerOpen(_ActiveDrawer.inbox) ||
-                                          _isDrawerOpen(_ActiveDrawer.outbox) ||
+                                      _isDrawerOpen(EarthlyDrawer.spaces) ||
+                                          _isDrawerOpen(EarthlyDrawer.circles) ||
+                                          _isDrawerOpen(EarthlyDrawer.inbox) ||
+                                          _isDrawerOpen(EarthlyDrawer.outbox) ||
                                           totalBadge > 0,
                                   onTap: () =>
-                                      _toggleDrawer(_ActiveDrawer.spaces),
+                                      _toggleDrawer(EarthlyDrawer.spaces),
                                 ),
                               ),
                               Expanded(
                                 child: _DockTool(
                                   label: 'Agent',
                                   icon: Icons.auto_awesome,
-                                  selected: _isDrawerOpen(_ActiveDrawer.agent),
+                                  selected: _isDrawerOpen(EarthlyDrawer.agent),
                                   onTap: () =>
-                                      _toggleDrawer(_ActiveDrawer.agent),
+                                      _toggleDrawer(EarthlyDrawer.agent),
                                 ),
                               ),
                               const SizedBox(width: 4),

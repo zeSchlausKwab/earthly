@@ -14,15 +14,20 @@ class PlaceSearchSheet extends StatefulWidget {
   const PlaceSearchSheet({
     required this.onJumpToPlace,
     required this.onJumpToNaddr,
+    this.onBack,
     required this.onClose,
+    this.initialQuery = '',
+    this.onQueryChanged,
     this.catalogMaps = const <MapSummaryDto>[],
     this.catalogStories = const <StorySummaryDto>[],
     this.catalogAtlases = const <AtlasSummaryDto>[],
+    this.catalogSightings = const <SightingSummaryDto>[],
     this.profilesByPubkey = const <String, ProfileMetadataDto>{},
     this.relayUrls = const <String>['wss://relay.earthly.city'],
     this.onSelectMap,
     this.onSelectStory,
     this.onSelectAtlas,
+    this.onSelectSighting,
     this.onSelectPerson,
     this.searchPlacesOverride,
     this.searchNip50Override,
@@ -31,14 +36,18 @@ class PlaceSearchSheet extends StatefulWidget {
 
   final ValueChanged<PlaceSearchResultDto> onJumpToPlace;
   final Future<void> Function(String naddrUri) onJumpToNaddr;
+  final String initialQuery;
+  final ValueChanged<String>? onQueryChanged;
   final List<MapSummaryDto> catalogMaps;
   final List<StorySummaryDto> catalogStories;
   final List<AtlasSummaryDto> catalogAtlases;
+  final List<SightingSummaryDto> catalogSightings;
   final Map<String, ProfileMetadataDto> profilesByPubkey;
   final List<String> relayUrls;
   final ValueChanged<MapSummaryDto>? onSelectMap;
   final ValueChanged<StorySummaryDto>? onSelectStory;
   final ValueChanged<AtlasSummaryDto>? onSelectAtlas;
+  final ValueChanged<SightingSummaryDto>? onSelectSighting;
   final ValueChanged<String>? onSelectPerson;
   final Future<List<PlaceSearchResultDto>> Function(String query)?
       searchPlacesOverride;
@@ -46,6 +55,7 @@ class PlaceSearchSheet extends StatefulWidget {
     List<String> relayUrls,
     String query,
   )? searchNip50Override;
+  final VoidCallback? onBack;
   final VoidCallback onClose;
 
   @override
@@ -53,18 +63,21 @@ class PlaceSearchSheet extends StatefulWidget {
 }
 
 class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
-  final _controller = TextEditingController();
-  String _query = '';
+  late final TextEditingController _controller;
+  late String _query;
   List<PlaceSearchResultDto> _results = const [];
   List<MapSummaryDto> _nip50Maps = const [];
   List<StorySummaryDto> _nip50Stories = const [];
   List<AtlasSummaryDto> _nip50Atlases = const [];
+  List<SightingSummaryDto> _nip50Sightings = const [];
   bool _searching = false;
   String? _error;
 
   @override
   void initState() {
     super.initState();
+    _controller = TextEditingController(text: widget.initialQuery);
+    _query = widget.initialQuery.trim();
     _controller.addListener(_onQueryChanged);
   }
 
@@ -72,6 +85,7 @@ class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
     final next = _controller.text.trim();
     if (next != _query && mounted) {
       setState(() => _query = next);
+      widget.onQueryChanged?.call(next);
     }
   }
 
@@ -186,6 +200,7 @@ class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
         _nip50Maps = nip50?.maps ?? const [];
         _nip50Stories = nip50?.stories ?? const [];
         _nip50Atlases = nip50?.atlases ?? const [];
+        _nip50Sightings = nip50?.sightings ?? const [];
       });
     } catch (err) {
       if (!mounted) return;
@@ -251,6 +266,21 @@ class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
     }).take(6).toList(growable: false);
   }
 
+  List<SightingSummaryDto> _filteredSightings() {
+    final combined = <String, SightingSummaryDto>{
+      for (final s in widget.catalogSightings) s.address: s,
+      for (final s in _nip50Sightings) s.address: s,
+    };
+    if (_query.isEmpty) return const [];
+    final needle = _cleanTextQuery(_query).toLowerCase();
+    if (needle.isEmpty) return const [];
+    return combined.values.where((s) {
+      return (s.title?.toLowerCase().contains(needle) ?? false) ||
+          s.note.toLowerCase().contains(needle) ||
+          s.dTag.toLowerCase().contains(needle);
+    }).take(6).toList(growable: false);
+  }
+
   List<ProfileMetadataDto> _filteredPeople() {
     if (_query.isEmpty) return const [];
     final needle = _cleanTextQuery(_query).toLowerCase();
@@ -269,10 +299,12 @@ class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
     final maps = _filteredMaps();
     final stories = _filteredStories();
     final atlases = _filteredAtlases();
+    final sightings = _filteredSightings();
     final people = _filteredPeople();
     final hasAnyHits = maps.isNotEmpty ||
         stories.isNotEmpty ||
         atlases.isNotEmpty ||
+        sightings.isNotEmpty ||
         people.isNotEmpty ||
         _results.isNotEmpty;
 
@@ -282,9 +314,22 @@ class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
       header: Material(
         type: MaterialType.transparency,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 2, 6, 8),
+          padding: EdgeInsets.fromLTRB(
+            widget.onBack != null ? 4 : 12,
+            2,
+            6,
+            8,
+          ),
           child: Row(
             children: [
+              if (widget.onBack != null)
+                IconButton(
+                  key: const Key('search-back-btn'),
+                  tooltip: 'Back',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: widget.onBack,
+                  icon: const Icon(Icons.arrow_back, size: 18),
+                ),
               Expanded(
                 child: TextField(
                   key: const Key('omnibox-search-field'),
@@ -405,8 +450,11 @@ class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
                               ),
                             ),
                             onTap: () {
-                              widget.onSelectMap?.call(m);
-                              widget.onClose();
+                              if (widget.onSelectMap != null) {
+                                widget.onSelectMap!(m);
+                              } else {
+                                widget.onClose();
+                              }
                             },
                           ),
                       ],
@@ -433,8 +481,11 @@ class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
                                   )
                                 : null,
                             onTap: () {
-                              widget.onSelectStory?.call(s);
-                              widget.onClose();
+                              if (widget.onSelectStory != null) {
+                                widget.onSelectStory!(s);
+                              } else {
+                                widget.onClose();
+                              }
                             },
                           ),
                       ],
@@ -454,8 +505,45 @@ class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
                               style: const TextStyle(fontWeight: FontWeight.w600),
                             ),
                             onTap: () {
-                              widget.onSelectAtlas?.call(a);
-                              widget.onClose();
+                              if (widget.onSelectAtlas != null) {
+                                widget.onSelectAtlas!(a);
+                              } else {
+                                widget.onClose();
+                              }
+                            },
+                          ),
+                      ],
+                      if (sightings.isNotEmpty) ...[
+                        _sectionLabel(theme, 'SIGHTINGS (${sightings.length})'),
+                        for (final s in sightings)
+                          ListTile(
+                            dense: true,
+                            leading: const Icon(
+                              Icons.visibility_outlined,
+                              color: EarthlyColors.proposedAmber,
+                            ),
+                            title: Text(
+                              s.title ??
+                                  (s.note.isNotEmpty ? s.note : 'Sighting'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            subtitle: Text(
+                              '${s.lat.toStringAsFixed(4)}, ${s.lon.toStringAsFixed(4)}${s.title != null && s.note.isNotEmpty ? ' · ${s.note}' : ''}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 11,
+                              ),
+                            ),
+                            onTap: () {
+                              if (widget.onSelectSighting != null) {
+                                widget.onSelectSighting!(s);
+                              } else {
+                                widget.onClose();
+                              }
                             },
                           ),
                       ],
@@ -483,8 +571,11 @@ class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
                                   )
                                 : null,
                             onTap: () {
-                              widget.onSelectPerson?.call(p.pubkey);
-                              widget.onClose();
+                              if (widget.onSelectPerson != null) {
+                                widget.onSelectPerson!(p.pubkey);
+                              } else {
+                                widget.onClose();
+                              }
                             },
                           ),
                       ],
