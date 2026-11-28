@@ -11,6 +11,7 @@ import '../runtime/rust_bridge.dart';
 import '../src/rust/api/settings.dart';
 import '../src/rust/api/spike.dart';
 import '../theme/earthly_theme.dart';
+import 'map_drawer.dart';
 
 export '../nostr/basemap_config.dart'
     show BasemapKind, MapBackgroundMode, basemapStyleLabel;
@@ -323,26 +324,33 @@ class _BasemapSwitcherSheetState extends State<BasemapSwitcherSheet> {
                 ),
               ),
               const SizedBox(height: 6),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  for (final entry in const [
-                    (ThemeMode.system, 'System', Icons.brightness_auto_outlined),
-                    (ThemeMode.light, 'Light', Icons.light_mode_outlined),
-                    (ThemeMode.dark, 'Dark', Icons.dark_mode_outlined),
-                  ])
-                    ChoiceChip(
-                      key: Key('theme-mode-${entry.$1.name}'),
-                      avatar: Icon(entry.$3, size: 15),
-                      label: Text(entry.$2),
-                      selected: _themeMode == entry.$1,
-                      onSelected: (_) {
-                        setState(() => _themeMode = entry.$1);
-                        widget.onThemeModeChanged!(entry.$1);
-                      },
-                    ),
+              EarthlySegmentBar<ThemeMode>.single(
+                key: const Key('basemap-theme-mode-bar'),
+                value: _themeMode,
+                options: const [
+                  EarthlySegmentOption(
+                    key: Key('theme-mode-system'),
+                    value: ThemeMode.system,
+                    label: 'System',
+                    icon: Icons.brightness_auto_outlined,
+                  ),
+                  EarthlySegmentOption(
+                    key: Key('theme-mode-light'),
+                    value: ThemeMode.light,
+                    label: 'Light',
+                    icon: Icons.light_mode_outlined,
+                  ),
+                  EarthlySegmentOption(
+                    key: Key('theme-mode-dark'),
+                    value: ThemeMode.dark,
+                    label: 'Dark',
+                    icon: Icons.dark_mode_outlined,
+                  ),
                 ],
+                onChanged: (mode) {
+                  setState(() => _themeMode = mode);
+                  widget.onThemeModeChanged!(mode);
+                },
               ),
               const SizedBox(height: 12),
             ] else
@@ -356,11 +364,12 @@ class _BasemapSwitcherSheetState extends State<BasemapSwitcherSheet> {
               ),
             ),
             const SizedBox(height: 6),
-            // Basemap tiles
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
+            // Basemap styles in a clean 3×2 matrix
+            EarthlySegmentGrid<BasemapKind>(
+              key: const Key('basemap-style-grid'),
+              columns: 3,
+              selectedValues: {_activeBasemap},
+              options: [
                 for (final kind in const [
                   BasemapKind.auto,
                   BasemapKind.openFreeMapPositron,
@@ -369,30 +378,36 @@ class _BasemapSwitcherSheetState extends State<BasemapSwitcherSheet> {
                   BasemapKind.openFreeMapDark,
                   BasemapKind.openFreeMapFiord,
                 ])
-                  ChoiceChip(
+                  EarthlySegmentOption(
                     key: Key('basemap-${kind.name}'),
-                    label: Text(basemapStyleLabel(kind)),
-                    selected: _activeBasemap == kind,
-                    onSelected: (_) {
-                      setState(() => _activeBasemap = kind);
-                      widget.onSelectBasemap(kind);
-                      Navigator.of(context).pop();
-                    },
-                  ),
-                if (offline != null)
-                  ChoiceChip(
-                    label: Text('Offline: ${offline.snapshot.label}'),
-                    selected: _activeBasemap == BasemapKind.offlinePmtiles,
-                    onSelected: (_) {
-                      setState(
-                        () => _activeBasemap = BasemapKind.offlinePmtiles,
-                      );
-                      widget.onSelectBasemap(BasemapKind.offlinePmtiles);
-                      Navigator.of(context).pop();
-                    },
+                    value: kind,
+                    label: basemapStyleLabel(kind),
                   ),
               ],
+              onSelected: (kind) {
+                setState(() => _activeBasemap = kind);
+                widget.onSelectBasemap(kind);
+                Navigator.of(context).pop();
+              },
             ),
+            if (offline != null) ...[
+              const SizedBox(height: 6),
+              EarthlySegmentBar<BasemapKind>.single(
+                value: _activeBasemap,
+                options: [
+                  EarthlySegmentOption(
+                    value: BasemapKind.offlinePmtiles,
+                    label: 'Offline: ${offline.snapshot.label}',
+                    icon: Icons.offline_pin_outlined,
+                  ),
+                ],
+                onChanged: (_) {
+                  setState(() => _activeBasemap = BasemapKind.offlinePmtiles);
+                  widget.onSelectBasemap(BasemapKind.offlinePmtiles);
+                  Navigator.of(context).pop();
+                },
+              ),
+            ],
             if (widget.onBackgroundModeChanged != null &&
                 _activeBasemap != BasemapKind.offlinePmtiles) ...[
               const SizedBox(height: 12),
@@ -404,25 +419,30 @@ class _BasemapSwitcherSheetState extends State<BasemapSwitcherSheet> {
                 ),
               ),
               const SizedBox(height: 6),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  for (final item in const [
-                    (MapBackgroundMode.osm, 'Vector'),
-                    (MapBackgroundMode.combined, 'Combined'),
-                    (MapBackgroundMode.satellite, 'Satellite'),
-                  ])
-                    ChoiceChip(
-                      key: Key('bg-mode-${item.$1.name}'),
-                      label: Text(item.$2),
-                      selected: _backgroundMode == item.$1,
-                      onSelected: (_) {
-                        setState(() => _backgroundMode = item.$1);
-                        widget.onBackgroundModeChanged!(item.$1);
-                      },
-                    ),
+              EarthlySegmentBar<MapBackgroundMode>.single(
+                key: const Key('basemap-bg-mode-bar'),
+                value: _backgroundMode,
+                options: const [
+                  EarthlySegmentOption(
+                    key: Key('bg-mode-osm'),
+                    value: MapBackgroundMode.osm,
+                    label: 'Vector',
+                  ),
+                  EarthlySegmentOption(
+                    key: Key('bg-mode-combined'),
+                    value: MapBackgroundMode.combined,
+                    label: 'Combined',
+                  ),
+                  EarthlySegmentOption(
+                    key: Key('bg-mode-satellite'),
+                    value: MapBackgroundMode.satellite,
+                    label: 'Satellite',
+                  ),
                 ],
+                onChanged: (mode) {
+                  setState(() => _backgroundMode = mode);
+                  widget.onBackgroundModeChanged!(mode);
+                },
               ),
               if (_backgroundMode == MapBackgroundMode.combined &&
                   widget.onSatelliteOpacityChanged != null)
@@ -564,14 +584,17 @@ class _BasemapSwitcherSheetState extends State<BasemapSwitcherSheet> {
             const Divider(height: 20),
             Row(
               children: [
-                Text(
-                  'OFFLINE .ATLAS WORKSPACES (${widget.mountedAtlasWorkspaces.length})',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontFamily: 'monospace',
-                    fontWeight: FontWeight.w700,
+                Expanded(
+                  child: Text(
+                    'OFFLINE .ATLAS WORKSPACES (${widget.mountedAtlasWorkspaces.length})',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-                const Spacer(),
                 TextButton.icon(
                   onPressed: _scanningAtlas ? null : _scanAtlasDirectories,
                   icon: _scanningAtlas
@@ -740,19 +763,21 @@ class _BasemapSwitcherSheetState extends State<BasemapSwitcherSheet> {
               ),
             ),
             const SizedBox(height: 6),
-            Wrap(
-              spacing: 6,
-              children: [
+            EarthlySegmentBar<CalloutDisplayMode>.single(
+              key: const Key('basemap-callout-mode-bar'),
+              compact: true,
+              value: _calloutMode,
+              options: [
                 for (final mode in CalloutDisplayMode.values)
-                  ChoiceChip(
-                    label: Text(calloutModeShortLabel(mode)),
-                    selected: _calloutMode == mode,
-                    onSelected: (_) {
-                      setState(() => _calloutMode = mode);
-                      widget.onChangeCalloutMode(mode);
-                    },
+                  EarthlySegmentOption(
+                    value: mode,
+                    label: calloutModeShortLabel(mode),
                   ),
               ],
+              onChanged: (mode) {
+                setState(() => _calloutMode = mode);
+                widget.onChangeCalloutMode(mode);
+              },
             ),
             if (widget.onExportMapPosterPng != null) ...[
               const SizedBox(height: 12),
@@ -763,7 +788,11 @@ class _BasemapSwitcherSheetState extends State<BasemapSwitcherSheet> {
                   widget.onExportMapPosterPng!();
                 },
                 icon: const Icon(Icons.image_outlined, size: 16),
-                label: const Text('Export High-Res Map Poster (PNG)'),
+                label: const Text(
+                  'Export High-Res Map Poster (PNG)',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ],
           ],

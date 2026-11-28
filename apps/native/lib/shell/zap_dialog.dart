@@ -5,6 +5,7 @@ import '../runtime/device_bridge.dart';
 import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/nwc.dart';
 import '../theme/earthly_theme.dart';
+import 'map_drawer.dart';
 import 'qr_code_view.dart';
 
 /// Opens the NIP-57 Lightning Zap dialog for a Map, Story, Atlas, or Profile.
@@ -168,6 +169,7 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
     final canConfigureAmount = hasLud16 || widget.onSendNutzap != null;
 
     return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       title: Row(
         children: [
           const Icon(Icons.bolt, size: 20, color: EarthlyColors.amber),
@@ -258,26 +260,30 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
                   ),
                 ),
               ] else if (_invoice == null) ...[
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
+                EarthlySegmentGrid<int>(
+                  key: const Key('zap-amount-grid'),
+                  columns: 3,
+                  compact: true,
+                  monospace: true,
+                  selectedValues: _customAmountController.text.trim().isEmpty
+                      ? {_selectedAmount}
+                      : const <int>{},
+                  options: [
                     for (final amt in _presets)
-                      ChoiceChip(
+                      EarthlySegmentOption(
                         key: Key('zap-amount-$amt'),
-                        label: Text('⚡ $amt'),
-                        selected: _customAmountController.text.trim().isEmpty &&
-                            _selectedAmount == amt,
-                        onSelected: canConfigureAmount && !_loading && !_sendingNutzap
-                            ? (_) {
-                                setState(() {
-                                  _selectedAmount = amt;
-                                  _customAmountController.clear();
-                                });
-                              }
-                            : null,
+                        value: amt,
+                        label: '⚡ $amt',
+                        enabled:
+                            canConfigureAmount && !_loading && !_sendingNutzap,
                       ),
                   ],
+                  onSelected: (amt) {
+                    setState(() {
+                      _selectedAmount = amt;
+                      _customAmountController.clear();
+                    });
+                  },
                 ),
                 const SizedBox(height: 10),
                 TextField(
@@ -303,6 +309,64 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
                     hintText: 'Helpful survey data!',
                   ),
                 ),
+                if (canNutzap) ...[
+                  const SizedBox(height: 10),
+                  FilledButton.tonalIcon(
+                    key: const Key('zap-send-nutzap-btn'),
+                    onPressed: (_loading || _sendingNutzap)
+                        ? null
+                        : () async {
+                            final sats = _effectiveAmountSats;
+                            if (sats <= 0) {
+                              setState(
+                                () =>
+                                    _error = 'Enter a positive amount in sats.',
+                              );
+                              return;
+                            }
+                            setState(() {
+                              _sendingNutzap = true;
+                              _error = null;
+                            });
+                            try {
+                              final msg = await widget.onSendNutzap!(
+                                amountSats: sats,
+                                comment: _commentController.text.trim(),
+                              );
+                              if (!mounted) return;
+                              setState(
+                                () => _nutzapSentMessage =
+                                    msg?.trim().isNotEmpty == true
+                                        ? msg!
+                                        : 'Sent $sats sats via NIP-61 Nutzap ✓',
+                              );
+                            } catch (err) {
+                              if (!mounted) return;
+                              setState(() => _error = err.toString());
+                            } finally {
+                              if (mounted) {
+                                setState(() => _sendingNutzap = false);
+                              }
+                            }
+                          },
+                    icon: _sendingNutzap
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(
+                            Icons.account_balance_wallet_outlined,
+                            size: 16,
+                          ),
+                    label: Text(
+                      _sendingNutzap ? 'Sending Nutzap…' : 'Send NIP-61 Nutzap',
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
               ] else ...[
                 Center(
                   child: EarthlyQrCode(
@@ -381,13 +445,11 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
                     ),
                   )
                 else
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    alignment: WrapAlignment.center,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       if (widget.onPayWithCashu != null &&
-                          cashuSats >= _invoice!.amountSats.toInt())
+                          cashuSats >= _invoice!.amountSats.toInt()) ...[
                         FilledButton.icon(
                           key: const Key('zap-pay-cashu-btn'),
                           onPressed: _payingCashu || _payingNwc
@@ -426,13 +488,21 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
                                     color: Colors.white,
                                   ),
                                 )
-                              : const Icon(Icons.account_balance_wallet,
-                                  size: 15),
+                              : const Icon(
+                                  Icons.account_balance_wallet,
+                                  size: 15,
+                                ),
                           label: Text(
                             _payingCashu ? 'Paying Cashu…' : 'Pay via Cashu ⚡',
+                            maxLines: 1,
+                            softWrap: false,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                      if (widget.hasNwcWallet && widget.onPayWithNwc != null)
+                        const SizedBox(height: 8),
+                      ],
+                      if (widget.hasNwcWallet &&
+                          widget.onPayWithNwc != null) ...[
                         FilledButton.icon(
                           key: const Key('zap-pay-nwc-btn'),
                           onPressed: _payingNwc || _payingCashu
@@ -469,26 +539,41 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
                               : const Icon(Icons.bolt, size: 15),
                           label: Text(
                             _payingNwc ? 'Paying NWC…' : 'Pay with NWC ⚡',
+                            maxLines: 1,
+                            softWrap: false,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                      OutlinedButton.icon(
-                        key: const Key('zap-copy-invoice-btn'),
-                        onPressed: () {
-                          Clipboard.setData(ClipboardData(text: _invoice!.pr));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Copied BOLT-11 Lightning invoice'),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.copy, size: 15),
-                        label: const Text('Copy Invoice'),
-                      ),
-                      FilledButton.tonalIcon(
-                        key: const Key('zap-open-wallet-btn'),
-                        onPressed: () => _openWallet(_invoice!.pr),
-                        icon: const Icon(Icons.open_in_new, size: 15),
-                        label: const Text('Open Wallet'),
+                        const SizedBox(height: 8),
+                      ],
+                      EarthlyActionBar(
+                        key: const Key('zap-invoice-actions-bar'),
+                        stacked: false,
+                        items: [
+                          EarthlyActionBarItem(
+                            key: const Key('zap-copy-invoice-btn'),
+                            icon: Icons.copy,
+                            label: 'Copy Invoice',
+                            onTap: () {
+                              Clipboard.setData(
+                                ClipboardData(text: _invoice!.pr),
+                              );
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Copied BOLT-11 Lightning invoice',
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                          EarthlyActionBarItem(
+                            key: const Key('zap-open-wallet-btn'),
+                            icon: Icons.open_in_new,
+                            label: 'Open Wallet',
+                            onTap: () => _openWallet(_invoice!.pr),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -529,53 +614,6 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
             (_invoice == null && _nutzapSentMessage == null) ? 'Cancel' : 'Done',
           ),
         ),
-        if (_invoice == null && _nutzapSentMessage == null && canNutzap)
-          FilledButton.tonalIcon(
-            key: const Key('zap-send-nutzap-btn'),
-            onPressed: (_loading || _sendingNutzap)
-                ? null
-                : () async {
-                    final sats = _effectiveAmountSats;
-                    if (sats <= 0) {
-                      setState(
-                        () => _error = 'Enter a positive amount in sats.',
-                      );
-                      return;
-                    }
-                    setState(() {
-                      _sendingNutzap = true;
-                      _error = null;
-                    });
-                    try {
-                      final msg = await widget.onSendNutzap!(
-                        amountSats: sats,
-                        comment: _commentController.text.trim(),
-                      );
-                      if (!mounted) return;
-                      setState(
-                        () => _nutzapSentMessage =
-                            msg?.trim().isNotEmpty == true
-                                ? msg!
-                                : 'Sent $sats sats via NIP-61 Nutzap ✓',
-                      );
-                    } catch (err) {
-                      if (!mounted) return;
-                      setState(() => _error = err.toString());
-                    } finally {
-                      if (mounted) setState(() => _sendingNutzap = false);
-                    }
-                  },
-            icon: _sendingNutzap
-                ? const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.account_balance_wallet_outlined, size: 16),
-            label: Text(
-              _sendingNutzap ? 'Sending Nutzap…' : 'Send NIP-61 Nutzap',
-            ),
-          ),
         if (_invoice == null && _nutzapSentMessage == null)
           FilledButton.icon(
             key: const Key('zap-generate-btn'),
@@ -594,6 +632,8 @@ class _EarthlyZapDialogState extends State<_EarthlyZapDialog> {
                 : const Icon(Icons.bolt, size: 16),
             label: Text(
               _loading ? 'Fetching…' : 'Zap $_effectiveAmountSats sats',
+              maxLines: 1,
+              softWrap: false,
             ),
           ),
       ],

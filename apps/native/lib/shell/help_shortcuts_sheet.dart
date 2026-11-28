@@ -122,19 +122,25 @@ class HelpShortcutsSheet extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: theme.dividerColor),
-              ),
-              child: Text(
-                keyCap,
-                style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 164),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: theme.dividerColor),
+                ),
+                child: Text(
+                  keyCap,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ),

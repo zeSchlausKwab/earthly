@@ -124,96 +124,105 @@ class _EntityReactionBarState extends State<EntityReactionBar> {
     final zapSats = counts?.zapSats ?? BigInt.zero;
     const heartRose = Color(0xFFE11D48);
 
-    return Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        InkWell(
-          key: const Key('entity-reaction-btn'),
-          borderRadius: BorderRadius.circular(999),
-          onTap:
-              (_toggling || widget.onToggleReaction == null) ? null : _handleToggle,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 140),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
+    return Material(
+      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.72),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: theme.dividerColor),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: IntrinsicHeight(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Material(
               color: liked
                   ? heartRose.withValues(alpha: 0.14)
-                  : theme.colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: liked
-                    ? heartRose.withValues(alpha: 0.55)
-                    : theme.dividerColor,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (_toggling)
-                  const SizedBox(
-                    width: 13,
-                    height: 13,
-                    child: CircularProgressIndicator(strokeWidth: 1.8),
-                  )
-                else
-                  Icon(
-                    liked ? Icons.favorite : Icons.favorite_border,
-                    size: 14,
-                    color: liked ? heartRose : theme.colorScheme.onSurfaceVariant,
-                  ),
-                const SizedBox(width: 5),
-                Text(
-                  reactionCount > 0 ? '$reactionCount' : 'Like',
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: liked ? heartRose : theme.colorScheme.onSurface,
+                  : Colors.transparent,
+              child: InkWell(
+                key: const Key('entity-reaction-btn'),
+                onTap: (_toggling || widget.onToggleReaction == null)
+                    ? null
+                    : _handleToggle,
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_toggling)
+                        const SizedBox(
+                          width: 13,
+                          height: 13,
+                          child: CircularProgressIndicator(strokeWidth: 1.8),
+                        )
+                      else
+                        Icon(
+                          liked ? Icons.favorite : Icons.favorite_border,
+                          size: 14,
+                          color: liked
+                              ? heartRose
+                              : theme.colorScheme.onSurfaceVariant,
+                        ),
+                      const SizedBox(width: 5),
+                      Text(
+                        reactionCount > 0 ? '$reactionCount' : 'Like',
+                        maxLines: 1,
+                        softWrap: false,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: liked ? heartRose : theme.colorScheme.onSurface,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
-            ),
-          ),
-        ),
-        if (widget.onZap != null || zapSats > BigInt.zero)
-          InkWell(
-            key: const Key('entity-zap-badge'),
-            borderRadius: BorderRadius.circular(999),
-            onTap: widget.onZap,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-              decoration: BoxDecoration(
-                color: EarthlyColors.amber.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: EarthlyColors.amber.withValues(alpha: 0.55),
-                ),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.bolt,
-                    size: 13,
-                    color: EarthlyColors.amber,
-                  ),
-                  const SizedBox(width: 3),
-                  Text(
-                    zapSats > BigInt.zero ? '$zapSats sats' : 'Zap',
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: EarthlyColors.amber,
+            ),
+            if (widget.onZap != null || zapSats > BigInt.zero) ...[
+              VerticalDivider(width: 1, thickness: 1, color: theme.dividerColor),
+              Material(
+                color: EarthlyColors.amber.withValues(alpha: 0.14),
+                child: InkWell(
+                  key: const Key('entity-zap-badge'),
+                  onTap: widget.onZap,
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.bolt,
+                          size: 13,
+                          color: EarthlyColors.amber,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          zapSats > BigInt.zero ? '$zapSats sats' : 'Zap',
+                          maxLines: 1,
+                          softWrap: false,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: EarthlyColors.amber,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
+                ),
               ),
-            ),
-          ),
-      ],
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

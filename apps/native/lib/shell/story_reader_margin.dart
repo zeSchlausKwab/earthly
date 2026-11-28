@@ -39,6 +39,7 @@ class StoryReaderMargin extends StatefulWidget {
     required this.onOpenDiscussion,
     required this.onKeepOnShelf,
     required this.onClose,
+    this.onBack,
     this.isOwned = false,
     this.onEditStory,
     this.onDeleteStory,
@@ -66,6 +67,7 @@ class StoryReaderMargin extends StatefulWidget {
   final VoidCallback onFitAllGeometry;
   final VoidCallback onOpenDiscussion;
   final VoidCallback onKeepOnShelf;
+  final VoidCallback? onBack;
   final VoidCallback onClose;
   final bool isOwned;
   final VoidCallback? onEditStory;
@@ -168,9 +170,18 @@ class _StoryReaderMarginState extends State<StoryReaderMargin> {
         children: [
           // Always-visible header row inside the sticky drag zone
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 8, 6),
+            padding: EdgeInsets.fromLTRB(
+              widget.onBack != null ? 6 : 14,
+              0,
+              6,
+              6,
+            ),
             child: Row(
               children: [
+                if (widget.onBack != null) ...[
+                  EarthlyDrawerBackButton(onBack: widget.onBack!),
+                  const SizedBox(width: 2),
+                ],
                 const EarthlyBadge(
                   label: 'STORY',
                   color: EarthlyColors.infoCyan,
@@ -180,6 +191,7 @@ class _StoryReaderMarginState extends State<StoryReaderMargin> {
                   child: Text(
                     story.title,
                     maxLines: 1,
+                    softWrap: false,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w800,
@@ -189,119 +201,179 @@ class _StoryReaderMarginState extends State<StoryReaderMargin> {
                 IconButton(
                   tooltip: 'Story Comments',
                   visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints(minWidth: 32, minHeight: 32),
                   onPressed: widget.onOpenDiscussion,
                   icon: const Icon(Icons.forum_outlined, size: 18),
                 ),
-                IconButton(
-                  tooltip: 'Inspect raw JSON (37520)',
-                  key: const Key('story-raw-inspect-btn'),
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () => showRawEventInspectorDialog(
-                    context,
-                    kind: 37520,
-                    title: story.title,
-                    eventId: story.eventId,
-                    pubkey: story.pubkey,
-                    address: story.address,
-                    dTag: story.dTag,
-                    payloadLabel: 'Markdown Content',
-                    payloadContent: story.content,
-                    extraFields: {
-                      'referencedMaps': '${story.referencedAddresses.length}',
-                    },
-                  ),
-                  icon: const Icon(Icons.data_object, size: 18),
-                ),
-                if (widget.isOwned && widget.onEditStory != null)
-                  IconButton(
-                    tooltip: 'Edit Story (in-place)',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: widget.onEditStory,
-                    icon: const Icon(Icons.edit_outlined, size: 18),
-                  ),
-                if (widget.isOwned && widget.onDeleteStory != null)
-                  IconButton(
-                    tooltip: 'Delete Story (NIP-09)',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () async {
-                      final ok = await showDialog<bool>(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: Text('Delete "${story.title}"?'),
-                          content: const Text(
-                            'Publishes a NIP-09 deletion request (kind 5) to your configured Nostr relays.',
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.of(ctx).pop(false),
-                              child: const Text('Cancel'),
-                            ),
-                            FilledButton(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: EarthlyColors.destructive,
+                PopupMenuButton<String>(
+                  key: const Key('story-header-more-btn'),
+                  tooltip: 'More story actions',
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints(minWidth: 32, minHeight: 32),
+                  icon: const Icon(Icons.more_horiz, size: 18),
+                  onSelected: (action) async {
+                    switch (action) {
+                      case 'fit':
+                        widget.onFitAllGeometry();
+                      case 'copy':
+                        try {
+                          await RustBridge.ensureInitialized();
+                          final uri = await encodeNaddrCoordinate(
+                            kind: 37520,
+                            pubkeyHex: story.pubkey,
+                            dTag: story.dTag,
+                            relays: widget.relayUrls,
+                          );
+                          await Clipboard.setData(ClipboardData(text: uri));
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Copied nostr:naddr1… link'),
                               ),
-                              onPressed: () => Navigator.of(ctx).pop(true),
-                              child: const Text('Delete'),
+                            );
+                          }
+                        } catch (_) {}
+                      case 'share':
+                        unawaited(
+                          shareEarthlyEntity(
+                            context: context,
+                            kind: 37520,
+                            pubkeyHex: story.pubkey,
+                            dTag: story.dTag,
+                            relayUrls: widget.relayUrls,
+                            title: story.title,
+                          ),
+                        );
+                      case 'raw':
+                        unawaited(
+                          showRawEventInspectorDialog(
+                            context,
+                            kind: 37520,
+                            title: story.title,
+                            eventId: story.eventId,
+                            pubkey: story.pubkey,
+                            address: story.address,
+                            dTag: story.dTag,
+                            payloadLabel: 'Markdown Content',
+                            payloadContent: story.content,
+                            extraFields: {
+                              'referencedMaps':
+                                  '${story.referencedAddresses.length}',
+                            },
+                          ),
+                        );
+                      case 'edit':
+                        widget.onEditStory?.call();
+                      case 'delete':
+                        if (widget.onDeleteStory == null) return;
+                        final ok = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: Text('Delete "${story.title}"?'),
+                            content: const Text(
+                              'Publishes a NIP-09 deletion request (kind 5) to your configured Nostr relays.',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(ctx).pop(false),
+                                child: const Text('Cancel'),
+                              ),
+                              FilledButton(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: EarthlyColors.destructive,
+                                ),
+                                onPressed: () => Navigator.of(ctx).pop(true),
+                                child: const Text('Delete'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (ok == true) await widget.onDeleteStory!();
+                    }
+                  },
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(
+                      value: 'fit',
+                      child: Row(
+                        children: [
+                          Icon(Icons.fit_screen, size: 17),
+                          SizedBox(width: 10),
+                          Text('Fit all story geometry'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'copy',
+                      child: Row(
+                        children: [
+                          Icon(Icons.link, size: 17),
+                          SizedBox(width: 10),
+                          Text('Copy nostr:naddr1… link'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'share',
+                      child: Row(
+                        children: [
+                          Icon(Icons.ios_share, size: 17),
+                          SizedBox(width: 10),
+                          Text('Share earthly.city URL'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      key: Key('story-raw-inspect-btn'),
+                      value: 'raw',
+                      child: Row(
+                        children: [
+                          Icon(Icons.data_object, size: 17),
+                          SizedBox(width: 10),
+                          Text('Inspect raw JSON (37520)'),
+                        ],
+                      ),
+                    ),
+                    if (widget.isOwned && widget.onEditStory != null)
+                      const PopupMenuItem(
+                        value: 'edit',
+                        child: Row(
+                          children: [
+                            Icon(Icons.edit_outlined, size: 17),
+                            SizedBox(width: 10),
+                            Text('Edit Story'),
+                          ],
+                        ),
+                      ),
+                    if (widget.isOwned && widget.onDeleteStory != null)
+                      const PopupMenuItem(
+                        value: 'delete',
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.delete_outline,
+                              size: 17,
+                              color: EarthlyColors.destructive,
+                            ),
+                            SizedBox(width: 10),
+                            Text(
+                              'Delete Story',
+                              style:
+                                  TextStyle(color: EarthlyColors.destructive),
                             ),
                           ],
                         ),
-                      );
-                      if (ok == true) await widget.onDeleteStory!();
-                    },
-                    icon: const Icon(
-                      Icons.delete_outline,
-                      size: 18,
-                      color: EarthlyColors.destructive,
-                    ),
-                  ),
-                IconButton(
-                  tooltip: 'Fit all story geometry',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: widget.onFitAllGeometry,
-                  icon: const Icon(Icons.fit_screen, size: 18),
-                ),
-                IconButton(
-                  tooltip: 'Copy story nostr:naddr1… link',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () async {
-                    try {
-                      await RustBridge.ensureInitialized();
-                      final uri = await encodeNaddrCoordinate(
-                        kind: 37520,
-                        pubkeyHex: story.pubkey,
-                        dTag: story.dTag,
-                        relays: widget.relayUrls,
-                      );
-                      await Clipboard.setData(ClipboardData(text: uri));
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Copied nostr:naddr1… link'),
-                          ),
-                        );
-                      }
-                    } catch (_) {}
-                  },
-                  icon: const Icon(Icons.link, size: 18),
-                ),
-                IconButton(
-                  tooltip: 'Share earthly.city Story URL',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () => unawaited(
-                    shareEarthlyEntity(
-                      context: context,
-                      kind: 37520,
-                      pubkeyHex: story.pubkey,
-                      dTag: story.dTag,
-                      relayUrls: widget.relayUrls,
-                      title: story.title,
-                    ),
-                  ),
-                  icon: const Icon(Icons.ios_share, size: 18),
+                      ),
+                  ],
                 ),
                 IconButton(
                   tooltip: 'Close Story',
                   visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints(minWidth: 32, minHeight: 32),
                   onPressed: widget.onClose,
                   icon: const Icon(Icons.close, size: 18),
                 ),
@@ -316,12 +388,16 @@ class _StoryReaderMarginState extends State<StoryReaderMargin> {
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
                 border: Border.all(color: theme.dividerColor),
+                borderRadius: BorderRadius.circular(10),
                 color: theme.colorScheme.primary.withValues(alpha: 0.05),
               ),
               child: Row(
                 children: [
                   IconButton(
                     visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints(minWidth: 30, minHeight: 30),
                     onPressed: widget.activeViewIndex == null
                         ? null
                         : () => _manualSelectView(
@@ -338,6 +414,7 @@ class _StoryReaderMarginState extends State<StoryReaderMargin> {
                           : 'View ${widget.activeViewIndex! + 1}/${snapshots.length}: ${snapshots[widget.activeViewIndex!].step?.title ?? ''}',
                       textAlign: TextAlign.center,
                       maxLines: 1,
+                      softWrap: false,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontFamily: 'monospace',
@@ -348,6 +425,9 @@ class _StoryReaderMarginState extends State<StoryReaderMargin> {
                   ),
                   IconButton(
                     visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints(minWidth: 30, minHeight: 30),
                     onPressed:
                         (widget.activeViewIndex ?? -1) >= snapshots.length - 1
                             ? null
@@ -360,16 +440,16 @@ class _StoryReaderMarginState extends State<StoryReaderMargin> {
                   ),
                   InkWell(
                     key: const Key('story-follow-text-toggle'),
-                    borderRadius: BorderRadius.circular(999),
+                    borderRadius: BorderRadius.circular(7),
                     onTap: () => setState(() => _followText = !_followText),
                     child: Container(
                       margin: const EdgeInsets.only(left: 4),
                       padding: const EdgeInsets.symmetric(
                         horizontal: 7,
-                        vertical: 3,
+                        vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(999),
+                        borderRadius: BorderRadius.circular(7),
                         color: _followText
                             ? EarthlyColors.commentGreen.withValues(alpha: 0.16)
                             : Colors.transparent,
@@ -381,6 +461,8 @@ class _StoryReaderMarginState extends State<StoryReaderMargin> {
                       ),
                       child: Text(
                         _followText ? 'FOLLOW ON' : 'FOLLOW OFF',
+                        maxLines: 1,
+                        softWrap: false,
                         style: TextStyle(
                           fontFamily: 'monospace',
                           fontSize: 9.5,
@@ -404,150 +486,188 @@ class _StoryReaderMarginState extends State<StoryReaderMargin> {
           controller: _scrollController,
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
           children: [
-            // Linked geometry / callouts strip
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              crossAxisAlignment: WrapCrossAlignment.center,
+            // Single-row author & geometry summary
+            Row(
               children: [
-                if (widget.onOpenPerson != null)
+                if (widget.onOpenPerson != null) ...[
                   InkWell(
                     onTap: () => widget.onOpenPerson!(story.pubkey),
-                    borderRadius: BorderRadius.circular(999),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: EarthlyColors.infoCyan.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: EarthlyColors.infoCyan.withValues(alpha: 0.45),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.person_outline,
+                          size: 13,
+                          color: EarthlyColors.infoCyan,
                         ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.person_outline,
-                            size: 12,
-                            color: EarthlyColors.infoCyan,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
+                        const SizedBox(width: 3),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 140),
+                          child: Text(
                             widget.authorLabel ??
                                 (story.pubkey.length > 10
                                     ? '${story.pubkey.substring(0, 8)}…'
                                     : story.pubkey),
+                            maxLines: 1,
+                            softWrap: false,
+                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontFamily: 'monospace',
-                              fontSize: 10.5,
+                              fontSize: 11,
                               fontWeight: FontWeight.w700,
                               color: EarthlyColors.infoCyan,
+                              decoration: TextDecoration.underline,
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
-                if (widget.loadingLinkedMaps)
-                  const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(strokeWidth: 1.8),
-                      ),
-                      SizedBox(width: 6),
-                      Text(
-                        'Loading linked maps...',
-                        style: TextStyle(fontFamily: 'monospace', fontSize: 11),
-                      ),
-                    ],
-                  )
-                else
-                  _StatChip(
-                    icon: Icons.layers,
-                    text:
-                        '${datasets.length} map${datasets.length == 1 ? '' : 's'} · $totalFeatures geom${widget.calloutCount > 0 ? ' · ${widget.calloutCount} callout${widget.calloutCount == 1 ? '' : 's'}' : ''}',
-                  ),
-                for (final d in datasets)
-                  InkWell(
-                    onTap: () => widget.onFocusDataset(d),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color:
-                              EarthlyColors.commentGreen.withValues(alpha: 0.7),
-                        ),
-                        color:
-                            EarthlyColors.commentGreen.withValues(alpha: 0.08),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.my_location,
-                            size: 12,
-                            color: EarthlyColors.commentGreen,
-                          ),
-                          const SizedBox(width: 4),
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 140),
-                            child: Text(
-                              d.summary.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
+                  const SizedBox(width: 6),
+                ],
+                Expanded(
+                  child: widget.loadingLinkedMaps
+                      ? const Row(
+                          children: [
+                            SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(strokeWidth: 1.8),
+                            ),
+                            SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Loading linked maps…',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 10.5,
+                                ),
                               ),
                             ),
+                          ],
+                        )
+                      : Text(
+                          '${widget.onOpenPerson != null ? '· ' : ''}${datasets.length} map${datasets.length == 1 ? '' : 's'} · $totalFeatures geom${widget.calloutCount > 0 ? ' · ${widget.calloutCount} callout${widget.calloutCount == 1 ? '' : 's'}' : ''}',
+                          maxLines: 1,
+                          softWrap: false,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 10.5,
+                            color: theme.colorScheme.onSurfaceVariant,
                           ),
-                        ],
-                      ),
-                    ),
-                  ),
+                        ),
+                ),
+              ],
+            ),
+            if (widget.onToggleReaction != null ||
+                widget.onZap != null ||
+                widget.initialSocialCounts != null) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: EntityReactionBar(
+                  targetAddress: story.address,
+                  targetEventId: story.eventId,
+                  targetPubkey: story.pubkey,
+                  targetKind: 37520,
+                  relayUrls: widget.relayUrls,
+                  currentUserPubkey: widget.currentUserPubkey,
+                  initialCounts: widget.initialSocialCounts,
+                  onToggleReaction: widget.onToggleReaction,
+                  onZap: widget.onZap,
+                ),
+              ),
+            ],
+            const SizedBox(height: 10),
+            // Unified single-row Story action bar
+            EarthlyActionBar(
+              key: const Key('story-reader-action-bar'),
+              items: [
+                EarthlyActionBarItem(
+                  icon: Icons.fit_screen,
+                  label: 'Fit Map',
+                  emphasized: true,
+                  onTap: widget.onFitAllGeometry,
+                ),
                 if (datasets.isNotEmpty)
-                  InkWell(
+                  EarthlyActionBarItem(
+                    icon: Icons.layers_outlined,
+                    label: 'Pin to Shelf',
                     onTap: widget.onKeepOnShelf,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: theme.dividerColor),
-                      ),
-                      child: const Text(
-                        '+ Pin to Shelf',
-                        style: TextStyle(fontFamily: 'monospace', fontSize: 11),
-                      ),
-                    ),
                   ),
-                if (widget.onToggleReaction != null ||
-                    widget.onZap != null ||
-                    widget.initialSocialCounts != null)
-                  EntityReactionBar(
-                    targetAddress: story.address,
-                    targetEventId: story.eventId,
-                    targetPubkey: story.pubkey,
-                    targetKind: 37520,
-                    relayUrls: widget.relayUrls,
-                    currentUserPubkey: widget.currentUserPubkey,
-                    initialCounts: widget.initialSocialCounts,
-                    onToggleReaction: widget.onToggleReaction,
-                    onZap: widget.onZap,
+                EarthlyActionBarItem(
+                  icon: Icons.forum_outlined,
+                  label: 'Comments',
+                  onTap: widget.onOpenDiscussion,
+                ),
+                if (widget.isOwned && widget.onEditStory != null)
+                  EarthlyActionBarItem(
+                    icon: Icons.edit_outlined,
+                    label: 'Edit',
+                    onTap: widget.onEditStory,
                   ),
               ],
             ),
+            if (datasets.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 30,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: datasets.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 6),
+                  itemBuilder: (_, idx) {
+                    final d = datasets[idx];
+                    return Material(
+                      color: EarthlyColors.commentGreen.withValues(alpha: 0.08),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        side: BorderSide(
+                          color:
+                              EarthlyColors.commentGreen.withValues(alpha: 0.55),
+                        ),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () => widget.onFocusDataset(d),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.my_location,
+                                size: 12,
+                                color: EarthlyColors.commentGreen,
+                              ),
+                              const SizedBox(width: 4),
+                              ConstrainedBox(
+                                constraints:
+                                    const BoxConstraints(maxWidth: 150),
+                                child: Text(
+                                  d.summary.title,
+                                  maxLines: 1,
+                                  softWrap: false,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
             const SizedBox(height: 10),
             if (story.image != null && story.image!.trim().isNotEmpty) ...[
               GestureDetector(
@@ -618,35 +738,6 @@ class _StoryReaderMarginState extends State<StoryReaderMargin> {
               },
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _StatChip extends StatelessWidget {
-  const _StatChip({required this.icon, required this.text});
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-      decoration: BoxDecoration(
-        border: Border.all(color: theme.dividerColor),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12),
-          const SizedBox(width: 4),
-          Text(
-            text,
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
-          ),
-        ],
       ),
     );
   }

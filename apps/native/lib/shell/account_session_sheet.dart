@@ -463,48 +463,52 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
           ),
           const SizedBox(height: 8),
         ],
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            FilledButton.tonalIcon(
-              onPressed: _busy ? null : _createLocalKey,
-              icon: const Icon(Icons.vpn_key_outlined, size: 16),
-              label: const Text('Create Local Key'),
+        EarthlyActionGrid(
+          key: const Key('account-add-methods-grid'),
+          columns: 2,
+          items: [
+            EarthlyActionBarItem(
+              icon: Icons.vpn_key_outlined,
+              label: 'Create Local Key',
+              emphasized: true,
+              onTap: _busy ? null : _createLocalKey,
             ),
-            OutlinedButton.icon(
-              onPressed: () => setState(() {
+            EarthlyActionBarItem(
+              icon: Icons.login,
+              label: 'Import nsec1…',
+              active: _showImport,
+              onTap: () => setState(() {
                 _showImport = !_showImport;
                 if (_showImport) {
                   _showBunker = false;
                   _showReadOnly = false;
                 }
               }),
-              icon: const Icon(Icons.login, size: 16),
-              label: const Text('Import nsec1…'),
             ),
-            OutlinedButton.icon(
-              onPressed: () => setState(() {
+            EarthlyActionBarItem(
+              icon: Icons.cloud_done_outlined,
+              label: 'Connect Bunker (NIP-46)',
+              active: _showBunker,
+              onTap: () => setState(() {
                 _showBunker = !_showBunker;
                 if (_showBunker) {
                   _showImport = false;
                   _showReadOnly = false;
                 }
               }),
-              icon: const Icon(Icons.cloud_done_outlined, size: 16),
-              label: const Text('Connect Bunker (NIP-46)'),
             ),
             if (widget.onAddReadOnlyNpub != null)
-              OutlinedButton.icon(
-                onPressed: () => setState(() {
+              EarthlyActionBarItem(
+                icon: Icons.visibility_outlined,
+                label: 'Watch npub1…',
+                active: _showReadOnly,
+                onTap: () => setState(() {
                   _showReadOnly = !_showReadOnly;
                   if (_showReadOnly) {
                     _showImport = false;
                     _showBunker = false;
                   }
                 }),
-                icon: const Icon(Icons.visibility_outlined, size: 16),
-                label: const Text('Watch npub1…'),
               ),
           ],
         ),
@@ -565,17 +569,23 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
             ],
           ),
           const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
+          Row(
             children: [
-              OutlinedButton.icon(
-                key: const Key('bunker-nostrconnect-qr-btn'),
-                onPressed: _awaitingNostrConnect ? null : _startNostrConnectQr,
-                icon: const Icon(Icons.qr_code_2, size: 16),
-                label: const Text('Show nostrconnect:// QR'),
+              Expanded(
+                child: OutlinedButton.icon(
+                  key: const Key('bunker-nostrconnect-qr-btn'),
+                  onPressed:
+                      _awaitingNostrConnect ? null : _startNostrConnectQr,
+                  icon: const Icon(Icons.qr_code_2, size: 16),
+                  label: const Text(
+                    'Show nostrconnect:// QR',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ),
-              if (_nostrConnectOffer != null)
+              if (_nostrConnectOffer != null) ...[
+                const SizedBox(width: 6),
                 TextButton(
                   onPressed: () => setState(() {
                     _nostrConnectOffer = null;
@@ -583,6 +593,7 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                   }),
                   child: const Text('Cancel QR'),
                 ),
+              ],
             ],
           ),
           if (_nostrConnectOffer != null) ...[
@@ -718,13 +729,16 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
           children: [
             const Icon(Icons.account_circle_outlined, size: 18),
             const SizedBox(width: 8),
-            Text(
-              'Account & Session',
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w800,
+            Expanded(
+              child: Text(
+                'Account & Session',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
-            const Spacer(),
             IconButton(
               visualDensity: VisualDensity.compact,
               onPressed: widget.onClose,
@@ -893,33 +907,40 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
               ),
             ),
             const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: () =>
+            EarthlyActionBar(
+              key: const Key('account-actions-bar'),
+              items: [
+                EarthlyActionBarItem(
+                  icon:
+                      _editingProfile ? Icons.expand_less : Icons.edit_outlined,
+                  label: _editingProfile ? 'Hide Editor' : 'Edit Profile',
+                  active: _editingProfile,
+                  onTap: () =>
                       setState(() => _editingProfile = !_editingProfile),
-                  icon: Icon(
-                    _editingProfile ? Icons.expand_less : Icons.edit_outlined,
-                    size: 15,
-                  ),
-                  label: Text(_editingProfile ? 'Hide Editor' : 'Edit Profile'),
                 ),
-                OutlinedButton.icon(
-                  onPressed: () {
+                EarthlyActionBarItem(
+                  icon: Icons.copy,
+                  label: 'Copy Pubkey',
+                  onTap: () {
                     Clipboard.setData(ClipboardData(text: account.pubkey));
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Copied public key')),
                     );
                   },
-                  icon: const Icon(Icons.copy, size: 15),
-                  label: const Text('Copy Pubkey'),
                 ),
                 if (widget.localNsec != null)
-                  OutlinedButton.icon(
+                  EarthlyActionBarItem(
                     key: const Key('account-backup-wizard-btn'),
-                    onPressed: () async {
+                    icon: _backedUpAccountKeys.contains(account.pubkey)
+                        ? Icons.verified_outlined
+                        : Icons.key_outlined,
+                    label: _backedUpAccountKeys.contains(account.pubkey)
+                        ? 'Backup Verified'
+                        : 'Backup Key',
+                    accentColor: _backedUpAccountKeys.contains(account.pubkey)
+                        ? EarthlyColors.commentGreen
+                        : null,
+                    onTap: () async {
                       final confirmed = await showDialog<bool>(
                         context: context,
                         builder: (_) => _LocalKeyBackupWizardDialog(
@@ -933,23 +954,12 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                         });
                       }
                     },
-                    icon: Icon(
-                      _backedUpAccountKeys.contains(account.pubkey)
-                          ? Icons.verified_outlined
-                          : Icons.key_outlined,
-                      size: 15,
-                      color: _backedUpAccountKeys.contains(account.pubkey)
-                          ? EarthlyColors.commentGreen
-                          : null,
-                    ),
-                    label: Text(
-                      _backedUpAccountKeys.contains(account.pubkey)
-                          ? 'Backup Verified'
-                          : 'Backup Local Key',
-                    ),
                   ),
-                OutlinedButton.icon(
-                  onPressed: () {
+                EarthlyActionBarItem(
+                  icon: Icons.logout,
+                  label: 'Sign out',
+                  destructive: true,
+                  onTap: () {
                     if (widget.activeAccountId != null &&
                         widget.onRemoveSession != null) {
                       widget.onRemoveSession!(widget.activeAccountId!);
@@ -959,15 +969,6 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                       widget.onBunkerConnected?.call(null);
                     }
                   },
-                  icon: const Icon(
-                    Icons.logout,
-                    size: 15,
-                    color: EarthlyColors.destructive,
-                  ),
-                  label: const Text(
-                    'Sign out',
-                    style: TextStyle(color: EarthlyColors.destructive),
-                  ),
                 ),
               ],
             ),
@@ -1485,21 +1486,22 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 6,
-                      children: [
-                        OutlinedButton.icon(
+                    EarthlyActionBar(
+                      stacked: false,
+                      items: [
+                        EarthlyActionBarItem(
                           key: const Key('nwc-check-btn'),
-                          onPressed: _checkingNwc ? null : _refreshNwcStatus,
-                          icon: const Icon(Icons.refresh, size: 14),
-                          label: Text(
-                            _checkingNwc ? 'Checking…' : 'Check Balance',
-                          ),
+                          icon: Icons.refresh,
+                          label: _checkingNwc ? 'Checking…' : 'Check Balance',
+                          loading: _checkingNwc,
+                          onTap: _checkingNwc ? null : _refreshNwcStatus,
                         ),
-                        TextButton.icon(
+                        EarthlyActionBarItem(
                           key: const Key('nwc-disconnect-btn'),
-                          onPressed: _checkingNwc
+                          icon: Icons.link_off,
+                          label: 'Disconnect',
+                          destructive: true,
+                          onTap: _checkingNwc
                               ? null
                               : () {
                                   widget.onNwcUriChanged!(null);
@@ -1508,15 +1510,6 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
                                     _nwcError = null;
                                   });
                                 },
-                          icon: const Icon(
-                            Icons.link_off,
-                            size: 14,
-                            color: EarthlyColors.destructive,
-                          ),
-                          label: const Text(
-                            'Disconnect',
-                            style: TextStyle(color: EarthlyColors.destructive),
-                          ),
                         ),
                       ],
                     ),
@@ -1710,8 +1703,11 @@ class _AccountSessionSheetState extends State<AccountSessionSheet> {
           OutlinedButton.icon(
             onPressed: widget.onOpenSpaces,
             icon: const Icon(Icons.hub_outlined, size: 17),
-            label:
-                const Text('Open Spaces (QR Pairing, FIPS, Beacons, Relays)'),
+            label: const Text(
+              'Open Spaces (QR Pairing, FIPS, Beacons, Relays)',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ],
       ),
@@ -1760,6 +1756,7 @@ class _LocalKeyBackupWizardDialogState
         : '••••••••';
 
     return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       title: Text(
         _step == 0 ? 'Backup Local Key (Step 1/2)' : 'Verify Backup (Step 2/2)',
       ),
@@ -1799,27 +1796,23 @@ class _LocalKeyBackupWizardDialogState
                   ),
                 ),
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  children: [
-                    OutlinedButton.icon(
+                EarthlyActionBar(
+                  stacked: false,
+                  items: [
+                    EarthlyActionBarItem(
                       key: const Key('backup-reveal-btn'),
-                      onPressed: () => setState(() => _revealed = !_revealed),
-                      icon: Icon(
-                        _revealed ? Icons.visibility_off : Icons.visibility,
-                        size: 15,
-                      ),
-                      label: Text(_revealed ? 'Hide Key' : 'Reveal Secret Key'),
+                      icon: _revealed ? Icons.visibility_off : Icons.visibility,
+                      label: _revealed ? 'Hide Key' : 'Reveal Key',
+                      onTap: () => setState(() => _revealed = !_revealed),
                     ),
-                    OutlinedButton.icon(
+                    EarthlyActionBarItem(
                       key: const Key('backup-copy-btn'),
-                      onPressed: () {
+                      icon: Icons.copy,
+                      label: _copied ? 'Copied ✓' : 'Copy nsec',
+                      onTap: () {
                         Clipboard.setData(ClipboardData(text: nsec));
                         setState(() => _copied = true);
                       },
-                      icon: const Icon(Icons.copy, size: 15),
-                      label: Text(_copied ? 'Copied ✓' : 'Copy nsec'),
                     ),
                   ],
                 ),

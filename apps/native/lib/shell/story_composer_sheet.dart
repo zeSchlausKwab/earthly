@@ -373,49 +373,44 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              alignment: WrapAlignment.spaceBetween,
-              children: [
-                Wrap(
-                  spacing: 6,
-                  children: [
-                    ChoiceChip(
-                      key: const Key('story-composer-write-tab'),
-                      label: const Text('Write'),
-                      selected: !_previewMode,
-                      onSelected: (_) => setState(() => _previewMode = false),
-                    ),
-                    ChoiceChip(
-                      key: const Key('story-composer-preview-tab'),
-                      label: const Text('Preview'),
-                      selected: _previewMode,
-                      onSelected: (_) => setState(() => _previewMode = true),
-                    ),
-                  ],
+            EarthlySegmentBar<bool>.single(
+              key: const Key('story-composer-mode-bar'),
+              value: _previewMode,
+              options: const [
+                EarthlySegmentOption(
+                  key: Key('story-composer-write-tab'),
+                  value: false,
+                  label: 'Write',
+                  icon: Icons.edit_outlined,
                 ),
-                if (_restoredFromDraft)
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const EarthlyBadge(
-                        label: 'DRAFT RESTORED',
-                        color: EarthlyColors.amber,
-                      ),
-                      const SizedBox(width: 4),
-                      TextButton(
-                        style: TextButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        onPressed: _discardSavedDraft,
-                        child: const Text('Discard'),
-                      ),
-                    ],
-                  ),
+                EarthlySegmentOption(
+                  key: Key('story-composer-preview-tab'),
+                  value: true,
+                  label: 'Preview',
+                  icon: Icons.visibility_outlined,
+                ),
               ],
+              onChanged: (preview) => setState(() => _previewMode = preview),
             ),
+            if (_restoredFromDraft) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const EarthlyBadge(
+                    label: 'DRAFT RESTORED',
+                    color: EarthlyColors.amber,
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    onPressed: _discardSavedDraft,
+                    child: const Text('Discard'),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 10),
             if (_previewMode) ...[
               if (_imageController.text.trim().startsWith('http')) ...[
@@ -552,25 +547,29 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
             ],
             const SizedBox(height: 8),
 
-            // Spatial & Media insertion toolbar
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: _insertGeoPin,
-                  icon: const Icon(Icons.place, size: 14),
-                  label: const Text('+ Map Center geo:'),
+            // Single-row spatial & media insertion toolbar
+            EarthlyActionBar(
+              key: const Key('story-insert-toolbar'),
+              items: [
+                EarthlyActionBarItem(
+                  icon: Icons.place,
+                  label: 'geo:',
+                  tooltip: 'Insert Map Center geo: coordinate',
+                  onTap: _insertGeoPin,
                 ),
-                OutlinedButton.icon(
+                EarthlyActionBarItem(
                   key: const Key('story-insert-view-block-btn'),
-                  onPressed: _insertCameraViewBlock,
-                  icon: const Icon(Icons.camera_alt_outlined, size: 14),
-                  label: const Text('+ Camera View Block'),
+                  icon: Icons.camera_alt_outlined,
+                  label: 'View',
+                  tooltip: 'Insert Camera View Block',
+                  onTap: _insertCameraViewBlock,
                 ),
-                OutlinedButton.icon(
+                EarthlyActionBarItem(
                   key: const Key('story-insert-map-ref-btn'),
-                  onPressed: () async {
+                  icon: Icons.link,
+                  label: '\$ Map',
+                  tooltip: 'Insert Map / Atlas reference',
+                  onTap: () async {
                     final mapsForPicker = <MapSummaryDto>[
                       ...widget.catalogMaps,
                       for (final s in widget.shelfMaps)
@@ -592,12 +591,13 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
                       _insertAtCursor(' $token ');
                     }
                   },
-                  icon: const Icon(Icons.link, size: 14),
-                  label: const Text('+ \$ Map'),
                 ),
-                OutlinedButton.icon(
+                EarthlyActionBarItem(
                   key: const Key('story-insert-person-ref-btn'),
-                  onPressed: () async {
+                  icon: Icons.alternate_email,
+                  label: '@ Person',
+                  tooltip: 'Mention Nostr Author',
+                  onTap: () async {
                     final token = await showEarthlyMentionPickerDialog(
                       context,
                       mode: MentionPickerMode.person,
@@ -612,14 +612,14 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
                       _insertAtCursor(' $token ');
                     }
                   },
-                  icon: const Icon(Icons.alternate_email, size: 14),
-                  label: const Text('+ @ Person'),
                 ),
                 if (widget.onUploadBlossomImage != null)
-                  OutlinedButton.icon(
-                    onPressed: _uploadingMedia ? null : _uploadInlineImage,
-                    icon: const Icon(Icons.add_photo_alternate_outlined, size: 14),
-                    label: const Text('+ Upload Photo'),
+                  EarthlyActionBarItem(
+                    icon: Icons.add_photo_alternate_outlined,
+                    label: '+ Upload Photo',
+                    flex: 2,
+                    loading: _uploadingMedia,
+                    onTap: _uploadingMedia ? null : _uploadInlineImage,
                   ),
               ],
             ),
@@ -631,7 +631,7 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
               maxLines: 12,
               decoration: const InputDecoration(
                 hintText:
-                    'Write your geo narrative in Markdown… Pan the map above and tap "+ Camera View Block" or "+ Map Center geo:" to bind prose to places.',
+                    'Write your geo narrative in Markdown… Pan the map above and use the toolbar to bind prose to places.',
               ),
             ),
 
@@ -644,53 +644,69 @@ class _StoryComposerDrawerState extends State<StoryComposerDrawer> {
                 ),
               ),
               const SizedBox(height: 4),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  for (final m in widget.shelfMaps)
-                    FilterChip(
-                      label: Text(m.summary.title),
-                      selected:
-                          _selectedMapAddresses.contains(m.summary.address),
-                      onSelected: (sel) {
-                        setState(() {
-                          if (sel) {
-                            _selectedMapAddresses.add(m.summary.address);
-                          } else {
-                            _selectedMapAddresses.remove(m.summary.address);
-                          }
-                        });
-                        _scheduleDraftSave();
-                      },
-                    ),
-                ],
+              Material(
+                color: theme.colorScheme.surfaceContainerLow,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: BorderSide(color: theme.dividerColor),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (var i = 0; i < widget.shelfMaps.length; i++) ...[
+                      if (i > 0) Divider(height: 1, color: theme.dividerColor),
+                      CheckboxListTile(
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        title: Text(
+                          widget.shelfMaps[i].summary.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12.5),
+                        ),
+                        value: _selectedMapAddresses
+                            .contains(widget.shelfMaps[i].summary.address),
+                        onChanged: (sel) {
+                          setState(() {
+                            if (sel ?? false) {
+                              _selectedMapAddresses
+                                  .add(widget.shelfMaps[i].summary.address);
+                            } else {
+                              _selectedMapAddresses
+                                  .remove(widget.shelfMaps[i].summary.address);
+                            }
+                          });
+                          _scheduleDraftSave();
+                        },
+                      ),
+                    ],
+                  ],
+                ),
               ),
             ],
 
             const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              children: [
-                ChoiceChip(
-                  label: const Text('Public Relay'),
-                  selected: _audience == DraftAudienceChoice.publicRelay,
-                  onSelected: (_) {
-                    setState(() => _audience = DraftAudienceChoice.publicRelay);
-                    _scheduleDraftSave();
-                  },
+            EarthlySegmentBar<DraftAudienceChoice>.single(
+              key: const Key('story-audience-bar'),
+              value: _audience,
+              options: const [
+                EarthlySegmentOption(
+                  value: DraftAudienceChoice.publicRelay,
+                  label: 'Public Relay',
+                  icon: Icons.public,
                 ),
-                ChoiceChip(
-                  label: const Text('Nearby Local Node'),
-                  selected: _audience == DraftAudienceChoice.nearbyLocalNode,
-                  onSelected: (_) {
-                    setState(
-                      () => _audience = DraftAudienceChoice.nearbyLocalNode,
-                    );
-                    _scheduleDraftSave();
-                  },
+                EarthlySegmentOption(
+                  value: DraftAudienceChoice.nearbyLocalNode,
+                  label: 'Nearby Local Node',
+                  icon: Icons.wifi_tethering,
                 ),
               ],
+              onChanged: (next) {
+                setState(() => _audience = next);
+                _scheduleDraftSave();
+              },
             ),
             ],
 
@@ -823,17 +839,27 @@ class _StoryViewBlockEditorDialogState
               const SizedBox(height: 10),
               const Text('Display mode', style: TextStyle(fontSize: 12)),
               const SizedBox(height: 4),
-              Wrap(
-                spacing: 6,
-                children: [
-                  for (final d in const ['both', 'figure', 'cue'])
-                    ChoiceChip(
-                      key: Key('view-editor-display-$d'),
-                      label: Text(d),
-                      selected: _display == d,
-                      onSelected: (_) => setState(() => _display = d),
-                    ),
+              EarthlySegmentBar<String>.single(
+                compact: true,
+                value: _display,
+                options: const [
+                  EarthlySegmentOption(
+                    key: Key('view-editor-display-both'),
+                    value: 'both',
+                    label: 'both',
+                  ),
+                  EarthlySegmentOption(
+                    key: Key('view-editor-display-figure'),
+                    value: 'figure',
+                    label: 'figure',
+                  ),
+                  EarthlySegmentOption(
+                    key: Key('view-editor-display-cue'),
+                    value: 'cue',
+                    label: 'cue',
+                  ),
                 ],
+                onChanged: (d) => setState(() => _display = d),
               ),
               const SizedBox(height: 8),
               Row(

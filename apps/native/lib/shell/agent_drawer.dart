@@ -563,44 +563,60 @@ class _AgentDrawerState extends State<AgentDrawer>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 8, 2),
+            padding: const EdgeInsets.fromLTRB(12, 0, 6, 2),
             child: Row(
               children: [
                 Icon(
                   Icons.auto_awesome,
-                  size: 16,
+                  size: 17,
                   color: theme.colorScheme.primary,
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 8),
                 Expanded(
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: theme.dividerColor),
-                      ),
-                      child: Text(
-                        '${widget.settings.presetName} · ${widget.settings.model}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                        ),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () =>
+                        setState(() => _showSettings = !_showSettings),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  'Copilot',
+                                  maxLines: 1,
+                                  softWrap: false,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              _buildVisionBadge(theme),
+                            ],
+                          ),
+                          Text(
+                            '${widget.settings.presetName} · ${widget.settings.model}',
+                            maxLines: 1,
+                            softWrap: false,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 10,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 4),
-                _buildVisionBadge(theme),
-                const SizedBox(width: 4),
+                const SizedBox(width: 6),
                 if (widget.onSafeEditingChanged != null)
                   Tooltip(
                     message: widget.safeEditing
@@ -609,7 +625,7 @@ class _AgentDrawerState extends State<AgentDrawer>
                     child: InkWell(
                       onTap: () =>
                           widget.onSafeEditingChanged!(!widget.safeEditing),
-                      borderRadius: BorderRadius.circular(999),
+                      borderRadius: BorderRadius.circular(8),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 7,
@@ -620,7 +636,7 @@ class _AgentDrawerState extends State<AgentDrawer>
                                   ? EarthlyColors.proposedAmber
                                   : theme.colorScheme.surfaceContainerHighest)
                               .withValues(alpha: 0.18),
-                          borderRadius: BorderRadius.circular(999),
+                          borderRadius: BorderRadius.circular(8),
                           border: Border.all(
                             color: widget.safeEditing
                                 ? EarthlyColors.proposedAmber
@@ -642,6 +658,8 @@ class _AgentDrawerState extends State<AgentDrawer>
                             const SizedBox(width: 3),
                             Text(
                               widget.safeEditing ? 'SAFE' : 'DIRECT',
+                              maxLines: 1,
+                              softWrap: false,
                               style: TextStyle(
                                 fontFamily: 'monospace',
                                 fontSize: 9.5,
@@ -659,6 +677,8 @@ class _AgentDrawerState extends State<AgentDrawer>
                 IconButton(
                   tooltip: 'Provider settings',
                   visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                   onPressed: () =>
                       setState(() => _showSettings = !_showSettings),
                   icon: Icon(
@@ -670,11 +690,16 @@ class _AgentDrawerState extends State<AgentDrawer>
                   IconButton(
                     tooltip: 'Clear conversation',
                     visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints(minWidth: 32, minHeight: 32),
                     onPressed: widget.onClearChat,
                     icon: const Icon(Icons.delete_sweep_outlined, size: 18),
                   ),
                 IconButton(
                   visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                   onPressed: widget.onClose,
                   icon: const Icon(Icons.close, size: 18),
                 ),
@@ -697,21 +722,22 @@ class _AgentDrawerState extends State<AgentDrawer>
           ),
         ],
       ),
-      body: Column(
-        children: [
-          if (_showSettings) _buildProviderSettings(theme),
-          if (pending != null) _buildPendingGhostCard(theme, pending),
-          Expanded(
-            child: TabBarView(
-              controller: _tabs,
+      body: _showSettings
+          ? _buildProviderSettings(theme)
+          : Column(
               children: [
-                _buildChatTab(theme),
-                _buildResearchSourceTab(theme),
+                if (pending != null) _buildPendingGhostCard(theme, pending),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabs,
+                    children: [
+                      _buildChatTab(theme),
+                      _buildResearchSourceTab(theme),
+                    ],
+                  ),
+                ),
               ],
             ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -731,17 +757,19 @@ class _AgentDrawerState extends State<AgentDrawer>
       },
       child: Container(
         key: const Key('agent-vision-badge'),
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: color.withValues(alpha: 0.65)),
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(5),
+          border: Border.all(color: color.withValues(alpha: 0.45)),
         ),
         child: Text(
           label,
+          maxLines: 1,
+          softWrap: false,
           style: TextStyle(
             fontFamily: 'monospace',
-            fontSize: 9.5,
+            fontSize: 9,
             fontWeight: FontWeight.w800,
             color: color,
           ),
@@ -776,6 +804,8 @@ class _AgentDrawerState extends State<AgentDrawer>
               Expanded(
                 child: Text(
                   'AI AMBER GHOST · +${pending.diffAdded} ~${pending.diffModified} -${pending.diffRemoved}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontFamily: 'monospace',
                     fontSize: 11,
@@ -794,456 +824,647 @@ class _AgentDrawerState extends State<AgentDrawer>
             style: theme.textTheme.bodySmall,
           ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: EarthlyColors.commentGreen,
-                    foregroundColor: Colors.white,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  onPressed: widget.onAcceptPendingEdit,
-                  icon: const Icon(Icons.check, size: 15),
-                  label: const Text('Accept to Draft'),
-                ),
+          EarthlyActionBar(
+            stacked: false,
+            items: [
+              EarthlyActionBarItem(
+                icon: Icons.check,
+                label: 'Accept to Draft',
+                emphasized: true,
+                accentColor: EarthlyColors.commentGreen,
+                flex: 2,
+                onTap: widget.onAcceptPendingEdit,
               ),
-              const SizedBox(width: 8),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: EarthlyColors.destructive,
-                  visualDensity: VisualDensity.compact,
-                ),
-                onPressed: widget.onDiscardPendingEdit,
-                icon: const Icon(Icons.close, size: 15),
-                label: const Text('Discard'),
+              EarthlyActionBarItem(
+                icon: Icons.close,
+                label: 'Discard',
+                destructive: true,
+                flex: 1,
+                onTap: widget.onDiscardPendingEdit,
               ),
             ],
           ),
         ],
       ),
     );
+  }
+
+  String get _activePresetId {
+    if (widget.settings.baseUrl.isEmpty) return 'offline';
+    if (widget.settings.isRoutstr) return 'routstr';
+    if (widget.settings.baseUrl.contains('11434')) return 'ollama';
+    if (widget.settings.baseUrl.contains('openrouter.ai')) return 'openrouter';
+    return 'custom';
   }
 
   Widget _buildProviderSettings(ThemeData theme) {
     final showCashuControls = widget.settings.isRoutstr ||
         _baseUrlController.text.trim().toLowerCase().contains('routstr.com') ||
         _autoPayCashu;
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: 215),
-      child: ClipRect(
-        child: SingleChildScrollView(
-          child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.primary.withValues(alpha: 0.05),
-            border: Border(bottom: BorderSide(color: theme.dividerColor)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              ChoiceChip(
-                label: const Text('Offline Rust'),
-                selected: widget.settings.baseUrl.isEmpty,
-                onSelected: (_) => _applyPreset(CopilotProviderSettings.offline),
-              ),
-              ChoiceChip(
-                label: const Text('Local Ollama'),
-                selected: widget.settings.baseUrl.contains('11434'),
-                onSelected: (_) =>
-                    _applyPreset(CopilotProviderSettings.localOllama),
-              ),
-              ChoiceChip(
-                label: const Text('OpenRouter'),
-                selected: widget.settings.baseUrl.contains('openrouter.ai'),
-                onSelected: (_) =>
-                    _applyPreset(CopilotProviderSettings.openRouter),
-              ),
-              ChoiceChip(
-                key: const Key('agent-preset-routstr'),
-                label: const Text('Routstr (Cashu)'),
-                selected: widget.settings.isRoutstr,
-                onSelected: (_) =>
-                    _applyPreset(CopilotProviderSettings.routstr),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _baseUrlController,
-            decoration: const InputDecoration(
-              labelText: 'OpenAI-compatible Base URL (blank = offline)',
-            ),
-          ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _modelController,
-                  decoration: const InputDecoration(labelText: 'Model'),
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+      children: [
+                EarthlySegmentBar<String>.single(
+                  key: const Key('agent-preset-segment-bar'),
+                  compact: true,
+                  value: _activePresetId,
+                  options: const [
+                    EarthlySegmentOption(
+                      value: 'offline',
+                      label: 'Offline',
+                    ),
+                    EarthlySegmentOption(
+                      value: 'ollama',
+                      label: 'Ollama',
+                    ),
+                    EarthlySegmentOption(
+                      value: 'openrouter',
+                      label: 'OpenRouter',
+                    ),
+                    EarthlySegmentOption(
+                      key: Key('agent-preset-routstr'),
+                      value: 'routstr',
+                      label: 'Routstr',
+                    ),
+                  ],
+                  onChanged: (presetId) {
+                    switch (presetId) {
+                      case 'offline':
+                        _applyPreset(CopilotProviderSettings.offline);
+                      case 'ollama':
+                        _applyPreset(CopilotProviderSettings.localOllama);
+                      case 'openrouter':
+                        _applyPreset(CopilotProviderSettings.openRouter);
+                      case 'routstr':
+                        _applyPreset(CopilotProviderSettings.routstr);
+                    }
+                  },
                 ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: TextField(
-                  controller: _apiKeyController,
-                  obscureText: true,
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _baseUrlController,
                   decoration: const InputDecoration(
-                    labelText: 'API Key (optional)',
+                    labelText: 'OpenAI-compatible Base URL (blank = offline)',
                   ),
                 ),
-              ),
-            ],
-          ),
-          if (showCashuControls) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Auto-pay with Cashu Wallet',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _modelController,
+                        decoration: const InputDecoration(labelText: 'Model'),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: TextField(
+                        controller: _apiKeyController,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          labelText: 'API Key (optional)',
                         ),
                       ),
-                      Text(
-                        'Attach X-Cashu ecash on requests & redeem change refunds',
-                        style: TextStyle(fontSize: 10.5),
+                    ),
+                  ],
+                ),
+                if (showCashuControls) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Auto-pay with Cashu Wallet',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              'Attach X-Cashu ecash on requests & redeem change refunds',
+                              style: TextStyle(fontSize: 10.5),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch.adaptive(
+                        key: const Key('agent-routstr-autopay-switch'),
+                        value: _autoPayCashu,
+                        onChanged: (val) {
+                          setState(() => _autoPayCashu = val);
+                          widget.onSettingsChanged(
+                            _buildSettingsFromControllers(autoPayOverride: val),
+                          );
+                        },
                       ),
                     ],
                   ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 112,
+                        child: TextField(
+                          key: const Key('agent-cashu-max-sats-field'),
+                          controller: _cashuMaxSatsController,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'Max prepay (sat)',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: TextField(
+                          key: const Key('agent-cashu-token-field'),
+                          controller: _cashuTokenController,
+                          decoration: const InputDecoration(
+                            labelText: 'Manual X-Cashu token (cashuA…)',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 8),
+                EarthlyActionBar(
+                  stacked: false,
+                  items: [
+                    EarthlyActionBarItem(
+                      key: const Key('agent-discover-models-btn'),
+                      icon: Icons.manage_search,
+                      label:
+                          _discoveringModels ? 'Checking…' : 'Discover Models',
+                      loading: _discoveringModels,
+                      onTap: _discoveringModels
+                          ? null
+                          : _discoverProviderModels,
+                    ),
+                    EarthlyActionBarItem(
+                      icon: Icons.check,
+                      label: 'Apply Provider',
+                      emphasized: true,
+                      onTap: _saveCustomSettings,
+                    ),
+                  ],
                 ),
-                Switch.adaptive(
-                  key: const Key('agent-routstr-autopay-switch'),
-                  value: _autoPayCashu,
-                  onChanged: (val) {
-                    setState(() => _autoPayCashu = val);
-                    widget.onSettingsChanged(
-                      _buildSettingsFromControllers(autoPayOverride: val),
-                    );
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                SizedBox(
-                  width: 112,
-                  child: TextField(
-                    key: const Key('agent-cashu-max-sats-field'),
-                    controller: _cashuMaxSatsController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Max prepay (sat)',
+                if (_discoverError != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    _discoverError!,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 10.5,
+                      color: EarthlyColors.destructive,
                     ),
                   ),
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: TextField(
-                    key: const Key('agent-cashu-token-field'),
-                    controller: _cashuTokenController,
-                    decoration: const InputDecoration(
-                      labelText: 'Manual X-Cashu token (cashuA…)',
+                ],
+                if (_discoveredModels.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'DISCOVERED MODELS (${_discoveredModels.length})',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                ),
-              ],
-            ),
-          ],
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              OutlinedButton.icon(
-                key: const Key('agent-discover-models-btn'),
-                onPressed: _discoveringModels ? null : _discoverProviderModels,
-                icon: _discoveringModels
-                    ? const SizedBox(
-                        width: 13,
-                        height: 13,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.manage_search, size: 15),
-                label: Text(
-                  _discoveringModels ? 'Checking /models…' : 'Discover Models',
-                ),
-              ),
-              FilledButton(
-                onPressed: _saveCustomSettings,
-                child: const Text('Apply Provider'),
-              ),
-            ],
-          ),
-          if (_discoverError != null) ...[
-            const SizedBox(height: 6),
-            Text(
-              _discoverError!,
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 10.5,
-                color: EarthlyColors.destructive,
-              ),
-            ),
-          ],
-          if (_discoveredModels.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              'DISCOVERED MODELS (${_discoveredModels.length})',
-              style: theme.textTheme.labelSmall?.copyWith(
-                fontFamily: 'monospace',
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 6,
-              runSpacing: 4,
-              children: [
-                for (final m in _discoveredModels.take(16))
-                  ActionChip(
-                    key: Key('agent-discovered-model-$m'),
-                    label: Text(
-                      m,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 10.5,
+                  const SizedBox(height: 4),
+                  Material(
+                    color: theme.colorScheme.surface,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      side: BorderSide(color: theme.dividerColor),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (var i = 0;
+                            i < _discoveredModels.length && i < 16;
+                            i++) ...[
+                          if (i > 0)
+                            Divider(height: 1, color: theme.dividerColor),
+                          InkWell(
+                            key: Key(
+                              'agent-discovered-model-${_discoveredModels[i]}',
+                            ),
+                            onTap: () {
+                              setState(
+                                () => _modelController.text =
+                                    _discoveredModels[i],
+                              );
+                              _saveCustomSettings();
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    _modelController.text ==
+                                            _discoveredModels[i]
+                                        ? Icons.radio_button_checked
+                                        : Icons.radio_button_off,
+                                    size: 14,
+                                    color: _modelController.text ==
+                                            _discoveredModels[i]
+                                        ? theme.colorScheme.primary
+                                        : theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      _discoveredModels[i],
+                                      maxLines: 1,
+                                      softWrap: false,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontFamily: 'monospace',
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+      ],
+    );
+  }
+
+  static const List<({IconData icon, String prompt})> _starterPrompts = [
+    (icon: Icons.straighten, prompt: 'Measure my draft'),
+    (icon: Icons.route_outlined, prompt: 'Create 120m corridor'),
+    (icon: Icons.trending_flat, prompt: 'Extrude flow arrow'),
+    (icon: Icons.layers_outlined, prompt: 'Union polygons'),
+    (icon: Icons.add_location_alt_outlined, prompt: 'Drop pin here'),
+    (icon: Icons.collections_bookmark_outlined, prompt: 'Draft atlas manifest'),
+  ];
+
+  static const List<String> _allQuickPrompts = [
+    'Measure my draft',
+    'Create 120m corridor',
+    'Extrude flow arrow',
+    'Offset +80m',
+    'Union polygons',
+    'Add callout: Verified in field',
+    'Drop pin here',
+    'Draft atlas manifest',
+    'Atlas status',
+  ];
+
+  Widget _buildThreadStrip(ThemeData theme) {
+    return Container(
+      height: 36,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        border: Border(bottom: BorderSide(color: theme.dividerColor)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              itemCount: widget.threads.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 4),
+              itemBuilder: (_, idx) {
+                final t = widget.threads[idx];
+                final active = t.id == widget.activeThreadId;
+                final canDelete = widget.threads.length > 1 &&
+                    widget.onDeleteThread != null;
+                return InkWell(
+                  key: Key('agent-thread-${t.id}'),
+                  onTap: widget.onSelectThread == null
+                      ? null
+                      : () => widget.onSelectThread!(t.id),
+                  child: Container(
+                    alignment: Alignment.center,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(
+                          color: active
+                              ? EarthlyColors.amber
+                              : Colors.transparent,
+                          width: 2,
+                        ),
                       ),
                     ),
-                    onPressed: () {
-                      setState(() => _modelController.text = m);
-                      _saveCustomSettings();
-                    },
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 132),
+                          child: Text(
+                            t.title,
+                            maxLines: 1,
+                            softWrap: false,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 10.5,
+                              fontWeight:
+                                  active ? FontWeight.w800 : FontWeight.w500,
+                              color: active
+                                  ? theme.colorScheme.onSurface
+                                  : theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                        if (canDelete) ...[
+                          const SizedBox(width: 4),
+                          InkWell(
+                            onTap: () => widget.onDeleteThread!(t.id),
+                            child: Icon(
+                              Icons.close,
+                              size: 13,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
-              ],
+                );
+              },
+            ),
+          ),
+          if (widget.onCreateThread != null) ...[
+            VerticalDivider(width: 1, thickness: 1, color: theme.dividerColor),
+            InkWell(
+              key: const Key('agent-new-thread-btn'),
+              onTap: widget.busy ? null : widget.onCreateThread,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.add,
+                      size: 14,
+                      color: widget.busy
+                          ? theme.disabledColor
+                          : theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 3),
+                    Text(
+                      'New',
+                      maxLines: 1,
+                      softWrap: false,
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                        color: widget.busy
+                            ? theme.disabledColor
+                            : theme.colorScheme.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ],
-          ),
-        ),
-      ),
       ),
     );
   }
 
-  Widget _buildChatTab(ThemeData theme) {
-    return Column(
-      children: [
-        if (widget.onCreateThread != null || widget.threads.length > 1)
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 2),
-            child: Row(
-              children: [
-                if (widget.onCreateThread != null)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: ActionChip(
-                      key: const Key('agent-new-thread-btn'),
-                      avatar: const Icon(Icons.add, size: 14),
-                      label: const Text(
-                        'New Thread',
-                        style: TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      onPressed: widget.busy ? null : widget.onCreateThread,
-                    ),
-                  ),
-                for (final t in widget.threads)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: InputChip(
-                      key: Key('agent-thread-${t.id}'),
-                      selected: t.id == widget.activeThreadId,
-                      label: Text(
-                        t.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 10.5,
-                        ),
-                      ),
-                      onPressed: widget.onSelectThread == null
-                          ? null
-                          : () => widget.onSelectThread!(t.id),
-                      onDeleted: widget.threads.length > 1 &&
-                              widget.onDeleteThread != null
-                          ? () => widget.onDeleteThread!(t.id)
-                          : null,
-                    ),
-                  ),
-              ],
+  Widget _buildWorkingSetStrip(ThemeData theme) {
+    return Container(
+      key: const Key('agent-working-set-bar'),
+      height: 34,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow.withValues(alpha: 0.6),
+        border: Border(bottom: BorderSide(color: theme.dividerColor)),
+      ),
+      child: Row(
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 12, right: 8),
+            child: Text(
+              'CONTEXT',
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 9.5,
+                fontWeight: FontWeight.w800,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
-        // Quick spatial prompts
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 2),
-          child: Row(
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(right: 6),
-                child: ActionChip(
-                  visualDensity: VisualDensity.compact,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  avatar: const Icon(Icons.travel_explore, size: 14),
-                  label: const Text(
-                    'Research Source',
-                    style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
+          Expanded(
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.only(right: 12, top: 4, bottom: 4),
+              itemCount: widget.shelfMaps.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 6),
+              itemBuilder: (_, idx) {
+                final sm = widget.shelfMaps[idx];
+                final selected =
+                    widget.workingSetAddresses.contains(sm.address);
+                return Material(
+                  color: selected
+                      ? EarthlyColors.amber.withValues(alpha: 0.18)
+                      : theme.colorScheme.surface,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
+                    side: BorderSide(
+                      color:
+                          selected ? EarthlyColors.amber : theme.dividerColor,
                     ),
                   ),
-                  onPressed: () => _tabs.animateTo(1),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(right: 6),
-                child: Tooltip(
-                  message: widget.visionSupport == 'no-vision'
-                      ? 'Switch to a vision-capable model to attach the map canvas'
-                      : 'Attach a PNG snapshot of the current map viewport',
-                  child: FilterChip(
-                    key: const Key('agent-attach-map-view-toggle'),
-                    visualDensity: VisualDensity.compact,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    avatar: Icon(
-                      Icons.image_outlined,
-                      size: 14,
-                      color: widget.visionSupport == 'no-vision'
-                          ? theme.disabledColor
-                          : null,
-                    ),
-                    label: const Text(
-                      'Attach Map View',
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    selected: widget.visionSupport != 'no-vision' &&
-                        widget.attachMapView,
-                    onSelected: (widget.visionSupport == 'no-vision' ||
-                            widget.busy ||
-                            widget.onAttachMapViewChanged == null)
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    key: Key('agent-ws-${sm.address}'),
+                    onTap: widget.busy
                         ? null
-                        : widget.onAttachMapViewChanged,
-                  ),
-                ),
-              ),
-              for (final chip in const [
-                'Measure my draft',
-                'Create 120m corridor',
-                'Extrude flow arrow',
-                'Offset +80m',
-                'Union polygons',
-                'Add callout: Verified in field',
-                'Drop pin here',
-                'Draft atlas manifest',
-                'Atlas status',
-              ])
-                Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: ActionChip(
-                    visualDensity: VisualDensity.compact,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    label: Text(
-                      chip,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 11,
+                        : () => widget.onToggleWorkingSet!(sm.address),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            selected
+                                ? Icons.check_box_outlined
+                                : Icons.layers_outlined,
+                            size: 13,
+                            color: selected
+                                ? EarthlyColors.amber
+                                : theme.colorScheme.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 4),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 130),
+                            child: Text(
+                              sm.title,
+                              maxLines: 1,
+                              softWrap: false,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 10,
+                                fontWeight: selected
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    onPressed: widget.busy ? null : () => _submit(chip),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyStarterList(ThemeData theme) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      children: [
+        Text(
+          'STARTER PROMPTS',
+          style: theme.textTheme.labelSmall?.copyWith(
+            fontFamily: 'monospace',
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Material(
+          key: const Key('agent-starter-prompts'),
+          color: theme.colorScheme.surfaceContainerHighest
+              .withValues(alpha: 0.55),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: theme.dividerColor),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (var i = 0; i < _starterPrompts.length; i++) ...[
+                if (i > 0) Divider(height: 1, color: theme.dividerColor),
+                InkWell(
+                  onTap: widget.busy
+                      ? null
+                      : () => _submit(_starterPrompts[i].prompt),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 9,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _starterPrompts[i].icon,
+                          size: 15,
+                          color: theme.colorScheme.primary,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            _starterPrompts[i].prompt,
+                            maxLines: 1,
+                            softWrap: false,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurface,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        Icon(
+                          Icons.north_east,
+                          size: 14,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
+              ],
             ],
           ),
         ),
-        if (widget.shelfMaps.isNotEmpty && widget.onToggleWorkingSet != null)
-          SingleChildScrollView(
-            key: const Key('agent-working-set-bar'),
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.fromLTRB(12, 2, 12, 2),
-            child: Row(
-              children: [
-                Text(
-                  'WORKING SET: ',
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w800,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                for (final sm in widget.shelfMaps)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: FilterChip(
-                      key: Key('agent-ws-${sm.address}'),
-                      visualDensity: VisualDensity.compact,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      selected: widget.workingSetAddresses.contains(sm.address),
-                      label: Text(
-                        sm.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 10,
-                        ),
-                      ),
-                      onSelected: widget.busy
-                          ? null
-                          : (_) => widget.onToggleWorkingSet!(sm.address),
-                    ),
-                  ),
-              ],
+        const SizedBox(height: 10),
+        Text(
+          'Rust `earthly-agent` runs geometry, measurement, callout, and Atlas tools on your live map. Safe Editing previews changes as amber dashed ghosts.',
+          style: theme.textTheme.bodySmall,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildToolCallList(List<AgentToolRecordDto> calls) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final tc in calls)
+          Container(
+            margin: const EdgeInsets.only(bottom: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: (tc.ok
+                      ? EarthlyColors.commentGreen
+                      : EarthlyColors.destructive)
+                  .withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              '${tc.ok ? "✓" : "✗"} ${tc.name}: ${tc.summary}',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 10,
+                color: tc.ok
+                    ? EarthlyColors.commentGreen
+                    : EarthlyColors.destructive,
+              ),
             ),
           ),
+      ],
+    );
+  }
+
+  Widget _buildChatTab(ThemeData theme) {
+    final visionEnabled = widget.visionSupport != 'no-vision' &&
+        !widget.busy &&
+        widget.onAttachMapViewChanged != null;
+    final mapViewActive =
+        widget.visionSupport != 'no-vision' && widget.attachMapView;
+
+    return Column(
+      children: [
+        if (widget.onCreateThread != null || widget.threads.length > 1)
+          _buildThreadStrip(theme),
+        if (widget.shelfMaps.isNotEmpty && widget.onToggleWorkingSet != null)
+          _buildWorkingSetStrip(theme),
 
         // Chat transcript (independent scrolling!)
         Expanded(
           child: widget.messages.isEmpty && !widget.busy
-              ? LayoutBuilder(
-                  builder: (context, constraints) => SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        minHeight: (constraints.maxHeight - 32).clamp(0.0, 400.0),
-                      ),
-                      child: Center(
-                        child: Text(
-                          'Rust `earthly-agent` executes geometry, measurement, callout, and Atlas workspace tools directly on your live map.\n\nSafe Editing previews geometry changes as amber dashed ghosts before touching your draft.',
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ),
-                    ),
-                  ),
-                )
+              ? _buildEmptyStarterList(theme)
               : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                   itemCount: widget.messages.length + (widget.busy ? 1 : 0),
                   itemBuilder: (context, index) {
                     if (widget.busy && index == widget.messages.length) {
@@ -1296,33 +1517,7 @@ class _AgentDrawerState extends State<AgentDrawer>
                             const LinearProgressIndicator(minHeight: 2),
                             if (widget.liveToolCalls.isNotEmpty) ...[
                               const SizedBox(height: 6),
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 4,
-                                children: [
-                                  for (final tc in widget.liveToolCalls)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                        vertical: 3,
-                                      ),
-                                      color: (tc.ok
-                                              ? EarthlyColors.commentGreen
-                                              : EarthlyColors.destructive)
-                                          .withValues(alpha: 0.12),
-                                      child: Text(
-                                        '${tc.ok ? "✓" : "✗"} ${tc.name}: ${tc.summary}',
-                                        style: TextStyle(
-                                          fontFamily: 'monospace',
-                                          fontSize: 10,
-                                          color: tc.ok
-                                              ? EarthlyColors.commentGreen
-                                              : EarthlyColors.destructive,
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
+                              _buildToolCallList(widget.liveToolCalls),
                             ],
                             if (widget.streamingText.isNotEmpty) ...[
                               const SizedBox(height: 6),
@@ -1388,7 +1583,7 @@ class _AgentDrawerState extends State<AgentDrawer>
                                   decoration: BoxDecoration(
                                     color: EarthlyColors.proposedAmber
                                         .withValues(alpha: 0.16),
-                                    borderRadius: BorderRadius.circular(999),
+                                    borderRadius: BorderRadius.circular(6),
                                     border: Border.all(
                                       color: EarthlyColors.proposedAmber
                                           .withValues(alpha: 0.6),
@@ -1399,6 +1594,8 @@ class _AgentDrawerState extends State<AgentDrawer>
                                             m.cashuRefundedSats! > 0)
                                         ? '⚡ ${m.cashuSpentSats ?? 0} sat · ↩ ${m.cashuRefundedSats} sat'
                                         : '⚡ ${m.cashuSpentSats ?? 0} sat',
+                                    maxLines: 1,
+                                    softWrap: false,
                                     style: const TextStyle(
                                       fontFamily: 'monospace',
                                       fontSize: 9.5,
@@ -1430,33 +1627,7 @@ class _AgentDrawerState extends State<AgentDrawer>
                           ),
                           if (m.toolCalls.isNotEmpty) ...[
                             const SizedBox(height: 6),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 4,
-                              children: [
-                                for (final tc in m.toolCalls)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                      vertical: 3,
-                                    ),
-                                    color: (tc.ok
-                                            ? EarthlyColors.commentGreen
-                                            : EarthlyColors.destructive)
-                                        .withValues(alpha: 0.12),
-                                    child: Text(
-                                      '${tc.ok ? "✓" : "✗"} ${tc.name}: ${tc.summary}',
-                                      style: TextStyle(
-                                        fontFamily: 'monospace',
-                                        fontSize: 10,
-                                        color: tc.ok
-                                            ? EarthlyColors.commentGreen
-                                            : EarthlyColors.destructive,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
+                            _buildToolCallList(m.toolCalls),
                           ],
                           const SizedBox(height: 6),
                           EarthlyRichText(text: m.content, compact: true),
@@ -1471,27 +1642,216 @@ class _AgentDrawerState extends State<AgentDrawer>
         if (widget.pendingAttachment != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: InputChip(
-                key: const Key('agent-attachment-chip'),
-                avatar: const Icon(Icons.description_outlined, size: 14),
-                label: Text(
-                  '${widget.pendingAttachment!.fileName} (${widget.pendingAttachment!.formatLabel}'
-                  '${widget.pendingAttachment!.featureCount > 0 ? ' · ${widget.pendingAttachment!.featureCount} feat' : ''})',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 10.5,
+            child: Container(
+              key: const Key('agent-attachment-chip'),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: theme.dividerColor),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.description_outlined, size: 14),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '${widget.pendingAttachment!.fileName} (${widget.pendingAttachment!.formatLabel}'
+                      '${widget.pendingAttachment!.featureCount > 0 ? ' · ${widget.pendingAttachment!.featureCount} feat' : ''})',
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 10.5,
+                      ),
+                    ),
                   ),
-                ),
-                onDeleted: widget.busy ? null : widget.onClearAttachment,
+                  InkWell(
+                    borderRadius: BorderRadius.circular(6),
+                    onTap: widget.busy ? null : widget.onClearAttachment,
+                    child: const Padding(
+                      padding: EdgeInsets.all(2),
+                      child: Icon(Icons.close, size: 15),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
+        // Compact single-row composer utility bar (replaces multi-row pill cloud!)
         Padding(
-          padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+          padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+          child: Material(
+            key: const Key('agent-composer-actions-bar'),
+            color: theme.colorScheme.surfaceContainerHighest
+                .withValues(alpha: 0.55),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(9),
+              side: BorderSide(color: theme.dividerColor),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: Tooltip(
+                      message: widget.visionSupport == 'no-vision'
+                          ? 'Switch to a vision-capable model to attach the map canvas'
+                          : 'Attach a PNG snapshot of the current map viewport',
+                      child: Material(
+                        color: mapViewActive
+                            ? EarthlyColors.amber.withValues(alpha: 0.22)
+                            : Colors.transparent,
+                        child: InkWell(
+                          key: const Key('agent-attach-map-view-toggle'),
+                          onTap: visionEnabled
+                              ? () => widget.onAttachMapViewChanged!(
+                                    !widget.attachMapView,
+                                  )
+                              : null,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 6,
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.image_outlined,
+                                  size: 14,
+                                  color: !visionEnabled
+                                      ? theme.disabledColor
+                                      : mapViewActive
+                                          ? EarthlyColors.amber
+                                          : theme.colorScheme.onSurface,
+                                ),
+                                const SizedBox(width: 5),
+                                Flexible(
+                                  child: Text(
+                                    'Map View',
+                                    maxLines: 1,
+                                    softWrap: false,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: !visionEnabled
+                                          ? theme.disabledColor
+                                          : mapViewActive
+                                              ? EarthlyColors.amber
+                                              : theme.colorScheme.onSurface,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  VerticalDivider(
+                    width: 1,
+                    thickness: 1,
+                    color: theme.dividerColor,
+                  ),
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => _tabs.animateTo(1),
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 6,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.travel_explore, size: 14),
+                            SizedBox(width: 5),
+                            Flexible(
+                              child: Text(
+                                'Source',
+                                maxLines: 1,
+                                softWrap: false,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  VerticalDivider(
+                    width: 1,
+                    thickness: 1,
+                    color: theme.dividerColor,
+                  ),
+                  Expanded(
+                    child: PopupMenuButton<String>(
+                      key: const Key('agent-quick-prompts-menu'),
+                      enabled: !widget.busy,
+                      tooltip: 'Spatial quick prompts',
+                      onSelected: (prompt) => _submit(prompt),
+                      itemBuilder: (_) => [
+                        for (final p in _allQuickPrompts)
+                          PopupMenuItem<String>(
+                            value: p,
+                            child: Text(
+                              p,
+                              style: const TextStyle(fontSize: 12.5),
+                            ),
+                          ),
+                      ],
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 6,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.bolt,
+                              size: 14,
+                              color: widget.busy
+                                  ? theme.disabledColor
+                                  : theme.colorScheme.primary,
+                            ),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                'Prompts ▾',
+                                maxLines: 1,
+                                softWrap: false,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: widget.busy
+                                      ? theme.disabledColor
+                                      : theme.colorScheme.onSurface,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
           child: Row(
             children: [
               if (widget.onPickAttachment != null)
@@ -1499,6 +1859,8 @@ class _AgentDrawerState extends State<AgentDrawer>
                   key: const Key('agent-attach-file-btn'),
                   tooltip: 'Attach CSV / XLSX / GeoJSON / GPX / KML / Text',
                   visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
                   onPressed: widget.busy ? null : widget.onPickAttachment,
                   icon: const Icon(Icons.attach_file, size: 18),
                 ),
@@ -1527,7 +1889,11 @@ class _AgentDrawerState extends State<AgentDrawer>
                           color: Colors.white,
                         ),
                       )
-                    : const Text('Run'),
+                    : const Text(
+                        'Run',
+                        maxLines: 1,
+                        softWrap: false,
+                      ),
               ),
             ],
           ),
@@ -1561,7 +1927,8 @@ class _AgentDrawerState extends State<AgentDrawer>
             ),
             const SizedBox(width: 8),
             FilledButton.icon(
-              onPressed: _fetchingSource ? null : () => unawaited(_fetchSourceUrl()),
+              onPressed:
+                  _fetchingSource ? null : () => unawaited(_fetchSourceUrl()),
               icon: _fetchingSource
                   ? const SizedBox(
                       width: 14,
@@ -1572,7 +1939,7 @@ class _AgentDrawerState extends State<AgentDrawer>
                       ),
                     )
                   : const Icon(Icons.travel_explore, size: 15),
-              label: const Text('Fetch'),
+              label: const Text('Fetch', maxLines: 1, softWrap: false),
             ),
           ],
         ),
@@ -1626,32 +1993,36 @@ class _AgentDrawerState extends State<AgentDrawer>
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    if ((src.directGeojson != null ||
+                if (((src.directGeojson != null ||
                             src.coordinates.isNotEmpty) &&
-                        widget.onExtractSourceToMap != null)
-                      FilledButton.icon(
-                        onPressed: () => widget.onExtractSourceToMap!(src),
-                        icon: const Icon(Icons.add_location_alt_outlined,
-                            size: 15),
-                        label: Text(
-                          src.directGeojson != null
+                        widget.onExtractSourceToMap != null) ||
+                    widget.onCiteSourceInStory != null) ...[
+                  const SizedBox(height: 10),
+                  EarthlyActionBar(
+                    stacked: false,
+                    items: [
+                      if ((src.directGeojson != null ||
+                              src.coordinates.isNotEmpty) &&
+                          widget.onExtractSourceToMap != null)
+                        EarthlyActionBarItem(
+                          icon: Icons.add_location_alt_outlined,
+                          label: src.directGeojson != null
                               ? 'Extract ${src.directFeatureCount} ${src.directFormat?.toUpperCase() ?? "Geo"} Features'
                               : 'Extract ${src.coordinates.length} Coord${src.coordinates.length == 1 ? '' : 's'} to Map',
+                          emphasized: true,
+                          flex: 3,
+                          onTap: () => widget.onExtractSourceToMap!(src),
                         ),
-                      ),
-                    if (widget.onCiteSourceInStory != null)
-                      OutlinedButton.icon(
-                        onPressed: () => widget.onCiteSourceInStory!(src),
-                        icon: const Icon(Icons.auto_stories_outlined, size: 15),
-                        label: const Text('Cite in Story'),
-                      ),
-                  ],
-                ),
+                      if (widget.onCiteSourceInStory != null)
+                        EarthlyActionBarItem(
+                          icon: Icons.auto_stories_outlined,
+                          label: 'Cite in Story',
+                          flex: 2,
+                          onTap: () => widget.onCiteSourceInStory!(src),
+                        ),
+                    ],
+                  ),
+                ],
                 if (src.coordinates.isNotEmpty) ...[
                   const Divider(height: 18),
                   Text(
@@ -1662,21 +2033,16 @@ class _AgentDrawerState extends State<AgentDrawer>
                     ),
                   ),
                   const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
+                  EarthlyActionGrid(
+                    columns: 2,
+                    stacked: false,
+                    items: [
                       for (var i = 0; i < src.coordinates.length && i < 12; i++)
-                        ActionChip(
-                          avatar: const Icon(Icons.place, size: 14),
-                          label: Text(
-                            '${src.coordinates[i].lat.toStringAsFixed(4)}, ${src.coordinates[i].lon.toStringAsFixed(4)}',
-                            style: const TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 10.5,
-                            ),
-                          ),
-                          onPressed: widget.onFocusCoord == null
+                        EarthlyActionBarItem(
+                          icon: Icons.place,
+                          label:
+                              '${src.coordinates[i].lat.toStringAsFixed(4)}, ${src.coordinates[i].lon.toStringAsFixed(4)}',
+                          onTap: widget.onFocusCoord == null
                               ? null
                               : () => widget.onFocusCoord!(
                                     src.coordinates[i].lat,
@@ -1715,7 +2081,11 @@ class _AgentDrawerState extends State<AgentDrawer>
                         onPressed: _fetchingSource
                             ? null
                             : () => unawaited(_fetchSourceUrl(link)),
-                        child: const Text('Load'),
+                        child: const Text(
+                          'Load',
+                          maxLines: 1,
+                          softWrap: false,
+                        ),
                       ),
                     ),
                 ],
