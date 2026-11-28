@@ -299,17 +299,27 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
             ),
           ),
           const SizedBox(height: 6),
-          Wrap(
-            spacing: 6,
-            children: [
-              for (final mode in const ['open', 'schema', 'closed'])
-                ChoiceChip(
-                  key: Key('atlas-gov-$mode'),
-                  label: Text(mode),
-                  selected: _governance == mode,
-                  onSelected: (_) => setState(() => _governance = mode),
-                ),
+          EarthlySegmentBar<String>.single(
+            key: const Key('atlas-gov-bar'),
+            value: _governance,
+            options: const [
+              EarthlySegmentOption(
+                key: Key('atlas-gov-open'),
+                value: 'open',
+                label: 'Open',
+              ),
+              EarthlySegmentOption(
+                key: Key('atlas-gov-schema'),
+                value: 'schema',
+                label: 'Schema',
+              ),
+              EarthlySegmentOption(
+                key: Key('atlas-gov-closed'),
+                value: 'closed',
+                label: 'Closed',
+              ),
             ],
+            onChanged: (mode) => setState(() => _governance = mode),
           ),
           if (_governance == 'schema') ...[
             const SizedBox(height: 10),
@@ -336,26 +346,34 @@ class _AtlasComposerSheetState extends State<AtlasComposerSheet> {
                     style: TextStyle(fontSize: 11),
                   ),
                   const SizedBox(height: 4),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      for (final g in const ['Point', 'LineString', 'Polygon'])
-                        FilterChip(
-                          key: Key('schema-geom-$g'),
-                          label: Text(g),
-                          selected: _allowedGeometries.contains(g),
-                          onSelected: (sel) {
-                            setState(() {
-                              if (sel) {
-                                _allowedGeometries.add(g);
-                              } else {
-                                _allowedGeometries.remove(g);
-                              }
-                            });
-                          },
-                        ),
+                  EarthlySegmentBar<String>(
+                    key: const Key('schema-geom-bar'),
+                    compact: true,
+                    selectedValues: _allowedGeometries,
+                    options: const [
+                      EarthlySegmentOption(
+                        key: Key('schema-geom-Point'),
+                        value: 'Point',
+                        label: 'Point',
+                      ),
+                      EarthlySegmentOption(
+                        key: Key('schema-geom-LineString'),
+                        value: 'LineString',
+                        label: 'LineString',
+                      ),
+                      EarthlySegmentOption(
+                        key: Key('schema-geom-Polygon'),
+                        value: 'Polygon',
+                        label: 'Polygon',
+                      ),
                     ],
+                    onSelected: (g) {
+                      setState(() {
+                        if (!_allowedGeometries.add(g)) {
+                          _allowedGeometries.remove(g);
+                        }
+                      });
+                    },
                   ),
                   const SizedBox(height: 8),
                   for (var i = 0; i < _schemaRows.length; i++)

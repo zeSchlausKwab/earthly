@@ -218,23 +218,30 @@ class _RoutingSheetState extends State<RoutingSheet>
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
-            child: Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final p in const [
-                  ('pedestrian', 'Walk', Icons.directions_walk),
-                  ('bicycle', 'Bike', Icons.directions_bike),
-                  ('auto', 'Drive', Icons.directions_car),
-                ])
-                  ChoiceChip(
-                    key: Key('routing-profile-${p.$1}'),
-                    avatar: Icon(p.$3, size: 15),
-                    label: Text(p.$2),
-                    selected: _profile == p.$1,
-                    onSelected: (_) => setState(() => _profile = p.$1),
-                  ),
+            child: EarthlySegmentBar<String>.single(
+              key: const Key('routing-profile-bar'),
+              value: _profile,
+              options: const [
+                EarthlySegmentOption(
+                  key: Key('routing-profile-pedestrian'),
+                  value: 'pedestrian',
+                  label: 'Walk',
+                  icon: Icons.directions_walk,
+                ),
+                EarthlySegmentOption(
+                  key: Key('routing-profile-bicycle'),
+                  value: 'bicycle',
+                  label: 'Bike',
+                  icon: Icons.directions_bike,
+                ),
+                EarthlySegmentOption(
+                  key: Key('routing-profile-auto'),
+                  value: 'auto',
+                  label: 'Drive',
+                  icon: Icons.directions_car,
+                ),
               ],
+              onChanged: (next) => setState(() => _profile = next),
             ),
           ),
           if (_error != null)
@@ -268,27 +275,27 @@ class _RoutingSheetState extends State<RoutingSheet>
     return ListView(
       padding: const EdgeInsets.fromLTRB(14, 6, 14, 24),
       children: [
-        Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          children: [
-            OutlinedButton.icon(
+        EarthlyActionBar(
+          key: const Key('routing-waypoint-actions-bar'),
+          stacked: false,
+          items: [
+            EarthlyActionBarItem(
               key: const Key('routing-add-center-btn'),
-              onPressed: () => _addWaypointCoord(widget.mapCenter),
-              icon: const Icon(Icons.my_location, size: 14),
-              label: const Text('+ Map Center'),
+              icon: Icons.my_location,
+              label: '+ Map Center',
+              onTap: () => _addWaypointCoord(widget.mapCenter),
             ),
             if (widget.draftWaypoints.isNotEmpty)
-              OutlinedButton.icon(
+              EarthlyActionBarItem(
                 key: const Key('routing-add-draft-btn'),
-                onPressed: () {
+                icon: Icons.place_outlined,
+                label: '+ Draft (${widget.draftWaypoints.length})',
+                onTap: () {
                   for (final wp in widget.draftWaypoints) {
                     _waypoints.add(wp);
                   }
                   setState(() {});
                 },
-                icon: const Icon(Icons.place_outlined, size: 14),
-                label: Text('+ Draft Points (${widget.draftWaypoints.length})'),
               ),
           ],
         ),
@@ -425,26 +432,26 @@ class _RoutingSheetState extends State<RoutingSheet>
           ),
         ),
         const SizedBox(height: 6),
-        Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          children: [
+        EarthlySegmentBar<int>(
+          key: const Key('routing-iso-bands-bar'),
+          compact: true,
+          monospace: true,
+          selectedValues: _isoContours,
+          options: [
             for (final m in const [5, 10, 15, 20, 30])
-              FilterChip(
+              EarthlySegmentOption(
                 key: Key('routing-iso-min-$m'),
-                label: Text('$m min'),
-                selected: _isoContours.contains(m),
-                onSelected: (sel) {
-                  setState(() {
-                    if (sel) {
-                      _isoContours.add(m);
-                    } else if (_isoContours.length > 1) {
-                      _isoContours.remove(m);
-                    }
-                  });
-                },
+                value: m,
+                label: '${m}m',
               ),
           ],
+          onSelected: (m) {
+            setState(() {
+              if (!_isoContours.add(m) && _isoContours.length > 1) {
+                _isoContours.remove(m);
+              }
+            });
+          },
         ),
         const SizedBox(height: 10),
         FilledButton.icon(

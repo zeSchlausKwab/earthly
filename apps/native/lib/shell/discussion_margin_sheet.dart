@@ -709,56 +709,66 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                           children: [
                             Row(
                               children: [
-                                InkWell(
-                                  onTap: widget.onOpenPerson == null
-                                      ? null
-                                      : () => widget.onOpenPerson!(c.pubkey),
-                                  borderRadius: BorderRadius.circular(999),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      CircleAvatar(
-                                        radius: 10,
-                                        backgroundColor: theme
-                                            .colorScheme.primary
-                                            .withValues(alpha: 0.14),
-                                        backgroundImage: (widget
-                                                    .profilesByPubkey[c.pubkey]
-                                                    ?.picture
-                                                    ?.startsWith('http') ??
-                                                false)
-                                            ? NetworkImage(
-                                                widget
-                                                    .profilesByPubkey[
-                                                        c.pubkey]!
-                                                    .picture!,
-                                              )
-                                            : null,
-                                        child: (widget
-                                                    .profilesByPubkey[c.pubkey]
-                                                    ?.picture
-                                                    ?.startsWith('http') ??
-                                                false)
-                                            ? null
-                                            : const Icon(Icons.person,
-                                                size: 12),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        _authorLabel(c.pubkey),
-                                        style: TextStyle(
-                                          fontFamily: 'monospace',
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w700,
-                                          color: widget.onOpenPerson != null
-                                              ? EarthlyColors.infoCyan
+                                Expanded(
+                                  child: InkWell(
+                                    onTap: widget.onOpenPerson == null
+                                        ? null
+                                        : () => widget.onOpenPerson!(c.pubkey),
+                                    borderRadius: BorderRadius.circular(999),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        CircleAvatar(
+                                          radius: 10,
+                                          backgroundColor: theme
+                                              .colorScheme.primary
+                                              .withValues(alpha: 0.14),
+                                          backgroundImage: (widget
+                                                      .profilesByPubkey[
+                                                          c.pubkey]
+                                                      ?.picture
+                                                      ?.startsWith('http') ??
+                                                  false)
+                                              ? NetworkImage(
+                                                  widget
+                                                      .profilesByPubkey[
+                                                          c.pubkey]!
+                                                      .picture!,
+                                                )
                                               : null,
+                                          child: (widget
+                                                      .profilesByPubkey[
+                                                          c.pubkey]
+                                                      ?.picture
+                                                      ?.startsWith('http') ??
+                                                  false)
+                                              ? null
+                                              : const Icon(
+                                                  Icons.person,
+                                                  size: 12,
+                                                ),
                                         ),
-                                      ),
-                                    ],
+                                        const SizedBox(width: 6),
+                                        Flexible(
+                                          child: Text(
+                                            _authorLabel(c.pubkey),
+                                            maxLines: 1,
+                                            softWrap: false,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontFamily: 'monospace',
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w700,
+                                              color: widget.onOpenPerson != null
+                                                  ? EarthlyColors.infoCyan
+                                                  : null,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
-                                const Spacer(),
                                 TextButton.icon(
                                   key: Key('reply-btn-${c.eventId}'),
                                   style: TextButton.styleFrom(
@@ -773,6 +783,8 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                                   icon: const Icon(Icons.reply, size: 13),
                                   label: const Text(
                                     'Reply',
+                                    maxLines: 1,
+                                    softWrap: false,
                                     style: TextStyle(fontSize: 11),
                                   ),
                                 ),
@@ -794,31 +806,45 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                                           theme.colorScheme.onSurfaceVariant,
                                     ),
                                   ),
-                                if (hasGeo)
-                                  OutlinedButton.icon(
-                                    onPressed: () {
-                                      setState(() {
-                                        _activeCommentId =
-                                            showing ? null : c.eventId;
-                                      });
-                                      widget.onToggleCommentOverlay(c);
-                                    },
-                                    icon: Icon(
-                                      showing
-                                          ? Icons.visibility
-                                          : Icons.map_outlined,
-                                      size: 14,
-                                      color: EarthlyColors.commentGreen,
-                                    ),
-                                    label: Text(
-                                      showing ? 'Showing' : 'Show geometry',
-                                      style: const TextStyle(fontSize: 11),
-                                    ),
-                                  ),
                               ],
                             ),
                             const SizedBox(height: 4),
                             EarthlyRichText(text: c.text, compact: true),
+                            if (hasGeo) ...[
+                              const SizedBox(height: 6),
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 6,
+                                    ),
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _activeCommentId =
+                                          showing ? null : c.eventId;
+                                    });
+                                    widget.onToggleCommentOverlay(c);
+                                  },
+                                  icon: Icon(
+                                    showing
+                                        ? Icons.visibility
+                                        : Icons.map_outlined,
+                                    size: 14,
+                                    color: EarthlyColors.commentGreen,
+                                  ),
+                                  label: Text(
+                                    showing ? 'Showing' : 'Show geometry',
+                                    maxLines: 1,
+                                    softWrap: false,
+                                    style: const TextStyle(fontSize: 11),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ],
                         );
 
@@ -924,6 +950,9 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                     key: const Key('discussion-insert-map-ref-btn'),
                     tooltip: 'Mention Map/Atlas (\$)',
                     visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints(minWidth: 32, minHeight: 32),
                     onPressed: () async {
                       final token = await showEarthlyMentionPickerDialog(
                         context,
@@ -947,6 +976,9 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                     key: const Key('discussion-insert-person-ref-btn'),
                     tooltip: 'Mention Author (@)',
                     visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints(minWidth: 32, minHeight: 32),
                     onPressed: () async {
                       final token = await showEarthlyMentionPickerDialog(
                         context,
@@ -971,6 +1003,9 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                       key: const Key('comment-upload-photo-btn'),
                       tooltip: 'Upload photo via Blossom',
                       visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints(minWidth: 32, minHeight: 32),
                       onPressed: _uploadingPhoto ? null : _uploadCommentPhoto,
                       icon: _uploadingPhoto
                           ? const SizedBox(
@@ -1050,19 +1085,21 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 6,
-                                crossAxisAlignment: WrapCrossAlignment.center,
+                              Row(
                                 children: [
                                   Container(
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 6,
                                       vertical: 2,
                                     ),
-                                    color: badgeColor.withValues(alpha: 0.16),
+                                    decoration: BoxDecoration(
+                                      color: badgeColor.withValues(alpha: 0.16),
+                                      borderRadius: BorderRadius.circular(5),
+                                    ),
                                     child: Text(
                                       p.status.toUpperCase(),
+                                      maxLines: 1,
+                                      softWrap: false,
                                       style: TextStyle(
                                         fontFamily: 'monospace',
                                         fontSize: 10,
@@ -1071,20 +1108,37 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                                       ),
                                     ),
                                   ),
-                                  Text(
-                                    p.isStoryProposal
-                                        ? '+${p.addedCount}  -${p.removedCount} lines'
-                                        : '+${p.addedCount}  ~${p.modifiedCount}  -${p.removedCount}',
-                                    style: const TextStyle(
-                                      fontFamily: 'monospace',
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      p.isStoryProposal
+                                          ? '+${p.addedCount}  -${p.removedCount} lines'
+                                          : '+${p.addedCount}  ~${p.modifiedCount}  -${p.removedCount}',
+                                      maxLines: 1,
+                                      softWrap: false,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontFamily: 'monospace',
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                     ),
                                   ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              EarthlyActionBar(
+                                stacked: false,
+                                items: [
                                   if (p.isStoryProposal)
-                                    OutlinedButton(
+                                    EarthlyActionBarItem(
                                       key: Key('story-diff-btn-${p.eventId}'),
-                                      onPressed: () {
+                                      icon: Icons.difference_outlined,
+                                      label: showingDiff
+                                          ? 'Hide diff'
+                                          : 'View diff',
+                                      active: showingDiff,
+                                      onTap: () {
                                         setState(() {
                                           if (!_expandedStoryDiffIds
                                               .add(p.eventId)) {
@@ -1093,15 +1147,20 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                                           }
                                         });
                                       },
-                                      child: Text(
-                                        showingDiff ? 'Hide diff' : 'View diff',
-                                      ),
                                     )
                                   else ...[
-                                    OutlinedButton(
+                                    EarthlyActionBarItem(
                                       key: Key(
-                                          'proposal-feature-diff-btn-${p.eventId}'),
-                                      onPressed: () {
+                                        'proposal-feature-diff-btn-${p.eventId}',
+                                      ),
+                                      icon: Icons.difference_outlined,
+                                      label: _expandedMapDiffIds
+                                              .contains(p.eventId)
+                                          ? 'Hide diff'
+                                          : 'Diff',
+                                      active: _expandedMapDiffIds
+                                          .contains(p.eventId),
+                                      onTap: () {
                                         setState(() {
                                           if (!_expandedMapDiffIds
                                               .add(p.eventId)) {
@@ -1110,23 +1169,21 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                                           }
                                         });
                                       },
-                                      child: Text(
-                                        _expandedMapDiffIds.contains(p.eventId)
-                                            ? 'Hide diff'
-                                            : 'Diff',
-                                      ),
                                     ),
-                                    OutlinedButton(
-                                      onPressed: () {
+                                    EarthlyActionBarItem(
+                                      icon: showing
+                                          ? Icons.visibility
+                                          : Icons.map_outlined,
+                                      label:
+                                          showing ? 'Hide preview' : 'Preview',
+                                      active: showing,
+                                      onTap: () {
                                         setState(() {
                                           _activeProposalId =
                                               showing ? null : p.eventId;
                                         });
                                         widget.onToggleProposalOverlay(p);
                                       },
-                                      child: Text(
-                                        showing ? 'Hide preview' : 'Preview',
-                                      ),
                                     ),
                                   ],
                                 ],
@@ -1234,71 +1291,96 @@ class _DiscussionMarginSheetState extends State<DiscussionMarginSheet>
                                   ),
                                 ),
                               ],
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 6,
-                                children: [
-                                  if (!p.isStoryProposal)
-                                    OutlinedButton.icon(
-                                      onPressed: () =>
-                                          widget.onLoadProposalToDraft(p),
-                                      icon: const Icon(
-                                        Icons.copy_all_outlined,
-                                        size: 14,
-                                      ),
-                                      label: const Text(
-                                        'Load to Draft',
-                                        style: TextStyle(fontSize: 11),
-                                      ),
-                                    ),
-                                  if (p.status == 'open' && isOwner) ...[
-                                    FilledButton.icon(
-                                      onPressed: _submitting
-                                          ? null
-                                          : () => _handleProposalStatus(
-                                                p,
-                                                apply: true,
-                                              ),
-                                      icon: const Icon(Icons.check, size: 14),
-                                      label: Text(
-                                        p.isStoryProposal
+                              if (!p.isStoryProposal ||
+                                  (p.status == 'open' && isOwner)) ...[
+                                const SizedBox(height: 8),
+                                EarthlyActionBar(
+                                  stacked: false,
+                                  items: [
+                                    if (p.status == 'open' && isOwner) ...[
+                                      EarthlyActionBarItem(
+                                        icon: Icons.check,
+                                        label: p.isStoryProposal
                                             ? 'Accept & Update Story'
                                             : 'Accept & Apply',
-                                        style: const TextStyle(fontSize: 11),
-                                      ),
-                                    ),
-                                    if (widget.onRequestChangesProposal != null)
-                                      OutlinedButton(
-                                        key: Key(
-                                          'proposal-request-changes-btn-${p.eventId}',
-                                        ),
-                                        onPressed: _submitting
+                                        emphasized: true,
+                                        flex: 2,
+                                        onTap: _submitting
                                             ? null
-                                            : () => _handleRequestChanges(p),
-                                        child: const Text(
-                                          'Request Changes',
-                                          style: TextStyle(fontSize: 11),
-                                        ),
+                                            : () => _handleProposalStatus(
+                                                  p,
+                                                  apply: true,
+                                                ),
                                       ),
-                                    OutlinedButton(
-                                      onPressed: _submitting
-                                          ? null
-                                          : () => _handleProposalStatus(
-                                                p,
-                                                apply: false,
-                                              ),
-                                      child: const Text(
-                                        'Close',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: EarthlyColors.destructive,
+                                      if (widget.onRequestChangesProposal !=
+                                          null)
+                                        EarthlyActionBarItem(
+                                          key: Key(
+                                            'proposal-request-changes-btn-${p.eventId}',
+                                          ),
+                                          icon: Icons.rate_review_outlined,
+                                          label: 'Request Changes',
+                                          flex: 2,
+                                          onTap: _submitting
+                                              ? null
+                                              : () => _handleRequestChanges(p),
+                                        )
+                                      else if (!p.isStoryProposal)
+                                        EarthlyActionBarItem(
+                                          icon: Icons.copy_all_outlined,
+                                          label: 'Load to Draft',
+                                          onTap: () =>
+                                              widget.onLoadProposalToDraft(p),
+                                        )
+                                      else
+                                        EarthlyActionBarItem(
+                                          icon: Icons.close,
+                                          label: 'Close',
+                                          destructive: true,
+                                          onTap: _submitting
+                                              ? null
+                                              : () => _handleProposalStatus(
+                                                    p,
+                                                    apply: false,
+                                                  ),
                                         ),
+                                    ] else if (!p.isStoryProposal)
+                                      EarthlyActionBarItem(
+                                        icon: Icons.copy_all_outlined,
+                                        label: 'Load to Draft',
+                                        onTap: () =>
+                                            widget.onLoadProposalToDraft(p),
                                       ),
-                                    ),
                                   ],
-                                ],
-                              ),
+                                  overflowActions: [
+                                    if (p.status == 'open' &&
+                                        isOwner &&
+                                        !p.isStoryProposal &&
+                                        widget.onRequestChangesProposal != null)
+                                      EarthlyOverflowAction(
+                                        label: 'Load to Draft',
+                                        icon: Icons.copy_all_outlined,
+                                        onSelected: () =>
+                                            widget.onLoadProposalToDraft(p),
+                                      ),
+                                    if (p.status == 'open' &&
+                                        isOwner &&
+                                        (!p.isStoryProposal ||
+                                            widget.onRequestChangesProposal !=
+                                                null))
+                                      EarthlyOverflowAction(
+                                        label: 'Close Proposal',
+                                        icon: Icons.close,
+                                        destructive: true,
+                                        enabled: !_submitting,
+                                        onSelected: () => _handleProposalStatus(
+                                          p,
+                                          apply: false,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ],
                             ],
                           ),
                         );

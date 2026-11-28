@@ -226,17 +226,20 @@ class _McpBridgeSheetState extends State<McpBridgeSheet> {
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 8,
-                runSpacing: 4,
+              child: Row(
                 children: [
-                  Text(
-                    'Local MCP Bridge',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
+                  Flexible(
+                    child: Text(
+                      'Local MCP Bridge',
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
+                  const SizedBox(width: 8),
                   EarthlyBadge(
                     label: state.running ? 'RUNNING' : 'STOPPED',
                     color: state.running
@@ -481,11 +484,15 @@ class _McpBridgeSheetState extends State<McpBridgeSheet> {
         children: [
           Row(
             children: [
-              Text(
-                'RECENT TOOL CALLS',
-                style: theme.textTheme.labelLarge?.copyWith(
-                  fontFamily: 'monospace',
-                  letterSpacing: 0.7,
+              Flexible(
+                child: Text(
+                  'RECENT TOOL CALLS',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontFamily: 'monospace',
+                    letterSpacing: 0.7,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),

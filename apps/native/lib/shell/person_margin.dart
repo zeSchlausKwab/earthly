@@ -34,6 +34,7 @@ class PersonMarginSheet extends StatefulWidget {
     required this.onInspectAtlas,
     required this.onEnterAtlasLens,
     required this.onClose,
+    this.onBack,
     this.initialPortfolio,
     this.onProfileResolved,
     this.isMuted = false,
@@ -55,6 +56,7 @@ class PersonMarginSheet extends StatefulWidget {
   final ValueChanged<StorySummaryDto> onOpenStory;
   final ValueChanged<AtlasSummaryDto> onInspectAtlas;
   final ValueChanged<AtlasSummaryDto> onEnterAtlasLens;
+  final VoidCallback? onBack;
   final VoidCallback onClose;
   final AuthorPortfolioDto? initialPortfolio;
   final ValueChanged<ProfileMetadataDto>? onProfileResolved;
@@ -178,9 +180,18 @@ class _PersonMarginSheetState extends State<PersonMarginSheet>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 8, 8),
+            padding: EdgeInsets.fromLTRB(
+              widget.onBack != null ? 6 : 14,
+              0,
+              6,
+              8,
+            ),
             child: Row(
               children: [
+                if (widget.onBack != null) ...[
+                  EarthlyDrawerBackButton(onBack: widget.onBack!),
+                  const SizedBox(width: 4),
+                ],
                 _PersonAvatar(
                   pictureUrl: profile?.picture,
                   name: displayName,
@@ -196,6 +207,7 @@ class _PersonMarginSheetState extends State<PersonMarginSheet>
                             child: Text(
                               displayName,
                               maxLines: 1,
+                              softWrap: false,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.w800,
@@ -222,6 +234,7 @@ class _PersonMarginSheetState extends State<PersonMarginSheet>
                         Text(
                           profile.nip05!,
                           maxLines: 1,
+                          softWrap: false,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontFamily: 'monospace',
@@ -232,6 +245,9 @@ class _PersonMarginSheetState extends State<PersonMarginSheet>
                       ] else
                         Text(
                           _shortPubkey(npub),
+                          maxLines: 1,
+                          softWrap: false,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontFamily: 'monospace',
                             fontSize: 10.5,
@@ -241,33 +257,12 @@ class _PersonMarginSheetState extends State<PersonMarginSheet>
                     ],
                   ),
                 ),
-                if (!widget.isCurrentUser && widget.onToggleMute != null)
-                  IconButton(
-                    tooltip: widget.isMuted ? 'Unmute author' : 'Mute author',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: widget.onToggleMute,
-                    icon: Icon(
-                      widget.isMuted
-                          ? Icons.volume_up_outlined
-                          : Icons.volume_off_outlined,
-                      size: 18,
-                      color: widget.isMuted ? EarthlyColors.destructive : null,
-                    ),
-                  ),
-                IconButton(
-                  tooltip: 'Copy npub',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () {
-                    Clipboard.setData(ClipboardData(text: npub));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Copied author npub')),
-                    );
-                  },
-                  icon: const Icon(Icons.copy, size: 17),
-                ),
                 IconButton(
                   tooltip: 'Refresh author portfolio',
                   visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints(minWidth: 32, minHeight: 32),
                   onPressed: _loading ? null : _loadPortfolio,
                   icon: _loading
                       ? const SizedBox(
@@ -277,8 +272,68 @@ class _PersonMarginSheetState extends State<PersonMarginSheet>
                         )
                       : const Icon(Icons.refresh, size: 18),
                 ),
+                PopupMenuButton<String>(
+                  key: const Key('person-header-more-btn'),
+                  tooltip: 'More author actions',
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints(minWidth: 32, minHeight: 32),
+                  icon: const Icon(Icons.more_horiz, size: 18),
+                  onSelected: (action) {
+                    switch (action) {
+                      case 'copy':
+                        Clipboard.setData(ClipboardData(text: npub));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Copied author npub')),
+                        );
+                      case 'mute':
+                        widget.onToggleMute?.call();
+                    }
+                  },
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(
+                      value: 'copy',
+                      child: Row(
+                        children: [
+                          Icon(Icons.copy, size: 17),
+                          SizedBox(width: 10),
+                          Text('Copy npub'),
+                        ],
+                      ),
+                    ),
+                    if (!widget.isCurrentUser && widget.onToggleMute != null)
+                      PopupMenuItem(
+                        value: 'mute',
+                        child: Row(
+                          children: [
+                            Icon(
+                              widget.isMuted
+                                  ? Icons.volume_up_outlined
+                                  : Icons.volume_off_outlined,
+                              size: 17,
+                              color: widget.isMuted
+                                  ? null
+                                  : EarthlyColors.destructive,
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              widget.isMuted ? 'Unmute author' : 'Mute author',
+                              style: TextStyle(
+                                color: widget.isMuted
+                                    ? null
+                                    : EarthlyColors.destructive,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
                 IconButton(
                   visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints(minWidth: 32, minHeight: 32),
                   onPressed: widget.onClose,
                   icon: const Icon(Icons.close, size: 18),
                 ),
@@ -303,13 +358,15 @@ class _PersonMarginSheetState extends State<PersonMarginSheet>
                   (profile.lud16?.isNotEmpty ?? false)))
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 4,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   if (profile.website != null && profile.website!.isNotEmpty)
                     Text(
                       profile.website!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontFamily: 'monospace',
                         fontSize: 10.5,
@@ -319,6 +376,8 @@ class _PersonMarginSheetState extends State<PersonMarginSheet>
                   if (profile.lud16 != null && profile.lud16!.isNotEmpty)
                     Text(
                       '⚡ ${profile.lud16!}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontFamily: 'monospace',
                         fontSize: 10.5,

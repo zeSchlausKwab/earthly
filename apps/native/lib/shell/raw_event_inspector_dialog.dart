@@ -36,6 +36,7 @@ Future<void> showRawEventInspectorDialog(
   return showDialog<void>(
     context: context,
     builder: (ctx) => AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       title: Text(
         'RAW EVENT INSPECTOR (KIND $kind)',
         style: const TextStyle(

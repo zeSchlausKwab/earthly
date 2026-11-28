@@ -36,6 +36,7 @@ class DatasetDetailMargin extends StatefulWidget {
     required this.onOpenDiscussion,
     required this.onDeleteMap,
     required this.onClose,
+    this.onBack,
     this.onOpenPerson,
     this.currentUserPubkey,
     this.initialSocialCounts,
@@ -64,6 +65,7 @@ class DatasetDetailMargin extends StatefulWidget {
       onToggleReaction;
   final VoidCallback? onZap;
   final bool resolvingBlobs;
+  final VoidCallback? onBack;
   final VoidCallback onClose;
 
   @override
@@ -215,15 +217,20 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
       accentTopBorder: true,
       onClose: widget.onClose,
       header: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 0, 8, 6),
+        padding: EdgeInsets.fromLTRB(widget.onBack != null ? 6 : 14, 0, 6, 6),
         child: Row(
           children: [
+            if (widget.onBack != null) ...[
+              EarthlyDrawerBackButton(onBack: widget.onBack!),
+              const SizedBox(width: 2),
+            ],
             const EarthlyBadge(label: 'MAP', color: EarthlyColors.infoCyan),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 map.title,
                 maxLines: 1,
+                softWrap: false,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.w800,
@@ -233,56 +240,91 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
             IconButton(
               tooltip: 'Comments & Proposals',
               visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
               onPressed: widget.onOpenDiscussion,
               icon: const Icon(Icons.forum_outlined, size: 18),
             ),
-            IconButton(
-              tooltip: 'Copy nostr:naddr1… link',
-              visualDensity: VisualDensity.compact,
-              onPressed: _copyLink,
-              icon: const Icon(Icons.link, size: 18),
-            ),
-            IconButton(
-              tooltip: 'Inspect raw JSON (37515)',
-              key: const Key('dataset-raw-inspect-btn'),
-              visualDensity: VisualDensity.compact,
-              onPressed: () => unawaited(
-                showRawEventInspectorDialog(
-                  context,
-                  kind: 37515,
-                  title: map.title,
-                  eventId: map.eventId,
-                  pubkey: map.pubkey,
-                  address: map.address,
-                  dTag: map.dTag,
-                  payloadLabel: 'GeoJSON Content',
-                  payloadContent: map.geojson,
-                  extraFields: {
-                    'featureCount': '${map.featureCount}',
-                    'sizeBytes': '${map.sizeBytes}',
-                  },
+            PopupMenuButton<String>(
+              key: const Key('dataset-header-more-btn'),
+              tooltip: 'More map actions',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              icon: const Icon(Icons.more_horiz, size: 18),
+              onSelected: (action) {
+                switch (action) {
+                  case 'copy':
+                    unawaited(_copyLink());
+                  case 'share':
+                    unawaited(
+                      shareEarthlyEntity(
+                        context: context,
+                        kind: 37515,
+                        pubkeyHex: map.pubkey,
+                        dTag: map.dTag,
+                        relayUrls: widget.relayUrls,
+                        title: map.title,
+                      ),
+                    );
+                  case 'raw':
+                    unawaited(
+                      showRawEventInspectorDialog(
+                        context,
+                        kind: 37515,
+                        title: map.title,
+                        eventId: map.eventId,
+                        pubkey: map.pubkey,
+                        address: map.address,
+                        dTag: map.dTag,
+                        payloadLabel: 'GeoJSON Content',
+                        payloadContent: map.geojson,
+                        extraFields: {
+                          'featureCount': '${map.featureCount}',
+                          'sizeBytes': '${map.sizeBytes}',
+                        },
+                      ),
+                    );
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'copy',
+                  child: Row(
+                    children: [
+                      Icon(Icons.link, size: 17),
+                      SizedBox(width: 10),
+                      Text('Copy nostr:naddr1… link'),
+                    ],
+                  ),
                 ),
-              ),
-              icon: const Icon(Icons.data_object, size: 18),
-            ),
-            IconButton(
-              tooltip: 'Share earthly.city URL',
-              visualDensity: VisualDensity.compact,
-              onPressed: () => unawaited(
-                shareEarthlyEntity(
-                  context: context,
-                  kind: 37515,
-                  pubkeyHex: map.pubkey,
-                  dTag: map.dTag,
-                  relayUrls: widget.relayUrls,
-                  title: map.title,
+                PopupMenuItem(
+                  value: 'share',
+                  child: Row(
+                    children: [
+                      Icon(Icons.ios_share, size: 17),
+                      SizedBox(width: 10),
+                      Text('Share earthly.city URL'),
+                    ],
+                  ),
                 ),
-              ),
-              icon: const Icon(Icons.ios_share, size: 18),
+                PopupMenuItem(
+                  key: Key('dataset-raw-inspect-btn'),
+                  value: 'raw',
+                  child: Row(
+                    children: [
+                      Icon(Icons.data_object, size: 17),
+                      SizedBox(width: 10),
+                      Text('Inspect raw JSON (37515)'),
+                    ],
+                  ),
+                ),
+              ],
             ),
             if (isDesktop)
               IconButton(
                 visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                 onPressed: widget.onClose,
                 icon: const Icon(Icons.close, size: 18),
               ),
@@ -311,10 +353,7 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
                       style: theme.textTheme.titleMedium,
                     ),
                     const SizedBox(height: 3),
-                    Wrap(
-                      spacing: 4,
-                      runSpacing: 2,
-                      crossAxisAlignment: WrapCrossAlignment.center,
+                    Row(
                       children: [
                         InkWell(
                           onTap: widget.onOpenPerson == null
@@ -322,6 +361,9 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
                               : () => widget.onOpenPerson!(map.pubkey),
                           child: Text(
                             _authorLabel,
+                            maxLines: 1,
+                            softWrap: false,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontFamily: 'monospace',
                               fontSize: 10.5,
@@ -335,12 +377,17 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
                             ),
                           ),
                         ),
-                        Text(
-                          '· ${formatRelativeUnixDate(map.createdAt.toInt())} · ${map.featureCount} features${map.sizeBytes > 0 ? ' · ${formatByteSize(map.sizeBytes)}' : ''}',
-                          style: TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 10.5,
-                            color: theme.colorScheme.onSurfaceVariant,
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            '· ${formatRelativeUnixDate(map.createdAt.toInt())} · ${map.featureCount} features${map.sizeBytes > 0 ? ' · ${formatByteSize(map.sizeBytes)}' : ''}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 10.5,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
                           ),
                         ),
                       ],
@@ -381,9 +428,13 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
                   child: CircularProgressIndicator(strokeWidth: 1.8),
                 ),
                 SizedBox(width: 8),
-                Text(
-                  'Resolving external Blossom GeoJSON…',
-                  style: TextStyle(fontFamily: 'monospace', fontSize: 11),
+                Expanded(
+                  child: Text(
+                    'Resolving external Blossom GeoJSON…',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontFamily: 'monospace', fontSize: 11),
+                  ),
                 ),
               ],
             ),
@@ -392,16 +443,19 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
               widget.onZap != null ||
               widget.initialSocialCounts != null) ...[
             const SizedBox(height: 10),
-            EntityReactionBar(
-              targetAddress: map.address,
-              targetEventId: map.eventId,
-              targetPubkey: map.pubkey,
-              targetKind: 37515,
-              relayUrls: widget.relayUrls,
-              currentUserPubkey: widget.currentUserPubkey,
-              initialCounts: widget.initialSocialCounts,
-              onToggleReaction: widget.onToggleReaction,
-              onZap: widget.onZap,
+            Align(
+              alignment: Alignment.centerLeft,
+              child: EntityReactionBar(
+                targetAddress: map.address,
+                targetEventId: map.eventId,
+                targetPubkey: map.pubkey,
+                targetKind: 37515,
+                relayUrls: widget.relayUrls,
+                currentUserPubkey: widget.currentUserPubkey,
+                initialCounts: widget.initialSocialCounts,
+                onToggleReaction: widget.onToggleReaction,
+                onZap: widget.onZap,
+              ),
             ),
           ],
           if (map.description != null && map.description!.trim().isNotEmpty) ...[
@@ -409,50 +463,47 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
             EarthlyRichText(text: map.description!.trim()),
           ],
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton.icon(
-                onPressed: widget.onToggleOnShelf,
-                icon: Icon(
-                  widget.onShelf ? Icons.layers_clear_outlined : Icons.layers,
-                  size: 16,
-                ),
-                label: Text(widget.onShelf ? 'Remove from Map' : 'Show on Map'),
+          EarthlyActionBar(
+            key: const Key('dataset-detail-action-bar'),
+            items: [
+              EarthlyActionBarItem(
+                key: const Key('dataset-detail-shelf-btn'),
+                icon:
+                    widget.onShelf ? Icons.layers_clear_outlined : Icons.layers,
+                label: widget.onShelf ? 'Remove' : 'Show on Map',
+                emphasized: !widget.onShelf,
+                active: widget.onShelf,
+                onTap: widget.onToggleOnShelf,
               ),
-              OutlinedButton.icon(
-                onPressed: widget.onZoomToMap,
-                icon: const Icon(Icons.center_focus_strong, size: 16),
-                label: const Text('Zoom'),
+              EarthlyActionBarItem(
+                key: const Key('dataset-detail-zoom-btn'),
+                icon: Icons.center_focus_strong,
+                label: 'Zoom',
+                onTap: widget.onZoomToMap,
               ),
-              OutlinedButton.icon(
-                onPressed: widget.onEditOrForkMap,
-                icon: Icon(
-                  widget.isOwned ? Icons.edit_outlined : Icons.copy_all_outlined,
-                  size: 16,
-                ),
-                label: Text(widget.isOwned ? 'Edit in Desk' : 'Create Copy'),
+              EarthlyActionBarItem(
+                key: const Key('dataset-detail-edit-btn'),
+                icon: widget.isOwned
+                    ? Icons.edit_outlined
+                    : Icons.copy_all_outlined,
+                label: widget.isOwned ? 'Edit in Desk' : 'Create Copy',
+                onTap: widget.onEditOrForkMap,
               ),
               if (!widget.isOwned && widget.onProposeEdit != null)
-                OutlinedButton.icon(
+                EarthlyActionBarItem(
                   key: const Key('dataset-detail-propose-edit-btn'),
-                  onPressed: widget.onProposeEdit,
-                  icon: const Icon(Icons.compare_arrows, size: 16),
-                  label: const Text('Propose Edit'),
+                  icon: Icons.compare_arrows,
+                  label: 'Propose Edit',
+                  onTap: widget.onProposeEdit,
                 ),
               if (widget.isOwned)
-                OutlinedButton.icon(
-                  onPressed: _deleting ? null : _confirmAndDelete,
-                  icon: const Icon(
-                    Icons.delete_outline,
-                    size: 16,
-                    color: EarthlyColors.destructive,
-                  ),
-                  label: Text(
-                    _deleting ? 'Deleting…' : 'Delete',
-                    style: const TextStyle(color: EarthlyColors.destructive),
-                  ),
+                EarthlyActionBarItem(
+                  key: const Key('dataset-detail-delete-btn'),
+                  icon: Icons.delete_outline,
+                  label: _deleting ? 'Deleting…' : 'Delete',
+                  destructive: true,
+                  loading: _deleting,
+                  onTap: _deleting ? null : _confirmAndDelete,
                 ),
             ],
           ),
@@ -483,31 +534,38 @@ class _DatasetDetailMarginState extends State<DatasetDetailMargin> {
                   : null,
             ),
           ),
-          const SizedBox(height: 8),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (final item in [
-                  (_FeatureKindFilter.all, 'All (${_shapes.length})'),
-                  if (pointCount > 0)
-                    (_FeatureKindFilter.point, 'Points ($pointCount)'),
-                  if (lineCount > 0)
-                    (_FeatureKindFilter.line, 'Lines ($lineCount)'),
-                  if (polyCount > 0)
-                    (_FeatureKindFilter.polygon, 'Areas ($polyCount)'),
-                ])
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: ChoiceChip(
-                      label: Text(item.$2),
-                      selected: _filter == item.$1,
-                      onSelected: (_) => setState(() => _filter = item.$1),
-                    ),
+          if ((pointCount > 0 ? 1 : 0) +
+                  (lineCount > 0 ? 1 : 0) +
+                  (polyCount > 0 ? 1 : 0) >
+              1) ...[
+            const SizedBox(height: 8),
+            EarthlySegmentBar<_FeatureKindFilter>.single(
+              compact: true,
+              value: _filter,
+              options: [
+                EarthlySegmentOption(
+                  value: _FeatureKindFilter.all,
+                  label: 'All (${_shapes.length})',
+                ),
+                if (pointCount > 0)
+                  EarthlySegmentOption(
+                    value: _FeatureKindFilter.point,
+                    label: 'Points ($pointCount)',
+                  ),
+                if (lineCount > 0)
+                  EarthlySegmentOption(
+                    value: _FeatureKindFilter.line,
+                    label: 'Lines ($lineCount)',
+                  ),
+                if (polyCount > 0)
+                  EarthlySegmentOption(
+                    value: _FeatureKindFilter.polygon,
+                    label: 'Areas ($polyCount)',
                   ),
               ],
+              onChanged: (next) => setState(() => _filter = next),
             ),
-          ),
+          ],
           const SizedBox(height: 8),
           if (filtered.isEmpty)
             Padding(

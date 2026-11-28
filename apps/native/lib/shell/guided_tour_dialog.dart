@@ -99,6 +99,7 @@ class _EarthlyGuidedTourDialogState extends State<_EarthlyGuidedTourDialog> {
     final isLast = _index == _tourSteps.length - 1;
 
     return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       title: Row(
         children: [
           Icon(step.icon, size: 20, color: theme.colorScheme.primary),

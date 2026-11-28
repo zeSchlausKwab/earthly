@@ -254,40 +254,40 @@ class _LocationInspectorSheetState extends State<LocationInspectorSheet> {
             ),
           ),
           const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
+          EarthlyActionBar(
+            key: const Key('location-inspector-action-bar'),
+            items: [
               if (widget.onDropPointHere != null)
-                FilledButton.icon(
+                EarthlyActionBarItem(
                   key: const Key('location-drop-point-btn'),
-                  onPressed: () {
+                  icon: Icons.add_location_alt_outlined,
+                  label: 'Drop Point',
+                  emphasized: true,
+                  onTap: () {
                     widget.onDropPointHere!();
                     widget.onClose();
                   },
-                  icon: const Icon(Icons.add_location_alt_outlined, size: 16),
-                  label: const Text('Drop Point'),
                 ),
               if (widget.onCreateSightingHere != null)
-                OutlinedButton.icon(
+                EarthlyActionBarItem(
                   key: const Key('location-sighting-here-btn'),
-                  onPressed: widget.onCreateSightingHere,
-                  icon: const Icon(Icons.visibility_outlined, size: 16),
-                  label: const Text('Sighting Here'),
+                  icon: Icons.visibility_outlined,
+                  label: 'Sighting',
+                  onTap: widget.onCreateSightingHere,
                 ),
               if (widget.onImportOsmHere != null)
-                OutlinedButton.icon(
+                EarthlyActionBarItem(
                   key: const Key('location-import-osm-btn'),
-                  onPressed: widget.onImportOsmHere,
-                  icon: const Icon(Icons.download_for_offline_outlined, size: 16),
-                  label: const Text('Import OSM'),
+                  icon: Icons.download_for_offline_outlined,
+                  label: 'Import OSM',
+                  onTap: widget.onImportOsmHere,
                 ),
               if (widget.onIsochroneHere != null)
-                OutlinedButton.icon(
+                EarthlyActionBarItem(
                   key: const Key('location-isochrone-btn'),
-                  onPressed: widget.onIsochroneHere,
-                  icon: const Icon(Icons.radar, size: 16),
-                  label: const Text('Isochrone Here'),
+                  icon: Icons.radar,
+                  label: 'Isochrone',
+                  onTap: widget.onIsochroneHere,
                 ),
             ],
           ),

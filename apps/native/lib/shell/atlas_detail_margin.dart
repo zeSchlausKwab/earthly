@@ -36,6 +36,7 @@ class AtlasDetailMargin extends StatefulWidget {
     required this.onOpenStory,
     required this.onOpenDiscussion,
     required this.onClose,
+    this.onBack,
     this.isOwned = false,
     this.currentUserPubkey,
     this.mutedPubkeys = const <String>{},
@@ -64,6 +65,7 @@ class AtlasDetailMargin extends StatefulWidget {
   final ValueChanged<MapSummaryDto> onFocusMap;
   final ValueChanged<StorySummaryDto> onOpenStory;
   final VoidCallback onOpenDiscussion;
+  final VoidCallback? onBack;
   final VoidCallback onClose;
   final bool isOwned;
   final String? currentUserPubkey;
@@ -449,9 +451,13 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
       accentTopBorder: true,
       onClose: widget.onClose,
       header: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 0, 8, 6),
+        padding: EdgeInsets.fromLTRB(widget.onBack != null ? 6 : 14, 0, 6, 6),
         child: Row(
           children: [
+            if (widget.onBack != null) ...[
+              EarthlyDrawerBackButton(onBack: widget.onBack!),
+              const SizedBox(width: 2),
+            ],
             const EarthlyBadge(
               label: 'ATLAS',
               color: EarthlyColors.commentGreen,
@@ -461,6 +467,7 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
               child: Text(
                 atlas.name,
                 maxLines: 1,
+                softWrap: false,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.w800,
@@ -470,53 +477,92 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
             IconButton(
               tooltip: 'Atlas Comments',
               visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
               onPressed: widget.onOpenDiscussion,
               icon: const Icon(Icons.forum_outlined, size: 18),
             ),
-            IconButton(
-              tooltip: 'Inspect raw JSON (37518)',
-              key: const Key('atlas-raw-inspect-btn'),
-              visualDensity: VisualDensity.compact,
-              onPressed: () => showRawEventInspectorDialog(
-                context,
-                kind: 37518,
-                title: atlas.name,
-                eventId: atlas.eventId,
-                pubkey: atlas.pubkey,
-                address: atlas.address,
-                dTag: atlas.dTag,
-                payloadLabel: 'Atlas Governance & Schema',
-                payloadContent: atlas.schemaJson ?? atlas.description ?? '{}',
-                extraFields: {
-                  'governance': atlas.governance,
-                  if (atlas.schemaHash != null) 'schemaHash': atlas.schemaHash!,
-                },
-              ),
-              icon: const Icon(Icons.data_object, size: 18),
-            ),
-            IconButton(
-              tooltip: 'Copy Atlas link',
-              visualDensity: VisualDensity.compact,
-              onPressed: _copyLink,
-              icon: const Icon(Icons.link, size: 18),
-            ),
-            IconButton(
-              tooltip: 'Share earthly.city URL',
-              visualDensity: VisualDensity.compact,
-              onPressed: () => unawaited(
-                shareEarthlyEntity(
-                  context: context,
-                  kind: 37518,
-                  pubkeyHex: atlas.pubkey,
-                  dTag: atlas.dTag,
-                  relayUrls: widget.relayUrls,
-                  title: atlas.name,
+            PopupMenuButton<String>(
+              key: const Key('atlas-header-more-btn'),
+              tooltip: 'More atlas actions',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              icon: const Icon(Icons.more_horiz, size: 18),
+              onSelected: (action) {
+                switch (action) {
+                  case 'copy':
+                    unawaited(_copyLink());
+                  case 'share':
+                    unawaited(
+                      shareEarthlyEntity(
+                        context: context,
+                        kind: 37518,
+                        pubkeyHex: atlas.pubkey,
+                        dTag: atlas.dTag,
+                        relayUrls: widget.relayUrls,
+                        title: atlas.name,
+                      ),
+                    );
+                  case 'raw':
+                    unawaited(
+                      showRawEventInspectorDialog(
+                        context,
+                        kind: 37518,
+                        title: atlas.name,
+                        eventId: atlas.eventId,
+                        pubkey: atlas.pubkey,
+                        address: atlas.address,
+                        dTag: atlas.dTag,
+                        payloadLabel: 'Atlas Governance & Schema',
+                        payloadContent:
+                            atlas.schemaJson ?? atlas.description ?? '{}',
+                        extraFields: {
+                          'governance': atlas.governance,
+                          if (atlas.schemaHash != null)
+                            'schemaHash': atlas.schemaHash!,
+                        },
+                      ),
+                    );
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'copy',
+                  child: Row(
+                    children: [
+                      Icon(Icons.link, size: 17),
+                      SizedBox(width: 10),
+                      Text('Copy Atlas link'),
+                    ],
+                  ),
                 ),
-              ),
-              icon: const Icon(Icons.ios_share, size: 18),
+                PopupMenuItem(
+                  value: 'share',
+                  child: Row(
+                    children: [
+                      Icon(Icons.ios_share, size: 17),
+                      SizedBox(width: 10),
+                      Text('Share earthly.city URL'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  key: Key('atlas-raw-inspect-btn'),
+                  value: 'raw',
+                  child: Row(
+                    children: [
+                      Icon(Icons.data_object, size: 17),
+                      SizedBox(width: 10),
+                      Text('Inspect raw JSON (37518)'),
+                    ],
+                  ),
+                ),
+              ],
             ),
             IconButton(
               visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
               onPressed: widget.onClose,
               icon: const Icon(Icons.close, size: 18),
             ),
@@ -584,91 +630,110 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
               widget.onZap != null ||
               widget.initialSocialCounts != null) ...[
             const SizedBox(height: 10),
-            EntityReactionBar(
-              targetAddress: atlas.address,
-              targetEventId: atlas.eventId,
-              targetPubkey: atlas.pubkey,
-              targetKind: 37518,
-              relayUrls: widget.relayUrls,
-              currentUserPubkey: widget.currentUserPubkey,
-              initialCounts: widget.initialSocialCounts,
-              onToggleReaction: widget.onToggleReaction,
-              onZap: widget.onZap,
+            Align(
+              alignment: Alignment.centerLeft,
+              child: EntityReactionBar(
+                targetAddress: atlas.address,
+                targetEventId: atlas.eventId,
+                targetPubkey: atlas.pubkey,
+                targetKind: 37518,
+                relayUrls: widget.relayUrls,
+                currentUserPubkey: widget.currentUserPubkey,
+                initialCounts: widget.initialSocialCounts,
+                onToggleReaction: widget.onToggleReaction,
+                onZap: widget.onZap,
+              ),
             ),
           ],
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton.icon(
-                onPressed: widget.onToggleLens,
-                icon: Icon(
-                  widget.isActiveLens ? Icons.close : Icons.filter_tilt_shift,
-                  size: 16,
+          () {
+            final canLockDown = widget.isOwned &&
+                atlas.governance != 'closed' &&
+                widget.onLockDownAtlas != null;
+            final canEdit = widget.isOwned && widget.onEditAtlas != null;
+            final canDelete = widget.isOwned && widget.onDeleteAtlas != null;
+            final showEditInline = canEdit && !canLockDown;
+
+            Future<void> confirmDeleteAtlas() async {
+              final ok = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: Text('Delete "${atlas.name}"?'),
+                  content: const Text(
+                    'Publishes a NIP-09 deletion request (kind 5) to your configured Nostr relays.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      child: const Text('Cancel'),
+                    ),
+                    FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: EarthlyColors.destructive,
+                      ),
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                      child: const Text('Delete'),
+                    ),
+                  ],
                 ),
-                label: Text(
-                  widget.isActiveLens
+              );
+              if (ok == true) await widget.onDeleteAtlas!();
+            }
+
+            return EarthlyActionBar(
+              key: const Key('atlas-detail-action-bar'),
+              overflowMenuKey: const Key('atlas-detail-overflow-btn'),
+              items: [
+                EarthlyActionBarItem(
+                  key: const Key('atlas-lens-btn'),
+                  icon: widget.isActiveLens
+                      ? Icons.close
+                      : Icons.filter_tilt_shift,
+                  label: widget.isActiveLens
                       ? 'Leave Atlas Lens'
                       : 'Enter Atlas Lens',
+                  emphasized: true,
+                  flex: 2,
+                  onTap: widget.onToggleLens,
                 ),
-              ),
-              OutlinedButton.icon(
-                onPressed: totalVisibleMaps == 0 ? null : widget.onShowAllOnMap,
-                icon: const Icon(Icons.layers, size: 16),
-                label: Text('Show All ($totalVisibleMaps)'),
-              ),
-              if (widget.isOwned && widget.onEditAtlas != null)
-                OutlinedButton.icon(
-                  onPressed: widget.onEditAtlas,
-                  icon: const Icon(Icons.edit_outlined, size: 16),
-                  label: const Text('Edit Atlas'),
+                EarthlyActionBarItem(
+                  key: const Key('atlas-show-all-btn'),
+                  icon: Icons.layers,
+                  label: 'Show All ($totalVisibleMaps)',
+                  onTap: totalVisibleMaps == 0 ? null : widget.onShowAllOnMap,
                 ),
-              if (widget.isOwned &&
-                  atlas.governance != 'closed' &&
-                  widget.onLockDownAtlas != null)
-                OutlinedButton.icon(
-                  key: const Key('atlas-lockdown-btn'),
-                  onPressed: _lockingDown ? null : _handleLockDown,
-                  icon: const Icon(Icons.lock_outline, size: 16),
-                  label: Text(_lockingDown ? 'Locking…' : 'Lock Down'),
-                ),
-              if (widget.isOwned && widget.onDeleteAtlas != null)
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: EarthlyColors.destructive,
-                    side: const BorderSide(color: EarthlyColors.destructive),
+                if (canLockDown)
+                  EarthlyActionBarItem(
+                    key: const Key('atlas-lockdown-btn'),
+                    icon: Icons.lock_outline,
+                    label: _lockingDown ? 'Locking…' : 'Lock Down',
+                    loading: _lockingDown,
+                    onTap: _lockingDown ? null : _handleLockDown,
+                  )
+                else if (showEditInline)
+                  EarthlyActionBarItem(
+                    icon: Icons.edit_outlined,
+                    label: 'Edit Atlas',
+                    onTap: widget.onEditAtlas,
                   ),
-                  onPressed: () async {
-                    final ok = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: Text('Delete "${atlas.name}"?'),
-                        content: const Text(
-                          'Publishes a NIP-09 deletion request (kind 5) to your configured Nostr relays.',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(ctx).pop(false),
-                            child: const Text('Cancel'),
-                          ),
-                          FilledButton(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: EarthlyColors.destructive,
-                            ),
-                            onPressed: () => Navigator.of(ctx).pop(true),
-                            child: const Text('Delete'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (ok == true) await widget.onDeleteAtlas!();
-                  },
-                  icon: const Icon(Icons.delete_outline, size: 16),
-                  label: const Text('Delete'),
-                ),
-            ],
-          ),
+              ],
+              overflowActions: [
+                if (canEdit && !showEditInline)
+                  EarthlyOverflowAction(
+                    label: 'Edit Atlas',
+                    icon: Icons.edit_outlined,
+                    onSelected: widget.onEditAtlas,
+                  ),
+                if (canDelete)
+                  EarthlyOverflowAction(
+                    label: 'Delete Atlas',
+                    icon: Icons.delete_outline,
+                    destructive: true,
+                    onSelected: () => unawaited(confirmDeleteAtlas()),
+                  ),
+              ],
+            );
+          }(),
           if (atlas.description != null &&
               atlas.description!.trim().isNotEmpty) ...[
             const Divider(height: 22),
@@ -745,24 +810,27 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    crossAxisAlignment: WrapCrossAlignment.center,
+                  Row(
                     children: [
                       const Icon(
                         Icons.groups_outlined,
                         size: 14,
                         color: EarthlyColors.infoCyan,
                       ),
-                      Text(
-                        'COMMUNITY CONTRIBUTIONS (${evaluatedMaps.length + storyLanes.community.length})',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          fontFamily: 'monospace',
-                          fontWeight: FontWeight.w800,
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'COMMUNITY CONTRIBUTIONS (${evaluatedMaps.length + storyLanes.community.length})',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            fontFamily: 'monospace',
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
-                      if (hasSchema && atlas.schemaHash != null)
+                      if (hasSchema && atlas.schemaHash != null) ...[
+                        const SizedBox(width: 6),
                         EarthlyBadge(
                           label: _schemaHashVerified
                               ? 'SCHEMA HASH OK'
@@ -771,21 +839,27 @@ class _AtlasDetailMarginState extends State<AtlasDetailMargin> {
                               ? EarthlyColors.commentGreen
                               : EarthlyColors.proposedAmber,
                         ),
-                      if (hasSchema)
-                        for (final mode in AtlasSchemaFilterMode.values)
-                          ChoiceChip(
-                            key: Key('atlas-schema-filter-${mode.name}'),
-                            label: Text(
-                              mode.name[0].toUpperCase() +
-                                  mode.name.substring(1),
-                              style: const TextStyle(fontSize: 10.5),
-                            ),
-                            selected: _schemaFilter == mode,
-                            onSelected: (_) =>
-                                setState(() => _schemaFilter = mode),
-                          ),
+                      ],
                     ],
                   ),
+                  if (hasSchema) ...[
+                    const SizedBox(height: 8),
+                    EarthlySegmentBar<AtlasSchemaFilterMode>.single(
+                      key: const Key('atlas-schema-filter-bar'),
+                      compact: true,
+                      value: _schemaFilter,
+                      options: [
+                        for (final mode in AtlasSchemaFilterMode.values)
+                          EarthlySegmentOption(
+                            key: Key('atlas-schema-filter-${mode.name}'),
+                            value: mode,
+                            label: mode.name[0].toUpperCase() +
+                                mode.name.substring(1),
+                          ),
+                      ],
+                      onChanged: (mode) => setState(() => _schemaFilter = mode),
+                    ),
+                  ],
                   const SizedBox(height: 6),
                   if (hiddenBySchema > 0)
                     Container(

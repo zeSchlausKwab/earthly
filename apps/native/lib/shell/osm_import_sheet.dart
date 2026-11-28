@@ -205,18 +205,21 @@ class _OsmImportSheetState extends State<OsmImportSheet> {
             ),
           ),
           const SizedBox(height: 6),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
+          EarthlySegmentGrid<String>(
+            key: const Key('osm-preset-grid'),
+            columns: 5,
+            compact: true,
+            monospace: true,
+            selectedValues: {_selectedPreset},
+            options: [
               for (final preset in _presets)
-                ChoiceChip(
+                EarthlySegmentOption(
                   key: Key('osm-preset-$preset'),
-                  label: Text(preset),
-                  selected: _selectedPreset == preset,
-                  onSelected: (_) => setState(() => _selectedPreset = preset),
+                  value: preset,
+                  label: preset,
                 ),
             ],
+            onSelected: (preset) => setState(() => _selectedPreset = preset),
           ),
           const SizedBox(height: 10),
           TextField(
