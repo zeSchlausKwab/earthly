@@ -553,6 +553,45 @@ class _SettingsSheetState extends State<SettingsSheet>
     }
   }
 
+  Future<void> _resetDefaultRelays() async {
+    if (_updatingPublicPolicy) return;
+    setState(() {
+      _updatingPublicPolicy = true;
+      _publicRelaysEnabled = true;
+      _relayError = null;
+    });
+    try {
+      if (widget.onSetPublicRelaysEnabled != null) {
+        await widget.onSetPublicRelaysEnabled!(true);
+      } else {
+        try {
+          await RustBridge.ensureInitialized();
+          final dir = await getApplicationSupportDirectory();
+          await setPublicRelaysEnabled(
+            databasePath: '${dir.path}/earthly.sqlite3',
+            enabled: true,
+          );
+        } catch (_) {
+          // Headless widget tests without Rust FFI / path_provider.
+        }
+      }
+      widget.onRelayUrlsChanged(
+        List<String>.from(_defaultProductionRelays),
+      );
+      if (!mounted) return;
+      setState(() {
+        _publicRelaysEnabled = true;
+        _relayStatus = 'Restored default Earthly + public Nostr relays.';
+        _relayError = null;
+      });
+      unawaited(_refreshRelayManagerSnapshot());
+    } catch (err) {
+      if (mounted) setState(() => _relayError = err.toString());
+    } finally {
+      if (mounted) setState(() => _updatingPublicPolicy = false);
+    }
+  }
+
   void _addRelay([String? explicit, bool fromNip66 = false]) {
     final input = (explicit ?? _relayInputController.text).trim();
     if (input.isEmpty) return;
@@ -1046,23 +1085,29 @@ class _SettingsSheetState extends State<SettingsSheet>
           title: 'Appearance',
           subtitle: 'App light/dark theme',
           children: [
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: [
-                for (final entry in const [
-                  (ThemeMode.system, 'System', Icons.brightness_auto_outlined),
-                  (ThemeMode.light, 'Light', Icons.light_mode_outlined),
-                  (ThemeMode.dark, 'Dark', Icons.dark_mode_outlined),
-                ])
-                  ChoiceChip(
-                    key: Key('settings-theme-${entry.$1.name}'),
-                    avatar: Icon(entry.$3, size: 15),
-                    label: Text(entry.$2),
-                    selected: widget.themeMode == entry.$1,
-                    onSelected: (_) => widget.onThemeModeChanged(entry.$1),
-                  ),
+            EarthlySegmentBar<ThemeMode>.single(
+              options: const [
+                EarthlySegmentOption<ThemeMode>(
+                  key: Key('settings-theme-system'),
+                  value: ThemeMode.system,
+                  label: 'System',
+                  icon: Icons.brightness_auto_outlined,
+                ),
+                EarthlySegmentOption<ThemeMode>(
+                  key: Key('settings-theme-light'),
+                  value: ThemeMode.light,
+                  label: 'Light',
+                  icon: Icons.light_mode_outlined,
+                ),
+                EarthlySegmentOption<ThemeMode>(
+                  key: Key('settings-theme-dark'),
+                  value: ThemeMode.dark,
+                  label: 'Dark',
+                  icon: Icons.dark_mode_outlined,
+                ),
               ],
+              value: widget.themeMode,
+              onChanged: widget.onThemeModeChanged,
             ),
           ],
         ),
@@ -1071,10 +1116,9 @@ class _SettingsSheetState extends State<SettingsSheet>
           title: 'Map Source & Style',
           subtitle: 'Vector basemap tiles and EOxCloudless satellite imagery',
           children: [
-            Wrap(
-              spacing: 7,
-              runSpacing: 7,
-              children: [
+            EarthlySegmentGrid<BasemapKind>(
+              columns: 3,
+              options: [
                 for (final kind in const [
                   BasemapKind.auto,
                   BasemapKind.openFreeMapPositron,
@@ -1083,21 +1127,29 @@ class _SettingsSheetState extends State<SettingsSheet>
                   BasemapKind.openFreeMapDark,
                   BasemapKind.openFreeMapFiord,
                 ])
-                  ChoiceChip(
+                  EarthlySegmentOption<BasemapKind>(
                     key: Key('settings-basemap-${kind.name}'),
-                    label: Text(basemapStyleLabel(kind)),
-                    selected: widget.activeBasemap == kind,
-                    onSelected: (_) => widget.onSelectBasemap(kind),
-                  ),
-                if (offline != null)
-                  ChoiceChip(
-                    label: Text('Offline: ${offline.snapshot.label}'),
-                    selected: widget.activeBasemap == BasemapKind.offlinePmtiles,
-                    onSelected: (_) =>
-                        widget.onSelectBasemap(BasemapKind.offlinePmtiles),
+                    value: kind,
+                    label: basemapStyleLabel(kind),
                   ),
               ],
+              selectedValues: {widget.activeBasemap},
+              onSelected: widget.onSelectBasemap,
             ),
+            if (offline != null) ...[
+              const SizedBox(height: 6),
+              EarthlySegmentBar<BasemapKind>.single(
+                options: [
+                  EarthlySegmentOption<BasemapKind>(
+                    value: BasemapKind.offlinePmtiles,
+                    label: 'Offline: ${offline.snapshot.label}',
+                    icon: Icons.offline_pin_outlined,
+                  ),
+                ],
+                value: widget.activeBasemap,
+                onChanged: widget.onSelectBasemap,
+              ),
+            ],
             if (widget.activeBasemap != BasemapKind.offlinePmtiles) ...[
               const SizedBox(height: 12),
               Text(
@@ -1108,22 +1160,26 @@ class _SettingsSheetState extends State<SettingsSheet>
                 ),
               ),
               const SizedBox(height: 6),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  for (final item in const [
-                    (MapBackgroundMode.osm, 'Vector'),
-                    (MapBackgroundMode.combined, 'Combined'),
-                    (MapBackgroundMode.satellite, 'Satellite'),
-                  ])
-                    ChoiceChip(
-                      key: Key('settings-bg-mode-${item.$1.name}'),
-                      label: Text(item.$2),
-                      selected: widget.backgroundMode == item.$1,
-                      onSelected: (_) => widget.onBackgroundModeChanged(item.$1),
-                    ),
+              EarthlySegmentBar<MapBackgroundMode>.single(
+                options: const [
+                  EarthlySegmentOption<MapBackgroundMode>(
+                    key: Key('settings-bg-mode-osm'),
+                    value: MapBackgroundMode.osm,
+                    label: 'Vector',
+                  ),
+                  EarthlySegmentOption<MapBackgroundMode>(
+                    key: Key('settings-bg-mode-combined'),
+                    value: MapBackgroundMode.combined,
+                    label: 'Combined',
+                  ),
+                  EarthlySegmentOption<MapBackgroundMode>(
+                    key: Key('settings-bg-mode-satellite'),
+                    value: MapBackgroundMode.satellite,
+                    label: 'Satellite',
+                  ),
                 ],
+                value: widget.backgroundMode,
+                onChanged: widget.onBackgroundModeChanged,
               ),
               if (widget.backgroundMode == MapBackgroundMode.combined)
                 Row(
@@ -1265,18 +1321,17 @@ class _SettingsSheetState extends State<SettingsSheet>
               ),
             ),
             const SizedBox(height: 6),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
+            EarthlySegmentBar<CalloutDisplayMode>.single(
+              options: [
                 for (final mode in CalloutDisplayMode.values)
-                  ChoiceChip(
+                  EarthlySegmentOption<CalloutDisplayMode>(
                     key: Key('settings-callout-${mode.name}'),
-                    label: Text(calloutModeShortLabel(mode)),
-                    selected: widget.calloutMode == mode,
-                    onSelected: (_) => widget.onChangeCalloutMode(mode),
+                    value: mode,
+                    label: calloutModeShortLabel(mode),
                   ),
               ],
+              value: widget.calloutMode,
+              onChanged: widget.onChangeCalloutMode,
             ),
             if (widget.onExportMapPosterPng != null) ...[
               const SizedBox(height: 10),
@@ -1796,85 +1851,71 @@ class _SettingsSheetState extends State<SettingsSheet>
               ],
             ),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final preset in _relayPresets)
-                  if (!widget.relayUrls.contains(preset))
-                    ActionChip(
-                      label: Text(
-                        preset.replaceFirst('wss://', ''),
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 10.5,
-                        ),
+            if (_relayPresets.any((p) => !widget.relayUrls.contains(p))) ...[
+              EarthlySegmentGrid<String>(
+                columns: 2,
+                compact: true,
+                monospace: true,
+                options: [
+                  for (final preset in _relayPresets)
+                    if (!widget.relayUrls.contains(preset))
+                      EarthlySegmentOption<String>(
+                        value: preset,
+                        label: '+ ${preset.replaceFirst('wss://', '')}',
                       ),
-                      onPressed: () => _addRelay(preset),
-                    ),
+                ],
+                selectedValues: const <String>{},
+                onSelected: _addRelay,
+              ),
+              const SizedBox(height: 8),
+            ],
+            EarthlyActionBar(
+              stacked: false,
+              items: [
+                EarthlyActionBarItem(
+                  key: const Key('settings-probe-all-relays-btn'),
+                  icon: Icons.speed,
+                  label: _probingRelays ? 'Probing…' : 'Probe All',
+                  loading: _probingRelays,
+                  onTap: _probingRelays ? null : _probeRelays,
+                ),
+                EarthlyActionBarItem(
+                  key: const Key('settings-discover-nip66-btn'),
+                  icon: Icons.travel_explore,
+                  label: _discoveringNip66
+                      ? 'Discovering…'
+                      : 'Discover (NIP-66)',
+                  loading: _discoveringNip66,
+                  emphasized: true,
+                  onTap: _discoveringNip66 ? null : _discoverNip66Relays,
+                ),
               ],
             ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: [
-                OutlinedButton.icon(
-                  key: const Key('settings-probe-all-relays-btn'),
-                  onPressed: _probingRelays ? null : _probeRelays,
-                  icon: _probingRelays
-                      ? const SizedBox(
-                          width: 13,
-                          height: 13,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.speed, size: 15),
-                  label: Text(_probingRelays ? 'Probing…' : 'Probe All'),
-                ),
-                FilledButton.tonalIcon(
-                  key: const Key('settings-discover-nip66-btn'),
-                  onPressed: _discoveringNip66 ? null : _discoverNip66Relays,
-                  icon: _discoveringNip66
-                      ? const SizedBox(
-                          width: 13,
-                          height: 13,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.travel_explore, size: 15),
-                  label: Text(
-                    _discoveringNip66
-                        ? 'Discovering…'
-                        : 'Discover Public Relays (NIP-66)',
-                  ),
-                ),
+            const SizedBox(height: 6),
+            EarthlyActionBar(
+              stacked: false,
+              items: [
                 if (widget.onFetchNip65Relays != null)
-                  OutlinedButton.icon(
+                  EarthlyActionBarItem(
                     key: const Key('settings-import-nip65-btn'),
-                    onPressed: _syncingNip65 ? null : _importNip65Relays,
-                    icon: const Icon(Icons.download_outlined, size: 15),
-                    label: const Text('Import NIP-65'),
+                    icon: Icons.download_outlined,
+                    label: 'Import NIP-65',
+                    onTap: _syncingNip65 ? null : _importNip65Relays,
                   ),
                 if (widget.onPublishNip65Relays != null)
-                  OutlinedButton.icon(
+                  EarthlyActionBarItem(
                     key: const Key('settings-publish-nip65-btn'),
-                    onPressed: _syncingNip65 ? null : _publishNip65Relays,
-                    icon: const Icon(Icons.cloud_upload_outlined, size: 15),
-                    label: const Text('Publish NIP-65'),
+                    icon: Icons.cloud_upload_outlined,
+                    label: 'Publish NIP-65',
+                    onTap: _syncingNip65 ? null : _publishNip65Relays,
                   ),
-                OutlinedButton(
+                EarthlyActionBarItem(
                   key: const Key('settings-reset-relays-btn'),
-                  onPressed: () {
-                    widget.onRelayUrlsChanged(
-                      List<String>.from(_defaultProductionRelays),
-                    );
-                    setState(() {
-                      _publicRelaysEnabled = true;
-                      _relayStatus =
-                          'Restored default Earthly + public Nostr relays.';
-                      _relayError = null;
-                    });
-                  },
-                  child: const Text('Reset Defaults'),
+                  icon: Icons.restart_alt,
+                  label: 'Reset Defaults',
+                  onTap: _updatingPublicPolicy
+                      ? null
+                      : () => unawaited(_resetDefaultRelays()),
                 ),
               ],
             ),
@@ -2035,22 +2076,18 @@ class _SettingsSheetState extends State<SettingsSheet>
               ],
             ),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
+            EarthlySegmentBar<String>.single(
+              compact: true,
+              monospace: true,
+              options: [
                 for (final url in _blossomPresets)
-                  ActionChip(
-                    label: Text(
-                      url.replaceFirst('https://', ''),
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 10.5,
-                      ),
-                    ),
-                    onPressed: () => _saveBlossom(url),
+                  EarthlySegmentOption<String>(
+                    value: url,
+                    label: url.replaceFirst('https://', ''),
                   ),
               ],
+              value: _blossomController.text.trim(),
+              onChanged: _saveBlossom,
             ),
           ],
         ),
@@ -2082,19 +2119,20 @@ class _SettingsSheetState extends State<SettingsSheet>
               ],
             ),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                ActionChip(
-                  label: const Text('earthly.city Prod'),
-                  onPressed: () => _saveCordn(_defaultCordnProdPubkey),
+            EarthlySegmentBar<String>.single(
+              compact: true,
+              options: const [
+                EarthlySegmentOption<String>(
+                  value: _defaultCordnProdPubkey,
+                  label: 'earthly.city Prod',
                 ),
-                ActionChip(
-                  label: const Text('Local Dev Cordn'),
-                  onPressed: () => _saveCordn(_defaultCordnDevPubkey),
+                EarthlySegmentOption<String>(
+                  value: _defaultCordnDevPubkey,
+                  label: 'Local Dev Cordn',
                 ),
               ],
+              value: _cordnController.text.trim(),
+              onChanged: _saveCordn,
             ),
           ],
         ),
@@ -2121,52 +2159,69 @@ class _SettingsSheetState extends State<SettingsSheet>
           title: 'Chat Provider & Credentials',
           subtitle: 'API keys are encrypted at rest using your device keystore',
           children: [
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                ChoiceChip(
-                  key: const Key('settings-chat-preset-offline'),
-                  label: const Text('Offline Rust'),
-                  selected: widget.agentSettings.baseUrl.isEmpty,
-                  onSelected: (_) =>
-                      _applyAgentPreset(CopilotProviderSettings.offline),
+            EarthlySegmentGrid<String>(
+              columns: 3,
+              compact: true,
+              options: const [
+                EarthlySegmentOption<String>(
+                  key: Key('settings-chat-preset-offline'),
+                  value: 'offline',
+                  label: 'Offline Rust',
                 ),
-                ChoiceChip(
-                  key: const Key('settings-chat-preset-ollama'),
-                  label: const Text('Local Ollama'),
-                  selected: widget.agentSettings.baseUrl.contains('11434'),
-                  onSelected: (_) =>
-                      _applyAgentPreset(CopilotProviderSettings.localOllama),
+                EarthlySegmentOption<String>(
+                  key: Key('settings-chat-preset-ollama'),
+                  value: 'ollama',
+                  label: 'Local Ollama',
                 ),
-                ChoiceChip(
-                  key: const Key('settings-chat-preset-openrouter'),
-                  label: const Text('OpenRouter'),
-                  selected: widget.agentSettings.baseUrl.contains('openrouter.ai'),
-                  onSelected: (_) =>
-                      _applyAgentPreset(CopilotProviderSettings.openRouter),
+                EarthlySegmentOption<String>(
+                  key: Key('settings-chat-preset-openrouter'),
+                  value: 'openrouter',
+                  label: 'OpenRouter',
                 ),
-                ChoiceChip(
-                  key: const Key('settings-chat-preset-openai'),
-                  label: const Text('OpenAI'),
-                  selected:
-                      widget.agentSettings.baseUrl.contains('api.openai.com'),
-                  onSelected: (_) => _applyAgentPreset(
-                    const CopilotProviderSettings(
-                      presetName: 'OpenAI',
-                      baseUrl: 'https://api.openai.com/v1',
-                      model: 'gpt-4o-mini',
-                    ),
-                  ),
+                EarthlySegmentOption<String>(
+                  key: Key('settings-chat-preset-openai'),
+                  value: 'openai',
+                  label: 'OpenAI',
                 ),
-                ChoiceChip(
-                  key: const Key('settings-chat-preset-routstr'),
-                  label: const Text('Routstr (Cashu)'),
-                  selected: widget.agentSettings.isRoutstr,
-                  onSelected: (_) =>
-                      _applyAgentPreset(CopilotProviderSettings.routstr),
+                EarthlySegmentOption<String>(
+                  key: Key('settings-chat-preset-routstr'),
+                  value: 'routstr',
+                  label: 'Routstr (Cashu)',
                 ),
               ],
+              selectedValues: {
+                if (widget.agentSettings.baseUrl.isEmpty)
+                  'offline'
+                else if (widget.agentSettings.baseUrl.contains('11434'))
+                  'ollama'
+                else if (widget.agentSettings.baseUrl.contains('openrouter.ai'))
+                  'openrouter'
+                else if (widget.agentSettings.baseUrl
+                    .contains('api.openai.com'))
+                  'openai'
+                else if (widget.agentSettings.isRoutstr)
+                  'routstr',
+              },
+              onSelected: (preset) {
+                switch (preset) {
+                  case 'offline':
+                    _applyAgentPreset(CopilotProviderSettings.offline);
+                  case 'ollama':
+                    _applyAgentPreset(CopilotProviderSettings.localOllama);
+                  case 'openrouter':
+                    _applyAgentPreset(CopilotProviderSettings.openRouter);
+                  case 'openai':
+                    _applyAgentPreset(
+                      const CopilotProviderSettings(
+                        presetName: 'OpenAI',
+                        baseUrl: 'https://api.openai.com/v1',
+                        model: 'gpt-4o-mini',
+                      ),
+                    );
+                  case 'routstr':
+                    _applyAgentPreset(CopilotProviderSettings.routstr);
+                }
+              },
             ),
             const SizedBox(height: 10),
             TextField(
@@ -2255,52 +2310,81 @@ class _SettingsSheetState extends State<SettingsSheet>
               ),
             ],
             const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                OutlinedButton.icon(
+            EarthlyActionBar(
+              stacked: false,
+              items: [
+                EarthlyActionBarItem(
                   key: const Key('settings-chat-discover-btn'),
-                  onPressed: _discoveringModels ? null : _discoverModels,
-                  icon: _discoveringModels
-                      ? const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.manage_search, size: 16),
-                  label: Text(
-                    _discoveringModels ? 'Checking /models…' : 'Discover Models',
-                  ),
+                  icon: Icons.manage_search,
+                  label:
+                      _discoveringModels ? 'Checking…' : 'Discover Models',
+                  loading: _discoveringModels,
+                  onTap: _discoveringModels ? null : _discoverModels,
                 ),
-                FilledButton(
+                EarthlyActionBarItem(
                   key: const Key('settings-chat-apply-btn'),
-                  onPressed: _saveAgentSettings,
-                  child: const Text('Apply Credentials'),
+                  icon: Icons.check,
+                  label: 'Apply Credentials',
+                  emphasized: true,
+                  onTap: _saveAgentSettings,
                 ),
               ],
             ),
             if (_discoveredModels.isNotEmpty) ...[
               const SizedBox(height: 10),
-              Wrap(
-                spacing: 6,
-                runSpacing: 5,
-                children: [
-                  for (final m in _discoveredModels.take(18))
-                    ActionChip(
-                      label: Text(
-                        m,
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 10.5,
-                        ),
-                      ),
-                      onPressed: () {
+              Container(
+                constraints: const BoxConstraints(maxHeight: 200),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: theme.dividerColor),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: _discoveredModels.take(18).length,
+                  separatorBuilder: (_, _) =>
+                      Divider(height: 1, color: theme.dividerColor),
+                  itemBuilder: (ctx, i) {
+                    final m = _discoveredModels[i];
+                    final selected = _modelController.text.trim() == m;
+                    return InkWell(
+                      onTap: () {
                         _modelController.text = m;
                         _saveAgentSettings();
                       },
-                    ),
-                ],
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                m,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 11,
+                                  fontWeight: selected
+                                      ? FontWeight.w700
+                                      : FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            if (selected)
+                              const Icon(
+                                Icons.check,
+                                size: 15,
+                                color: EarthlyColors.amber,
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
             ],
           ],
@@ -2464,26 +2548,19 @@ class _SettingsSheetState extends State<SettingsSheet>
                 ),
               ),
               const SizedBox(height: 6),
-              Wrap(
-                spacing: 8,
-                children: [
-                  ChoiceChip(
-                    label: const Text('Draw-Drag'),
-                    selected:
-                        widget.placementStyle == TouchPlacementStyle.drawDrag,
-                    onSelected: (_) => widget.onPlacementStyleChanged!(
-                      TouchPlacementStyle.drawDrag,
-                    ),
+              EarthlySegmentBar<TouchPlacementStyle>.single(
+                options: const [
+                  EarthlySegmentOption<TouchPlacementStyle>(
+                    value: TouchPlacementStyle.drawDrag,
+                    label: 'Draw-Drag',
                   ),
-                  ChoiceChip(
-                    label: const Text('Crosshair'),
-                    selected:
-                        widget.placementStyle == TouchPlacementStyle.crosshair,
-                    onSelected: (_) => widget.onPlacementStyleChanged!(
-                      TouchPlacementStyle.crosshair,
-                    ),
+                  EarthlySegmentOption<TouchPlacementStyle>(
+                    value: TouchPlacementStyle.crosshair,
+                    label: 'Crosshair',
                   ),
                 ],
+                value: widget.placementStyle,
+                onChanged: widget.onPlacementStyleChanged!,
               ),
               const SizedBox(height: 6),
             ],
@@ -2515,25 +2592,22 @@ class _SettingsSheetState extends State<SettingsSheet>
           title: 'Local Rust Node & Outbox',
           subtitle: 'Embedded Blossom blob store, P2P relay, and durable delivery queue',
           children: [
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
+            EarthlyActionBar(
+              stacked: false,
+              items: [
                 if (widget.onOpenRustNode != null)
-                  OutlinedButton.icon(
-                    onPressed: widget.onOpenRustNode,
-                    icon: const Icon(Icons.memory, size: 16),
-                    label: const Text('Rust Node Diagnostics'),
+                  EarthlyActionBarItem(
+                    icon: Icons.memory,
+                    label: 'Rust Node',
+                    onTap: widget.onOpenRustNode,
                   ),
                 if (widget.onOpenOutbox != null)
-                  OutlinedButton.icon(
-                    onPressed: widget.onOpenOutbox,
-                    icon: const Icon(Icons.outbox_outlined, size: 16),
-                    label: Text(
-                      widget.pendingOutboxCount > 0
-                          ? 'Outbox Queue (${widget.pendingOutboxCount})'
-                          : 'Outbox Queue',
-                    ),
+                  EarthlyActionBarItem(
+                    icon: Icons.outbox_outlined,
+                    label: widget.pendingOutboxCount > 0
+                        ? 'Outbox (${widget.pendingOutboxCount})'
+                        : 'Outbox Queue',
+                    onTap: widget.onOpenOutbox,
                   ),
               ],
             ),
@@ -2543,21 +2617,20 @@ class _SettingsSheetState extends State<SettingsSheet>
           theme,
           title: 'Catalog & Help',
           children: [
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
+            EarthlyActionBar(
+              stacked: false,
+              items: [
                 if (widget.onRefreshCatalog != null)
-                  OutlinedButton.icon(
-                    onPressed: widget.onRefreshCatalog,
-                    icon: const Icon(Icons.refresh, size: 16),
-                    label: const Text('Refresh Nostr Catalog'),
+                  EarthlyActionBarItem(
+                    icon: Icons.refresh,
+                    label: 'Refresh Catalog',
+                    onTap: widget.onRefreshCatalog,
                   ),
                 if (widget.onOpenHelp != null)
-                  OutlinedButton.icon(
-                    onPressed: widget.onOpenHelp,
-                    icon: const Icon(Icons.help_outline, size: 16),
-                    label: const Text('Help & Keyboard Shortcuts'),
+                  EarthlyActionBarItem(
+                    icon: Icons.help_outline,
+                    label: 'Help & Shortcuts',
+                    onTap: widget.onOpenHelp,
                   ),
               ],
             ),

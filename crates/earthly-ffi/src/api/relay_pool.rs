@@ -457,10 +457,10 @@ pub(crate) fn resolve_zap_read_relays(explicit: &[String]) -> Vec<String> {
         }
     }
     push_unique_relay(&mut out, PRIMARY_EARTHLY_RELAY, MAX_FANOUT_READ_RELAYS);
-    for url in DEFAULT_PUBLIC_RELAYS {
-        push_unique_relay(&mut out, url, MAX_FANOUT_READ_RELAYS);
-    }
     if state.public_relays_enabled {
+        for url in DEFAULT_PUBLIC_RELAYS {
+            push_unique_relay(&mut out, url, MAX_FANOUT_READ_RELAYS);
+        }
         for url in &state.configured_relays {
             if !is_local_or_private_relay_url(url) && !is_profile_directory_relay(url) {
                 push_unique_relay(&mut out, url, MAX_FANOUT_READ_RELAYS);
@@ -497,12 +497,14 @@ pub(crate) fn resolve_wallet_relays(explicit: &[String]) -> Vec<String> {
         }
     }
     push_unique_relay(&mut out, PRIMARY_EARTHLY_RELAY, MAX_FANOUT_READ_RELAYS);
-    for url in DEFAULT_PUBLIC_RELAYS {
-        push_unique_relay(&mut out, url, MAX_FANOUT_READ_RELAYS);
-    }
-    for url in &state.configured_relays {
-        if !is_local_or_private_relay_url(url) && !is_profile_directory_relay(url) {
+    if state.public_relays_enabled {
+        for url in DEFAULT_PUBLIC_RELAYS {
             push_unique_relay(&mut out, url, MAX_FANOUT_READ_RELAYS);
+        }
+        for url in &state.configured_relays {
+            if !is_local_or_private_relay_url(url) && !is_profile_directory_relay(url) {
+                push_unique_relay(&mut out, url, MAX_FANOUT_READ_RELAYS);
+            }
         }
     }
     for entry in &state.nip65_entries {
@@ -1117,6 +1119,27 @@ mod tests {
         assert_eq!(resolve_profile_discovery_relays(&lan_only), lan_only);
         assert_eq!(resolve_wallet_relays(&lan_only), lan_only);
         assert_eq!(resolve_zap_read_relays(&lan_only), lan_only);
+
+        // 8. Disabling public_relays_enabled MUST gate DEFAULT_PUBLIC_RELAYS across
+        // ALL resolvers (including zap reads and Cashu wallet sync).
+        set_relay_manager_public_enabled(false);
+        sync_configured_relays(&[PRIMARY_EARTHLY_RELAY.to_owned()]);
+        merge_user_nip65_relays("a".repeat(64), Vec::new());
+        for list in [
+            resolve_read_relays(&seed),
+            resolve_write_relays(&seed, Some(37_515)),
+            resolve_profile_discovery_relays(&seed),
+            resolve_zap_read_relays(&seed),
+            resolve_wallet_relays(&seed),
+        ] {
+            for default_pub in DEFAULT_PUBLIC_RELAYS {
+                assert!(
+                    !list.iter().any(|u| u == default_pub),
+                    "expected {default_pub} to be excluded when public_relays_enabled=false; got {list:?}"
+                );
+            }
+            assert!(list.contains(&PRIMARY_EARTHLY_RELAY.to_owned()));
+        }
 
         // Restore previous state.
         if let Ok(mut guard) = relay_manager_lock().write() {

@@ -10,6 +10,7 @@ import '../src/rust/api/nostr_client.dart';
 import '../src/rust/api/publish.dart';
 import '../theme/earthly_theme.dart';
 import 'desk_sheet.dart';
+import 'map_drawer.dart';
 
 class SightingPublishRequest {
   const SightingPublishRequest({
@@ -300,45 +301,47 @@ class _SightingComposerSheetState extends State<SightingComposerSheet> {
               const SizedBox(height: 10),
 
               // Expiry window (NIP-40)
-              Row(
-                children: [
-                  const Text(
-                    'EXPIRES IN:',
-                    style: TextStyle(fontFamily: 'monospace', fontSize: 11),
-                  ),
-                  const SizedBox(width: 8),
+              const Text(
+                'EXPIRES IN',
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              EarthlySegmentBar<int>.single(
+                key: const Key('sighting-expiry-bar'),
+                monospace: true,
+                options: [
                   for (final hours in const [6, 24, 72, 168])
-                    Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: ChoiceChip(
-                        label: Text(hours >= 24 ? '${hours ~/ 24}d' : '${hours}h'),
-                        selected: _durationHours == hours,
-                        onSelected: (_) => setState(() => _durationHours = hours),
-                      ),
+                    EarthlySegmentOption<int>(
+                      value: hours,
+                      label: hours >= 24 ? '${hours ~/ 24}d' : '${hours}h',
                     ),
                 ],
+                value: _durationHours,
+                onChanged: (hours) => setState(() => _durationHours = hours),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
 
               // Audience channel
-              Row(
-                children: [
-                  ChoiceChip(
-                    label: const Text('Public Relay'),
-                    selected: _audience == DraftAudienceChoice.publicRelay,
-                    onSelected: (_) => setState(
-                      () => _audience = DraftAudienceChoice.publicRelay,
-                    ),
+              EarthlySegmentBar<DraftAudienceChoice>.single(
+                key: const Key('sighting-audience-bar'),
+                options: const [
+                  EarthlySegmentOption<DraftAudienceChoice>(
+                    value: DraftAudienceChoice.publicRelay,
+                    label: 'Public Relay',
+                    icon: Icons.public,
                   ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('Nearby Local Node'),
-                    selected: _audience == DraftAudienceChoice.nearbyLocalNode,
-                    onSelected: (_) => setState(
-                      () => _audience = DraftAudienceChoice.nearbyLocalNode,
-                    ),
+                  EarthlySegmentOption<DraftAudienceChoice>(
+                    value: DraftAudienceChoice.nearbyLocalNode,
+                    label: 'Nearby Local Node',
+                    icon: Icons.wifi_tethering,
                   ),
                 ],
+                value: _audience,
+                onChanged: (aud) => setState(() => _audience = aud),
               ),
 
               if (_error != null) ...[

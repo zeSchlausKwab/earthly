@@ -388,7 +388,7 @@ void main() {
       find.widgetWithText(TextField, 'Callout card text (draggable on map!)'),
       'Summit view',
     );
-    final saveCalloutBtn = find.widgetWithText(FilledButton, 'Attach Callout');
+    final saveCalloutBtn = find.text('Attach Callout');
     await tester.ensureVisible(saveCalloutBtn);
     await tester.tap(saveCalloutBtn);
     await tester.pump();

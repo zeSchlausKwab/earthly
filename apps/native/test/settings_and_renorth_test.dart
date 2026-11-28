@@ -506,6 +506,100 @@ void main() {
         expect(find.text('ADDED'), findsOneWidget);
       },
     );
+
+    testWidgets(
+      'Reset Defaults re-enables publicRelaysEnabled policy and restores default relays',
+      (WidgetTester tester) async {
+        setTestViewport(tester, const Size(360, 780));
+        var relays = <String>['wss://relay.earthly.city'];
+        var publicEnabled = false;
+        final policyCalls = <bool>[];
+
+        await tester.pumpWidget(
+          StatefulBuilder(
+            builder: (ctx, setState) => MaterialApp(
+              theme: buildEarthlyTheme(Brightness.dark),
+              home: Scaffold(
+                body: Stack(
+                  children: [
+                    SettingsSheet(
+                      initialTab: EarthlySettingsTab.relays,
+                      themeMode: ThemeMode.dark,
+                      onThemeModeChanged: (_) {},
+                      activeBasemap: BasemapKind.auto,
+                      offlineBasemap: null,
+                      onSelectBasemap: (_) {},
+                      onLoadedOfflinePmtiles: (_) {},
+                      backgroundMode: MapBackgroundMode.osm,
+                      satelliteOpacity: 1.0,
+                      onBackgroundModeChanged: (_) {},
+                      onSatelliteOpacityChanged: (_) {},
+                      pointClusteringEnabled: true,
+                      pointClusterRadius: 48,
+                      pointClusterMaxZoom: 14,
+                      onPointClusteringChanged: (_) {},
+                      onPointClusterRadiusChanged: (_) {},
+                      onPointClusterMaxZoomChanged: (_) {},
+                      showLabels: true,
+                      onToggleLabels: (_) {},
+                      calloutMode: CalloutDisplayMode.full,
+                      onChangeCalloutMode: (_) {},
+                      relayUrls: relays,
+                      relayStreamLive: true,
+                      onRelayUrlsChanged: (next) =>
+                          setState(() => relays = next),
+                      publicRelaysEnabled: publicEnabled,
+                      onSetPublicRelaysEnabled: (enabled) async {
+                        policyCalls.add(enabled);
+                        setState(() => publicEnabled = enabled);
+                      },
+                      blossomServerUrl: 'https://blossom.earthly.city',
+                      onBlossomServerChanged: (_) {},
+                      cordnServerPubkey:
+                          'fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37',
+                      onCordnPubkeyChanged: (_) {},
+                      agentSettings: CopilotProviderSettings.offline,
+                      onAgentSettingsChanged: (_) {},
+                      safeEditing: true,
+                      onSafeEditingChanged: (_) {},
+                      visionSupport: 'none',
+                      attachMapView: false,
+                      onAttachMapViewChanged: (_) {},
+                      account: null,
+                      signerModeLabel: 'Signed out',
+                      cashuWalletEnabled: false,
+                      onSetCashuWalletEnabled: (_) {},
+                      onOpenAccount: () {},
+                      onClose: () {},
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+
+        final resetBtn = find.byKey(const Key('settings-reset-relays-btn'));
+        await tester.ensureVisible(resetBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(resetBtn);
+        await tester.pumpAndSettle();
+
+        expect(policyCalls, [true]);
+        expect(publicEnabled, isTrue);
+        expect(
+          relays,
+          containsAll(const [
+            'wss://relay.earthly.city',
+            'wss://relay.damus.io',
+            'wss://nos.lol',
+            'wss://relay.primal.net',
+          ]),
+        );
+      },
+    );
   });
 
   group('MapLayerCache point clustering state & GPU layer routing', () {

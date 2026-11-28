@@ -524,17 +524,19 @@ class _CashuWalletSheetState extends State<CashuWalletSheet> {
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 8,
-                runSpacing: 4,
+              child: Row(
                 children: [
-                  Text(
-                    'Wallet',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
+                  Flexible(
+                    child: Text(
+                      'Wallet',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
+                  const SizedBox(width: 8),
                   EarthlyBadge(
                     label: badgeLabel,
                     color: badgeColor,
@@ -930,52 +932,42 @@ class _CashuWalletSheetState extends State<CashuWalletSheet> {
   }
 
   Widget _buildActionRow() {
-    Widget actionBtn({
+    EarthlyActionBarItem actionItem({
       required Key buttonKey,
       required String label,
       required IconData icon,
       required _CashuActionPanel panel,
     }) {
-      final selected = _activePanel == panel;
-      if (selected) {
-        return FilledButton.icon(
-          key: buttonKey,
-          onPressed: () => _togglePanel(panel),
-          icon: Icon(icon, size: 15),
-          label: Text(label),
-        );
-      }
-      return OutlinedButton.icon(
+      return EarthlyActionBarItem(
         key: buttonKey,
-        onPressed: () => _togglePanel(panel),
-        icon: Icon(icon, size: 15),
-        label: Text(label),
+        label: label,
+        icon: icon,
+        emphasized: _activePanel == panel,
+        onTap: () => _togglePanel(panel),
       );
     }
 
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        actionBtn(
+    return EarthlyActionBar(
+      items: [
+        actionItem(
           buttonKey: const Key('cashu-deposit-btn'),
           label: 'Deposit ⚡',
           icon: Icons.bolt,
           panel: _CashuActionPanel.deposit,
         ),
-        actionBtn(
+        actionItem(
           buttonKey: const Key('cashu-withdraw-btn'),
           label: 'Withdraw ⚡',
           icon: Icons.flash_on_outlined,
           panel: _CashuActionPanel.withdraw,
         ),
-        actionBtn(
+        actionItem(
           buttonKey: const Key('cashu-receive-btn'),
           label: 'Receive',
           icon: Icons.south_west,
           panel: _CashuActionPanel.receive,
         ),
-        actionBtn(
+        actionItem(
           buttonKey: const Key('cashu-send-btn'),
           label: 'Send',
           icon: Icons.north_east,
@@ -1059,18 +1051,21 @@ class _CashuWalletSheetState extends State<CashuWalletSheet> {
           ),
         ),
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          children: [
+        EarthlySegmentBar<int>.single(
+          compact: true,
+          monospace: true,
+          options: [
             for (final preset in const [100, 500, 1000, 5000])
-              ActionChip(
-                label: Text('$preset sats'),
-                onPressed: _isBusy
-                    ? null
-                    : () => _depositAmountController.text = '$preset',
+              EarthlySegmentOption<int>(
+                value: preset,
+                label: '$preset sats',
+                enabled: !_isBusy,
               ),
           ],
+          value: int.tryParse(_depositAmountController.text.trim()),
+          onChanged: (preset) => setState(
+            () => _depositAmountController.text = '$preset',
+          ),
         ),
         const SizedBox(height: 10),
         FilledButton.icon(
@@ -1495,15 +1490,25 @@ class _CollapsibleSectionCard extends StatelessWidget {
                           icon!,
                           const SizedBox(width: 6),
                         ],
-                        Text(
-                          title,
-                          style: theme.textTheme.titleSmall,
+                        Expanded(
+                          child: Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.titleSmall,
+                                ),
+                              ),
+                              if (badge != null) ...[
+                                const SizedBox(width: 6),
+                                badge!,
+                              ],
+                            ],
+                          ),
                         ),
-                        if (badge != null) ...[
-                          const SizedBox(width: 8),
-                          badge!,
-                        ],
-                        const Spacer(),
+                        const SizedBox(width: 4),
                         Icon(
                           expanded ? Icons.expand_less : Icons.expand_more,
                           size: 18,

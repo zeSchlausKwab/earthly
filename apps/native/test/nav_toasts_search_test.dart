@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:earthly_native/controllers/catalog_shelf_controller.dart';
 import 'package:earthly_native/controllers/draft_workbench_controller.dart';
 import 'package:earthly_native/main.dart';
@@ -878,6 +880,101 @@ void main() {
         expect(positionCalls, isNotEmpty);
         expect(positionCalls.last.lon, closeTo(16.405, 0.001));
         expect(positionCalls.last.lat, closeTo(48.231, 0.001));
+      },
+    );
+
+    testWidgets(
+      'Blossom-backed map without bbox deduplicates in-flight blob fetch and flies camera once resolved',
+      (WidgetTester tester) async {
+        setTestViewport(tester, const Size(412, 915));
+        final blobCompleter = Completer<String>();
+        var resolveCalls = 0;
+
+        final blobMap = MapSummaryDto(
+          address: '37515:alice:blossom-alpine',
+          eventId: 'ev-blob-1',
+          pubkey: 'alice',
+          dTag: 'blossom-alpine',
+          title: 'Blossom Alpine Track',
+          featureCount: 0,
+          sizeBytes: 42,
+          geojson: '{"type":"FeatureCollection","features":[]}',
+          blobRefs: const [
+            BlobRefDto(
+              scope: 'collection',
+              url: 'https://blossom.earthly.city/abc123',
+              sha256:
+                  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            ),
+          ],
+          hashtags: const [],
+          labels: const [],
+          contextRefs: const [],
+          createdAt: BigInt.from(1791001000),
+        );
+        final blobAtlas = AtlasSummaryDto(
+          address: '37518:alice:alpine-atlas',
+          eventId: 'at-blob-1',
+          pubkey: 'alice',
+          dTag: 'alpine-atlas',
+          name: 'Alpine Blossom Atlas',
+          description: 'Atlas of Blossom-backed maps',
+          governance: 'closed',
+          pinnedAddresses: const ['37515:alice:blossom-alpine'],
+          hashtags: const ['alpine'],
+          createdAt: BigInt.from(1791001000),
+        );
+
+        final catalog = CatalogShelfController(
+          resolveMapBlobsOverride: (map) {
+            resolveCalls += 1;
+            return blobCompleter.future;
+          },
+        )..setCatalog(
+            EarthlyCatalogSnapshot(
+              relayUrls: const ['wss://relay.earthly.city'],
+              maps: [blobMap],
+              stories: const [],
+              atlases: [blobAtlas],
+              sightings: const [],
+              beacons: const [],
+            ),
+          );
+        final boundsCalls = <GeoBox>[];
+        addTearDown(catalog.dispose);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildEarthlyTheme(Brightness.light),
+            home: EarthlySpikeHome(
+              mapBuilder: (context, gestures, onMapCreated, onCameraMove) =>
+                  const ColoredBox(color: Color(0xFFEDF0EA)),
+              catalogController: catalog,
+              onFlyToBoundsRequested: boundsCalls.add,
+            ),
+          ),
+        );
+        await tester.pump();
+
+        // Tap Blossom map from Explore -> starts single deduplicated fetch; bounds arrive once resolved.
+        await tester.tap(find.text('Explore'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Blossom Alpine Track'));
+        await tester.pump();
+        expect(find.byType(DatasetDetailMargin), findsOneWidget);
+        expect(resolveCalls, 1);
+        expect(boundsCalls, isEmpty);
+
+        // Complete Blossom fetch -> camera immediately flies to resolved bounds!
+        blobCompleter.complete(
+          '{"type":"FeatureCollection","features":[{"type":"Feature","id":"alp-1","geometry":{"type":"LineString","coordinates":[[11.39,47.26],[11.42,47.28]]},"properties":{"name":"Innsbruck Ridge"}}]}',
+        );
+        await tester.pumpAndSettle();
+
+        expect(resolveCalls, 1);
+        expect(boundsCalls, isNotEmpty);
+        expect(boundsCalls.last.west, closeTo(11.39, 0.01));
+        expect(boundsCalls.last.north, closeTo(47.28, 0.01));
       },
     );
   });

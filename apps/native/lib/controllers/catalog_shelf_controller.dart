@@ -25,6 +25,11 @@ import '../src/rust/api/spike.dart';
 /// Sightings & Live Beacons, Active Story Reader, Comment/Proposal map
 /// overlays, Blossom blob resolution/uploads, and entity inspection targets.
 class CatalogShelfController extends ChangeNotifier {
+  CatalogShelfController({this.resolveMapBlobsOverride});
+
+  /// Optional test hook replacing Rust FFI Blossom blob fetching in unit/widget tests.
+  final Future<String> Function(MapSummaryDto map)? resolveMapBlobsOverride;
+
   final ChangeNotifier mapContentListenable = ChangeNotifier();
   final ChangeNotifier shelfListenable = ChangeNotifier();
   final ChangeNotifier beaconsListenable = ChangeNotifier();
@@ -83,6 +88,8 @@ class CatalogShelfController extends ChangeNotifier {
 
   String blossomServerUrl = 'https://blossom.earthly.city';
   final Set<String> resolvingBlobAddresses = <String>{};
+  final Map<String, Future<MapSummaryDto>> _inFlightBlobResolutions =
+      <String, Future<MapSummaryDto>>{};
   final Map<String, String> resolvedBlobGeojsonByEventId = <String, String>{};
 
   String? activeCommentOverlayId;
@@ -440,31 +447,44 @@ class CatalogShelfController extends ChangeNotifier {
       applyResolvedMapToState(updated);
       return updated;
     }
-    if (resolvingBlobAddresses.contains(map.address)) return map;
+    final inFlight = _inFlightBlobResolutions[map.address];
+    if (inFlight != null) {
+      return inFlight;
+    }
     resolvingBlobAddresses.add(map.address);
     notifyListeners();
-    try {
-      await RustBridge.ensureInitialized();
-      final resolved = await resolveMapBlobGeojson(
-        baseGeojson: map.geojson,
-        blobRefs: map.blobRefs,
-      );
-      resolvedBlobGeojsonByEventId[map.eventId] = resolved;
-      final shapes = parseGeoJsonShapes(
-        resolved,
-        datasetTitle: map.title,
-        datasetAddress: map.address,
-      );
-      final updated = _withResolvedBlobGeojson(map, resolved, shapes.length);
-      applyResolvedMapToState(updated);
-      return updated;
-    } catch (err) {
-      onError?.call('Blossom blob fetch failed: $err');
-      return map;
-    } finally {
-      resolvingBlobAddresses.remove(map.address);
-      notifyListeners();
-    }
+    final future = () async {
+      try {
+        final String resolved;
+        if (resolveMapBlobsOverride != null) {
+          resolved = await resolveMapBlobsOverride!(map);
+        } else {
+          await RustBridge.ensureInitialized();
+          resolved = await resolveMapBlobGeojson(
+            baseGeojson: map.geojson,
+            blobRefs: map.blobRefs,
+          );
+        }
+        resolvedBlobGeojsonByEventId[map.eventId] = resolved;
+        final shapes = parseGeoJsonShapes(
+          resolved,
+          datasetTitle: map.title,
+          datasetAddress: map.address,
+        );
+        final updated = _withResolvedBlobGeojson(map, resolved, shapes.length);
+        applyResolvedMapToState(updated);
+        return updated;
+      } catch (err) {
+        onError?.call('Blossom blob fetch failed: $err');
+        return map;
+      } finally {
+        _inFlightBlobResolutions.remove(map.address);
+        resolvingBlobAddresses.remove(map.address);
+        notifyListeners();
+      }
+    }();
+    _inFlightBlobResolutions[map.address] = future;
+    return future;
   }
 
   /// Toggles a map on the Shelf. Returns `true` if added, `false` if removed.

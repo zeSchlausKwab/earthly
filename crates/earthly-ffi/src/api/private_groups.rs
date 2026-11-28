@@ -124,9 +124,10 @@ fn normalize_http_base_url(raw: &str, default_url: &str, label: &str) -> Result<
 fn normalize_relay_urls(relay_urls: Vec<String>) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for raw in relay_urls {
-        let trimmed = raw.trim();
-        if !trimmed.is_empty() && !out.iter().any(|r| r == trimmed) {
-            out.push(trimmed.to_owned());
+        let canonical = earthly_storage::settings::normalize_relay_url(&raw)
+            .unwrap_or_else(|| raw.trim().to_owned());
+        if !canonical.is_empty() && !out.iter().any(|r| r == &canonical) {
+            out.push(canonical);
         }
     }
     if out.is_empty() {
@@ -153,19 +154,28 @@ fn normalize_multi_device_relay_urls(relay_urls: Vec<String>) -> Vec<String> {
 
 /// Normalizes relay URLs for Cordn MLS coordinator RPCs (`kind 25910`) so private
 /// MLS protocol traffic never leaks to default public Nostr relays (`damus.io`,
-/// `nos.lol`, `primal.net`) or profile directory relays (`purplepag.es`), while
-/// preserving loopback test relays and explicit custom Cordn relays.
+/// `nos.lol`, `primal.net`), NIP-66/NIP-65 public relays, or profile directory
+/// relays (`purplepag.es`), while preserving loopback/LAN test relays and
+/// explicit custom Cordn relays.
 fn normalize_cordn_relay_urls(relay_urls: Vec<String>) -> Vec<String> {
     let normalized = normalize_relay_urls(relay_urls);
     if crate::api::relay_pool::is_all_local_relays(&normalized) {
         return normalized;
     }
+    let relay_sources = crate::api::relay_pool::snapshot_relay_manager_state().relay_sources;
     let mut out = vec![DEFAULT_CIRCLE_RELAY.to_owned()];
     for relay in normalized {
         let is_default_public = earthly_storage::settings::DEFAULT_PUBLIC_RELAYS
             .iter()
             .any(|p| *p == relay);
+        let is_public_or_discovered_source = relay_sources.get(&relay).is_some_and(|src| {
+            matches!(
+                src.as_str(),
+                "nip66" | "public_default" | "nip65" | "profile_discovery"
+            )
+        });
         if !is_default_public
+            && !is_public_or_discovered_source
             && !crate::api::relay_pool::is_profile_directory_relay(&relay)
             && !out.iter().any(|existing| existing == &relay)
         {
@@ -3511,15 +3521,18 @@ mod tests {
 
     #[test]
     fn normalize_cordn_and_multi_device_relay_urls_preserve_privacy_and_defaults() {
-        // Production defaults + purplepag.es + custom private relay:
-        // Cordn MLS RPCs must never leak to default public relays or purplepag.es,
+        // Production defaults (including trailing slashes & uppercase) + purplepag.es +
+        // a NIP-66 discovered public relay + explicit custom private relay:
+        // Cordn MLS RPCs must never leak to default public, NIP-66, or purplepag.es relays,
         // while keeping DEFAULT_CIRCLE_RELAY and explicit custom relays.
+        crate::api::relay_pool::record_nip66_relay_source("wss://relay.snort.social");
         let mixed = vec![
-            "wss://relay.damus.io".to_owned(),
-            "wss://nos.lol".to_owned(),
-            "wss://relay.primal.net".to_owned(),
-            "wss://purplepag.es".to_owned(),
-            "wss://cordn.example.org".to_owned(),
+            "wss://relay.damus.io/".to_owned(),
+            "WSS://NOS.LOL".to_owned(),
+            "wss://relay.primal.net/".to_owned(),
+            "WSS://PURPLEPAG.ES/".to_owned(),
+            "wss://relay.snort.social/".to_owned(),
+            "wss://cordn.example.org/".to_owned(),
         ];
         let cordn = normalize_cordn_relay_urls(mixed.clone());
         assert_eq!(
@@ -3531,7 +3544,7 @@ mod tests {
         );
 
         // Multi-device kind 30078 encrypted backups strip profile directory relays
-        // (purplepag.es) while preserving user relays + DEFAULT_CIRCLE_RELAY.
+        // (purplepag.es) while preserving canonical user relays + DEFAULT_CIRCLE_RELAY.
         let md = normalize_multi_device_relay_urls(mixed);
         assert!(md.iter().any(|r| r == DEFAULT_CIRCLE_RELAY));
         assert!(md.iter().any(|r| r == "wss://cordn.example.org"));

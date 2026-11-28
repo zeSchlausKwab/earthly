@@ -1072,31 +1072,24 @@ class _SpacesSheetState extends State<SpacesSheet>
                 style: theme.textTheme.bodySmall,
               ),
               children: [
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    ChoiceChip(
-                      label: const Text('LAN Wi-Fi'),
-                      selected: _bindChoice == _LocalBindChoice.lanWifi,
-                      onSelected: (_) =>
-                          setState(() => _bindChoice = _LocalBindChoice.lanWifi),
+                EarthlySegmentBar<_LocalBindChoice>.single(
+                  compact: true,
+                  options: const [
+                    EarthlySegmentOption<_LocalBindChoice>(
+                      value: _LocalBindChoice.lanWifi,
+                      label: 'LAN Wi-Fi',
                     ),
-                    ChoiceChip(
-                      label: const Text('FIPS Mesh (fd00::)'),
-                      selected: _bindChoice == _LocalBindChoice.fipsMesh,
-                      onSelected: (_) => setState(
-                        () => _bindChoice = _LocalBindChoice.fipsMesh,
-                      ),
+                    EarthlySegmentOption<_LocalBindChoice>(
+                      value: _LocalBindChoice.fipsMesh,
+                      label: 'FIPS Mesh (fd00::)',
                     ),
-                    ChoiceChip(
-                      label: const Text('Loopback'),
-                      selected: _bindChoice == _LocalBindChoice.loopback,
-                      onSelected: (_) => setState(
-                        () => _bindChoice = _LocalBindChoice.loopback,
-                      ),
+                    EarthlySegmentOption<_LocalBindChoice>(
+                      value: _LocalBindChoice.loopback,
+                      label: 'Loopback',
                     ),
                   ],
+                  value: _bindChoice,
+                  onChanged: (next) => setState(() => _bindChoice = next),
                 ),
                 if (_bindChoice == _LocalBindChoice.fipsMesh) ...[
                   const SizedBox(height: 8),
@@ -1436,28 +1429,38 @@ class _SpacesSheetState extends State<SpacesSheet>
                   ),
                 ),
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
+                EarthlySegmentBar<int>.single(
+                  compact: true,
+                  monospace: true,
+                  options: [
                     for (final mins in const [15, 60, 240])
-                      ChoiceChip(
-                        label: Text(mins < 60 ? '${mins}m' : '${mins ~/ 60}h'),
-                        selected: _beaconDurationMinutes == mins,
-                        onSelected: (_) =>
-                            setState(() => _beaconDurationMinutes = mins),
+                      EarthlySegmentOption<int>(
+                        value: mins,
+                        label: mins < 60 ? '${mins}m' : '${mins ~/ 60}h',
                       ),
-                    ChoiceChip(
-                      label: const Text('Public'),
-                      selected: !_beaconNearby,
-                      onSelected: (_) => setState(() => _beaconNearby = false),
+                  ],
+                  value: _beaconDurationMinutes,
+                  onChanged: (mins) =>
+                      setState(() => _beaconDurationMinutes = mins),
+                ),
+                const SizedBox(height: 6),
+                EarthlySegmentBar<bool>.single(
+                  compact: true,
+                  options: const [
+                    EarthlySegmentOption<bool>(
+                      value: false,
+                      label: 'Public',
+                      icon: Icons.public,
                     ),
-                    ChoiceChip(
-                      label: const Text('Nearby'),
-                      selected: _beaconNearby,
-                      onSelected: (_) => setState(() => _beaconNearby = true),
+                    EarthlySegmentOption<bool>(
+                      value: true,
+                      label: 'Nearby',
+                      icon: Icons.wifi_tethering,
                     ),
                   ],
+                  value: _beaconNearby,
+                  onChanged: (nearby) =>
+                      setState(() => _beaconNearby = nearby),
                 ),
                 const SizedBox(height: 8),
                 SizedBox(
@@ -1586,32 +1589,29 @@ class _SpacesSheetState extends State<SpacesSheet>
             ),
           ),
           const SizedBox(height: 6),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              OutlinedButton.icon(
+          EarthlyActionBar(
+            stacked: false,
+            items: [
+              EarthlyActionBarItem(
                 key: const Key('spaces-probe-relays-btn'),
-                onPressed: _probingRelays ? null : _probeRelays,
-                icon: Icon(
-                  _probingRelays ? Icons.hourglass_top : Icons.network_check,
-                  size: 14,
-                ),
-                label: Text(_probingRelays ? 'Probing…' : 'Check Health'),
+                icon: Icons.network_check,
+                label: _probingRelays ? 'Probing…' : 'Check Health',
+                loading: _probingRelays,
+                onTap: _probingRelays ? null : _probeRelays,
               ),
               if (widget.account != null || widget.onFetchNip65Relays != null)
-                OutlinedButton.icon(
+                EarthlyActionBarItem(
                   key: const Key('spaces-sync-nip65-btn'),
-                  onPressed: _syncingNip65 ? null : _syncNip65,
-                  icon: const Icon(Icons.cloud_sync_outlined, size: 14),
-                  label: const Text('Sync NIP-65'),
+                  icon: Icons.cloud_sync_outlined,
+                  label: 'Sync NIP-65',
+                  onTap: _syncingNip65 ? null : _syncNip65,
                 ),
               if (widget.onPublishNip65Relays != null && widget.account != null)
-                OutlinedButton.icon(
+                EarthlyActionBarItem(
                   key: const Key('spaces-publish-nip65-btn'),
-                  onPressed: _syncingNip65 ? null : _publishNip65,
-                  icon: const Icon(Icons.publish, size: 14),
-                  label: const Text('Publish 10002'),
+                  icon: Icons.publish,
+                  label: 'Publish 10002',
+                  onTap: _syncingNip65 ? null : _publishNip65,
                 ),
             ],
           ),

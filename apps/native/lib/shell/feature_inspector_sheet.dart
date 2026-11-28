@@ -362,26 +362,28 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                if (f.geometryType != 'LineString') ...[
-                  ChoiceChip(
-                    key: const Key('inspector-color-fill-tab'),
-                    label: const Text('Fill', style: TextStyle(fontSize: 11)),
-                    selected: !_editingStrokeTarget,
-                    onSelected: (_) =>
-                        setState(() => _editingStrokeTarget = false),
-                  ),
-                  const SizedBox(width: 6),
-                  ChoiceChip(
-                    key: const Key('inspector-color-stroke-tab'),
-                    label: Text(
-                      f.geometryType == 'Point' ? 'Ring' : 'Stroke',
-                      style: const TextStyle(fontSize: 11),
+                if (f.geometryType != 'LineString')
+                  Expanded(
+                    child: EarthlySegmentBar<bool>.single(
+                      compact: true,
+                      options: [
+                        const EarthlySegmentOption<bool>(
+                          key: Key('inspector-color-fill-tab'),
+                          value: false,
+                          label: 'Fill',
+                        ),
+                        EarthlySegmentOption<bool>(
+                          key: const Key('inspector-color-stroke-tab'),
+                          value: true,
+                          label: f.geometryType == 'Point' ? 'Ring' : 'Stroke',
+                        ),
+                      ],
+                      value: _editingStrokeTarget,
+                      onChanged: (isStroke) =>
+                          setState(() => _editingStrokeTarget = isStroke),
                     ),
-                    selected: _editingStrokeTarget,
-                    onSelected: (_) =>
-                        setState(() => _editingStrokeTarget = true),
-                  ),
-                ] else
+                  )
+                else
                   const EarthlyBadge(
                     label: 'STROKE',
                     color: EarthlyColors.infoCyan,
@@ -522,58 +524,68 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                   ],
                 ),
               if (f.geometryType == 'LineString') ...[
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    const Text(
-                      'LINE:',
-                      style: TextStyle(fontFamily: 'monospace', fontSize: 10),
-                    ),
-                    for (final dash in const ['solid', 'dashed', 'dotted'])
-                      ChoiceChip(
-                        label: Text(dash),
-                        selected:
-                            (f.properties['lineDash'] as String? ?? 'solid') ==
-                                dash,
-                        onSelected: (_) => widget.onUpdateDraftStyle!(
-                          f.draftFeatureId!,
-                          lineDash: dash,
-                        ),
-                      ),
-                  ],
+                const SizedBox(height: 8),
+                const Text(
+                  'LINE STYLE',
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 6),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    const Text(
-                      'ARROWS:',
-                      style: TextStyle(fontFamily: 'monospace', fontSize: 10),
+                EarthlySegmentBar<String>.single(
+                  compact: true,
+                  options: const [
+                    EarthlySegmentOption<String>(value: 'solid', label: 'solid'),
+                    EarthlySegmentOption<String>(
+                      value: 'dashed',
+                      label: 'dashed',
                     ),
-                    FilterChip(
-                      key: const Key('inspector-arrow-start'),
-                      label: const Text('Start ◀'),
-                      selected: arrowStart,
-                      onSelected: (v) => widget.onUpdateDraftStyle!(
-                        f.draftFeatureId!,
-                        arrowStart: v,
-                      ),
-                    ),
-                    FilterChip(
-                      key: const Key('inspector-arrow-end'),
-                      label: const Text('End ▶'),
-                      selected: arrowEnd,
-                      onSelected: (v) => widget.onUpdateDraftStyle!(
-                        f.draftFeatureId!,
-                        arrowEnd: v,
-                      ),
+                    EarthlySegmentOption<String>(
+                      value: 'dotted',
+                      label: 'dotted',
                     ),
                   ],
+                  value: f.properties['lineDash'] as String? ?? 'solid',
+                  onChanged: (dash) => widget.onUpdateDraftStyle!(
+                    f.draftFeatureId!,
+                    lineDash: dash,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'ARROWHEADS',
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                EarthlySegmentBar<String>(
+                  compact: true,
+                  options: const [
+                    EarthlySegmentOption<String>(
+                      key: Key('inspector-arrow-start'),
+                      value: 'start',
+                      label: 'Start ◀',
+                    ),
+                    EarthlySegmentOption<String>(
+                      key: Key('inspector-arrow-end'),
+                      value: 'end',
+                      label: 'End ▶',
+                    ),
+                  ],
+                  selectedValues: {
+                    if (arrowStart) 'start',
+                    if (arrowEnd) 'end',
+                  },
+                  onSelected: (side) => widget.onUpdateDraftStyle!(
+                    f.draftFeatureId!,
+                    arrowStart: side == 'start' ? !arrowStart : null,
+                    arrowEnd: side == 'end' ? !arrowEnd : null,
+                  ),
                 ),
               ],
               if (f.geometryType == 'Point') ...[
@@ -749,67 +761,75 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                   ),
                 ),
                 const SizedBox(height: 6),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
+                EarthlyActionGrid(
+                  columns: 4,
+                  stacked: false,
+                  items: [
                     if (f.geometryType != 'Point') ...[
-                      OutlinedButton(
-                        onPressed: () => widget.onTransformDraftFeature!(
+                      EarthlyActionBarItem(
+                        icon: Icons.rotate_left,
+                        label: '−15°',
+                        onTap: () => widget.onTransformDraftFeature!(
                           f.draftFeatureId!,
                           rotateDeg: -15,
                         ),
-                        child: const Text('↺ −15°'),
                       ),
-                      OutlinedButton(
-                        onPressed: () => widget.onTransformDraftFeature!(
+                      EarthlyActionBarItem(
+                        icon: Icons.rotate_right,
+                        label: '+15°',
+                        onTap: () => widget.onTransformDraftFeature!(
                           f.draftFeatureId!,
                           rotateDeg: 15,
                         ),
-                        child: const Text('↻ +15°'),
                       ),
-                      OutlinedButton(
-                        onPressed: () => widget.onTransformDraftFeature!(
+                      EarthlyActionBarItem(
+                        icon: Icons.zoom_in_map,
+                        label: '×0.85',
+                        onTap: () => widget.onTransformDraftFeature!(
                           f.draftFeatureId!,
                           scale: 0.85,
                         ),
-                        child: const Text('×0.85'),
                       ),
-                      OutlinedButton(
-                        onPressed: () => widget.onTransformDraftFeature!(
+                      EarthlyActionBarItem(
+                        icon: Icons.zoom_out_map,
+                        label: '×1.15',
+                        onTap: () => widget.onTransformDraftFeature!(
                           f.draftFeatureId!,
                           scale: 1.15,
                         ),
-                        child: const Text('×1.15'),
                       ),
                     ],
-                    OutlinedButton(
-                      onPressed: () => widget.onTransformDraftFeature!(
+                    EarthlyActionBarItem(
+                      icon: Icons.arrow_upward,
+                      label: '25m',
+                      onTap: () => widget.onTransformDraftFeature!(
                         f.draftFeatureId!,
                         translateNorthM: 25,
                       ),
-                      child: const Text('↑ 25m'),
                     ),
-                    OutlinedButton(
-                      onPressed: () => widget.onTransformDraftFeature!(
+                    EarthlyActionBarItem(
+                      icon: Icons.arrow_forward,
+                      label: '25m',
+                      onTap: () => widget.onTransformDraftFeature!(
                         f.draftFeatureId!,
                         translateEastM: 25,
                       ),
-                      child: const Text('→ 25m'),
                     ),
-                    OutlinedButton(
-                      onPressed: () => widget.onTransformDraftFeature!(
+                    EarthlyActionBarItem(
+                      icon: Icons.arrow_downward,
+                      label: '25m',
+                      onTap: () => widget.onTransformDraftFeature!(
                         f.draftFeatureId!,
                         translateNorthM: -25,
                       ),
-                      child: const Text('↓ 25m'),
                     ),
-                    OutlinedButton(
-                      onPressed: () => widget.onTransformDraftFeature!(
+                    EarthlyActionBarItem(
+                      icon: Icons.arrow_back,
+                      label: '25m',
+                      onTap: () => widget.onTransformDraftFeature!(
                         f.draftFeatureId!,
                         translateEastM: -25,
                       ),
-                      child: const Text('← 25m'),
                     ),
                   ],
                 ),
@@ -975,27 +995,26 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                   widget.onShareFeature != null) &&
               !f.isDraft) ...[
             const Divider(height: 20),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
+            EarthlyActionBar(
+              items: [
                 if (widget.onShareFeature != null)
-                  OutlinedButton.icon(
-                    onPressed: widget.onShareFeature,
-                    icon: const Icon(Icons.link, size: 16),
-                    label: const Text('Copy Link'),
+                  EarthlyActionBarItem(
+                    icon: Icons.link,
+                    label: 'Copy Link',
+                    onTap: widget.onShareFeature,
                   ),
                 if (widget.onOpenDiscussion != null)
-                  OutlinedButton.icon(
-                    onPressed: widget.onOpenDiscussion,
-                    icon: const Icon(Icons.forum_outlined, size: 16),
-                    label: const Text('Comments & Proposals'),
+                  EarthlyActionBarItem(
+                    icon: Icons.forum_outlined,
+                    label: 'Comments & Proposals',
+                    onTap: widget.onOpenDiscussion,
                   ),
                 if (widget.onCloneDatasetToDraft != null)
-                  FilledButton.icon(
-                    onPressed: widget.onCloneDatasetToDraft,
-                    icon: const Icon(Icons.copy_all_outlined, size: 16),
-                    label: const Text('Clone Map to Draft'),
+                  EarthlyActionBarItem(
+                    icon: Icons.copy_all_outlined,
+                    label: 'Clone Map to Draft',
+                    emphasized: true,
+                    onTap: widget.onCloneDatasetToDraft,
                   ),
               ],
             ),
@@ -1050,25 +1069,29 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                 ],
               ),
               const SizedBox(height: 8),
-              Wrap(
-                spacing: 6,
-                children: [
-                  for (final side in const ['right', 'top', 'left', 'bottom'])
-                    ChoiceChip(
-                      label: Text(side),
-                      selected: _calloutSide == side,
-                      onSelected: (_) => setState(() => _calloutSide = side),
-                    ),
+              EarthlySegmentBar<String>.single(
+                compact: true,
+                options: const [
+                  EarthlySegmentOption<String>(value: 'right', label: 'right'),
+                  EarthlySegmentOption<String>(value: 'top', label: 'top'),
+                  EarthlySegmentOption<String>(value: 'left', label: 'left'),
+                  EarthlySegmentOption<String>(
+                    value: 'bottom',
+                    label: 'bottom',
+                  ),
                 ],
+                value: _calloutSide,
+                onChanged: (side) => setState(() => _calloutSide = side),
               ),
               const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  FilledButton(
-                    onPressed: () {
+              EarthlyActionBar(
+                stacked: false,
+                items: [
+                  EarthlyActionBarItem(
+                    icon: Icons.check,
+                    label: 'Attach Callout',
+                    emphasized: true,
+                    onTap: () {
                       final text = _calloutTextController.text.trim();
                       if (text.isEmpty) return;
                       final photoUrl = _calloutPhotoController.text.trim();
@@ -1091,62 +1114,54 @@ class _FeatureInspectorSheetState extends State<FeatureInspectorSheet> {
                       _calloutPhotoController.clear();
                       setState(() => _addingCallout = false);
                     },
-                    child: const Text('Attach Callout'),
                   ),
-                  TextButton(
-                    onPressed: () => setState(() => _addingCallout = false),
-                    child: const Text('Cancel'),
+                  EarthlyActionBarItem(
+                    icon: Icons.close,
+                    label: 'Cancel',
+                    onTap: () => setState(() => _addingCallout = false),
                   ),
                 ],
               ),
             ] else
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
+              EarthlyActionGrid(
+                columns: 3,
+                items: [
                   if (widget.onEditDraftGeometry != null)
-                    FilledButton.icon(
-                      onPressed: () =>
+                    EarthlyActionBarItem(
+                      icon: Icons.polyline,
+                      label: f.geometryType == 'Point'
+                          ? 'Move Point'
+                          : 'Edit Vertices',
+                      emphasized: true,
+                      onTap: () =>
                           widget.onEditDraftGeometry!(f.draftFeatureId!),
-                      icon: const Icon(Icons.polyline, size: 16),
-                      label: Text(
-                        f.geometryType == 'Point'
-                            ? 'Move Point'
-                            : 'Edit Vertices',
-                      ),
                     ),
-                  OutlinedButton.icon(
-                    onPressed: () => setState(() => _editingName = true),
-                    icon: const Icon(Icons.edit, size: 16),
-                    label: const Text('Rename'),
+                  EarthlyActionBarItem(
+                    icon: Icons.edit,
+                    label: 'Rename',
+                    onTap: () => setState(() => _editingName = true),
                   ),
                   if (widget.onDuplicateDraftFeature != null)
-                    OutlinedButton.icon(
+                    EarthlyActionBarItem(
                       key: const Key('inspector-duplicate-btn'),
-                      onPressed: () =>
+                      icon: Icons.control_point_duplicate,
+                      label: 'Duplicate',
+                      onTap: () =>
                           widget.onDuplicateDraftFeature!(f.draftFeatureId!),
-                      icon: const Icon(Icons.control_point_duplicate, size: 16),
-                      label: const Text('Duplicate'),
                     ),
-                  OutlinedButton.icon(
-                    onPressed: () => setState(() => _addingCallout = true),
-                    icon: const Icon(Icons.add_comment_outlined, size: 16),
-                    label: const Text('Add Callout'),
+                  EarthlyActionBarItem(
+                    icon: Icons.add_comment_outlined,
+                    label: 'Add Callout',
+                    onTap: () => setState(() => _addingCallout = true),
                   ),
-                  OutlinedButton.icon(
-                    onPressed: () {
+                  EarthlyActionBarItem(
+                    icon: Icons.delete_outline,
+                    label: 'Delete',
+                    destructive: true,
+                    onTap: () {
                       widget.onDeleteDraftFeature?.call(f.draftFeatureId!);
                       widget.onClose();
                     },
-                    icon: const Icon(
-                      Icons.delete_outline,
-                      size: 16,
-                      color: EarthlyColors.destructive,
-                    ),
-                    label: const Text(
-                      'Delete',
-                      style: TextStyle(color: EarthlyColors.destructive),
-                    ),
                   ),
                 ],
               ),

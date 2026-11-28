@@ -865,58 +865,61 @@ class _DeskSheetState extends State<DeskSheet>
                     top: BorderSide(color: accentBorder, width: 1.8),
                   ),
                 ),
-                child: SafeArea(
-                  top: false,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      wrapDragHandle(
-                        Padding(
-                          padding: const EdgeInsets.only(top: 7, bottom: 3),
-                          child: Center(
-                            child: Container(
-                              width: 38,
-                              height: 4,
-                              decoration: BoxDecoration(
-                                color: _dockedFraction < _dockedDismissThreshold
-                                    ? EarthlyColors.destructive
-                                        .withValues(alpha: 0.78)
-                                    : EarthlyColors.amber
-                                        .withValues(alpha: 0.85),
-                                borderRadius: BorderRadius.circular(999),
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: SafeArea(
+                    top: false,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        wrapDragHandle(
+                          Padding(
+                            padding: const EdgeInsets.only(top: 7, bottom: 3),
+                            child: Center(
+                              child: Container(
+                                width: 38,
+                                height: 4,
+                                decoration: BoxDecoration(
+                                  color: _dockedFraction < _dockedDismissThreshold
+                                      ? EarthlyColors.destructive
+                                          .withValues(alpha: 0.78)
+                                      : EarthlyColors.amber
+                                          .withValues(alpha: 0.85),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
                               ),
                             ),
                           ),
+                          key: const Key('desk-docked-drag-handle'),
                         ),
-                        key: const Key('desk-docked-drag-handle'),
-                      ),
-                      if (widget.drawingBar != null) ...[
-                        widget.drawingBar!,
-                        const Divider(height: 1),
-                      ],
-                      AnimatedContainer(
-                        duration: _dockedDragging
-                            ? Duration.zero
-                            : const Duration(milliseconds: 220),
-                        curve: Curves.easeOutCubic,
-                        height: deskBodyHeight,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            wrapDragHandle(_buildHeader(theme, compact: true)),
-                            const Divider(height: 1),
-                            Expanded(
-                              child: MediaQuery.removePadding(
-                                context: context,
-                                removeTop: true,
-                                child: body,
+                        if (widget.drawingBar != null) ...[
+                          widget.drawingBar!,
+                          const Divider(height: 1),
+                        ],
+                        AnimatedContainer(
+                          duration: _dockedDragging
+                              ? Duration.zero
+                              : const Duration(milliseconds: 220),
+                          curve: Curves.easeOutCubic,
+                          height: deskBodyHeight,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              wrapDragHandle(_buildHeader(theme, compact: true)),
+                              const Divider(height: 1),
+                              Expanded(
+                                child: MediaQuery.removePadding(
+                                  context: context,
+                                  removeTop: true,
+                                  child: body,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),

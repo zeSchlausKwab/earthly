@@ -3451,28 +3451,28 @@ class _CirclesSheetState extends State<CirclesSheet>
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
       children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            OutlinedButton.icon(
-              onPressed: _busy ? null : _syncSelected,
-              icon: const Icon(Icons.refresh, size: 16),
-              label: const Text('Sync Now'),
+        EarthlyActionBar(
+          stacked: false,
+          items: [
+            EarthlyActionBarItem(
+              icon: Icons.refresh,
+              label: 'Sync Now',
+              onTap: _busy ? null : _syncSelected,
             ),
             if (isAdmin) ...[
-              OutlinedButton.icon(
-                onPressed:
-                    _busy ? null : () => _generateInvite(copyImmediately: true),
-                icon: const Icon(Icons.copy, size: 15),
-                label: const Text('Copy Invite Link'),
+              EarthlyActionBarItem(
+                icon: Icons.copy,
+                label: 'Copy Invite Link',
+                onTap: _busy
+                    ? null
+                    : () => _generateInvite(copyImmediately: true),
               ),
-              OutlinedButton.icon(
-                onPressed: _busy
+              EarthlyActionBarItem(
+                icon: Icons.qr_code_2,
+                label: 'Invite QR',
+                onTap: _busy
                     ? null
                     : () => _generateInvite(copyImmediately: false),
-                icon: const Icon(Icons.qr_code_2, size: 16),
-                label: const Text('Invite QR'),
               ),
             ],
           ],

@@ -1,13 +1,17 @@
 import 'package:earthly_native/nostr/callout_overlay.dart';
 import 'package:earthly_native/nostr/nip55_signer.dart';
+import 'package:earthly_native/nostr/shelf_renderer.dart';
 import 'package:earthly_native/nostr/story_presentation.dart';
 import 'package:earthly_native/shell/account_session_sheet.dart';
 import 'package:earthly_native/shell/agent_drawer.dart';
 import 'package:earthly_native/shell/atlas_composer_sheet.dart';
 import 'package:earthly_native/shell/atlas_detail_margin.dart';
 import 'package:earthly_native/shell/basemap_switcher_sheet.dart';
+import 'package:earthly_native/shell/cashu_wallet_sheet.dart';
+import 'package:earthly_native/shell/circles_sheet.dart';
 import 'package:earthly_native/shell/dataset_detail_margin.dart';
 import 'package:earthly_native/shell/discussion_margin_sheet.dart';
+import 'package:earthly_native/shell/feature_inspector_sheet.dart';
 import 'package:earthly_native/shell/guided_tour_dialog.dart';
 import 'package:earthly_native/shell/help_shortcuts_sheet.dart';
 import 'package:earthly_native/shell/location_inspector_sheet.dart';
@@ -16,12 +20,16 @@ import 'package:earthly_native/shell/osm_import_sheet.dart';
 import 'package:earthly_native/shell/person_margin.dart';
 import 'package:earthly_native/shell/raw_event_inspector_dialog.dart';
 import 'package:earthly_native/shell/routing_sheet.dart';
+import 'package:earthly_native/shell/settings_sheet.dart';
 import 'package:earthly_native/shell/shoutbox_sheet.dart';
+import 'package:earthly_native/shell/sighting_composer_sheet.dart';
+import 'package:earthly_native/shell/spaces_sheet.dart';
 import 'package:earthly_native/shell/story_composer_sheet.dart';
 import 'package:earthly_native/shell/story_reader_margin.dart';
 import 'package:earthly_native/shell/zap_dialog.dart';
 import 'package:earthly_native/src/rust/api/nostr_client.dart';
 import 'package:earthly_native/src/rust/api/nwc.dart';
+import 'package:earthly_native/src/rust/api/private_groups.dart';
 import 'package:earthly_native/theme/earthly_theme.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maplibre/maplibre.dart';
@@ -1029,5 +1037,316 @@ void main() {
         },
       );
     }
+
+    testWidgets(
+      'SightingComposer, Settings (all tabs), FeatureInspector, CashuWallet, Spaces, and Circles render with zero overflows and zero chip soups at 360x780',
+      (WidgetTester tester) async {
+        setTestViewport(tester, const Size(360, 780));
+
+        // 1. SightingComposerSheet (previously overflowed EXPIRES IN chip row at 360dp)
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildEarthlyTheme(Brightness.dark),
+            home: Scaffold(
+              body: SightingComposerSheet(
+                initialLocation: const Geographic(lon: 16.3738, lat: 48.2082),
+                account: null,
+                onPublishSighting: (_) async => SightingPublishResult(
+                  sighting: SightingSummaryDto(
+                    address: '37522:alice:s1',
+                    eventId: 'ev1',
+                    pubkey: 'alice',
+                    dTag: 's1',
+                    title: 'Test',
+                    note: 'Note',
+                    lon: 16.3738,
+                    lat: 48.2082,
+                    start: BigInt.from(1791000000),
+                  ),
+                  outcome: testPublishOutcome(),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        _expectNoChipSoup();
+
+        // 2. SettingsSheet across all 5 tabs at 360x780
+        await tester.pumpWidget(
+          _themedStack(
+            SettingsSheet(
+              themeMode: ThemeMode.dark,
+              onThemeModeChanged: (_) {},
+              activeBasemap: BasemapKind.auto,
+              offlineBasemap: null,
+              onSelectBasemap: (_) {},
+              onLoadedOfflinePmtiles: (_) {},
+              backgroundMode: MapBackgroundMode.osm,
+              satelliteOpacity: 1.0,
+              onBackgroundModeChanged: (_) {},
+              onSatelliteOpacityChanged: (_) {},
+              pointClusteringEnabled: true,
+              pointClusterRadius: 48,
+              pointClusterMaxZoom: 14,
+              onPointClusteringChanged: (_) {},
+              onPointClusterRadiusChanged: (_) {},
+              onPointClusterMaxZoomChanged: (_) {},
+              showLabels: true,
+              onToggleLabels: (_) {},
+              calloutMode: CalloutDisplayMode.full,
+              onChangeCalloutMode: (_) {},
+              relayUrls: const [
+                'wss://relay.earthly.city',
+                'wss://relay.damus.io',
+              ],
+              relayStreamLive: true,
+              onRelayUrlsChanged: (_) {},
+              onFetchNip65Relays: () async => const [],
+              onPublishNip65Relays: (_) async => testPublishOutcome(),
+              blossomServerUrl: 'https://blossom.earthly.city',
+              onBlossomServerChanged: (_) {},
+              cordnServerPubkey:
+                  'fd5431a3f02dda33d9278adc2d95e007db7edf0cd4374508a3eb1a92c0c65e37',
+              onCordnPubkeyChanged: (_) {},
+              agentSettings: CopilotProviderSettings.offline,
+              onAgentSettingsChanged: (_) {},
+              safeEditing: true,
+              onSafeEditingChanged: (_) {},
+              visionSupport: 'none',
+              attachMapView: false,
+              onAttachMapViewChanged: (_) {},
+              account: null,
+              signerModeLabel: 'Signed out',
+              cashuWalletEnabled: false,
+              onSetCashuWalletEnabled: (_) {},
+              onOpenAccount: () {},
+              onOpenRustNode: () {},
+              onOpenOutbox: () {},
+              onRefreshCatalog: () {},
+              onOpenHelp: () {},
+              onBack: () {},
+              onClose: () {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        for (final tabKey in const [
+          'settings-tab-map',
+          'settings-tab-relays',
+          'settings-tab-chat',
+          'settings-tab-account',
+          'settings-tab-system',
+        ]) {
+          await tester.tap(find.byKey(Key(tabKey)));
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull, reason: 'Settings $tabKey');
+          _expectNoChipSoup();
+        }
+
+        // 3. FeatureInspectorSheet (draft LineString with Transform & Callout actions)
+        await tester.pumpWidget(
+          _themedStack(
+            FeatureInspectorSheet(
+              feature: const InspectedFeature(
+                sourceLabel: 'Working draft',
+                isDraft: true,
+                draftFeatureId: 'line-1',
+                geometryType: 'LineString',
+                title: 'Ridge Route',
+                properties: {'lineDash': 'solid'},
+              ),
+              onUpdateDraftStyle: (
+                _, {
+                fillColorHex,
+                clearFillColor = false,
+                strokeColorHex,
+                clearStrokeColor = false,
+                strokeWidth,
+                fillOpacity,
+                radius,
+                lineDash,
+                arrowStart,
+                arrowEnd,
+                displayIcon,
+                clearDisplayIcon = false,
+                description,
+                customProperties,
+              }) {},
+              onTransformDraftFeature: (
+                _, {
+                translateEastM = 0,
+                translateNorthM = 0,
+                rotateDeg = 0,
+                scale = 1,
+              }) async {},
+              onEditDraftGeometry: (_) {},
+              onDuplicateDraftFeature: (_) {},
+              onDeleteDraftFeature: (_) {},
+              onBack: () {},
+              onClose: () {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        _expectNoChipSoup();
+
+        // 4. CashuWalletSheet (action bar + deposit presets)
+        await tester.pumpWidget(
+          _themedStack(
+            CashuWalletSheet(
+              state: const CashuWalletViewState(
+                initialized: true,
+                totalBalanceSats: 1200,
+                defaultMint: 'https://mint.minibits.cash/Bitcoin',
+                mints: [
+                  CashuMintBalanceView(
+                    mintUrl: 'https://mint.minibits.cash/Bitcoin',
+                    balanceSats: 1200,
+                    proofCount: 2,
+                  ),
+                ],
+                p2pkPubkeyHex: '02abc',
+                nutzapEnabled: true,
+                history: [],
+              ),
+              walletEnabled: true,
+              onSetWalletEnabled: (_) async {},
+              busy: false,
+              onInitializeWallet: (_, _) async {},
+              onSyncWallet: () async {},
+              onAddMint: (_) async {},
+              onRemoveMint: (_) async {},
+              onRequestDeposit: (_, _) async => const CashuMintQuoteView(
+                quoteId: 'q1',
+                mintUrl: 'https://mint.minibits.cash/Bitcoin',
+                amountSats: 500,
+                bolt11: 'lnbc500n1test',
+                paid: false,
+              ),
+              onClaimDeposit: (_, _) async {},
+              onReceiveToken: (_) async {},
+              onSendToken: (_, _) async => 'cashuAtest',
+              onWithdrawBolt11: (_, _) async {},
+              onToggleNutzaps: () async {},
+              onClaimNutzaps: () async {},
+              onBack: () {},
+              onClose: () {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        _expectNoChipSoup();
+        await tester.tap(find.byKey(const Key('cashu-deposit-btn')));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        _expectNoChipSoup();
+
+        // 5. SpacesSheet (Nearby & Network tabs)
+        const testPk =
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        const testCoord =
+            'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
+        await tester.pumpWidget(
+          _themedStack(
+            SpacesSheet(
+              account: const Nip55Account(pubkey: testPk),
+              localNsec: null,
+              relayUrls: const [
+                'wss://relay.earthly.city',
+                'wss://relay.damus.io',
+              ],
+              onRelayUrlsChanged: (_) {},
+              onFetchNip65Relays: () async => const [],
+              onPublishNip65Relays: (_) async => testPublishOutcome(),
+              onAccountChanged: (_) {},
+              onLocalKeyChanged: (_) {},
+              onSessionStateChanged: (_, _) {},
+              onNearbySynced: () {},
+              onBroadcastBeacon: (_, _, _) async => testPublishOutcome(),
+              onBack: () {},
+              onClose: () {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        for (final tabKey in const [
+          'spaces-tab-groups',
+          'spaces-tab-nearby',
+          'spaces-tab-network',
+        ]) {
+          await tester.tap(find.byKey(Key(tabKey)));
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull, reason: 'Spaces $tabKey');
+          _expectNoChipSoup();
+        }
+
+        // 6. CirclesSheet detail settings tab
+        final circleWs = CircleWorkspaceDto(
+          workspaceId: 'ws-1',
+          groupId: 'grp-1',
+          name: 'Field Team',
+          role: 'admin',
+          status: 'active',
+          cursor: BigInt.from(1),
+          epoch: BigInt.zero,
+          coordinatorPubkey: testCoord,
+          relays: const ['wss://relay.earthly.city'],
+          members: const [testPk],
+          administrators: const [testPk],
+          datasets: const [],
+          messages: const [],
+          proposals: const [],
+          createdAtMs: BigInt.from(1791000000000),
+          syncHealth: 'healthy',
+          consecutiveDecryptErrors: 0,
+          autoApproveJoins: false,
+          cordnGroupRef: 'cordn1testref',
+        );
+        await tester.pumpWidget(
+          _themedStack(
+            CirclesSheet(
+              account: const Nip55Account(pubkey: testPk),
+              localNsec: 'nsec1test',
+              bunkerUri: null,
+              bunkerClientNsec: null,
+              mlsDatabasePath: '/tmp/mls-test.sqlite3',
+              cordnServerPubkey: testCoord,
+              relayUrls: const ['wss://relay.earthly.city'],
+              workspaces: [circleWs],
+              pendingJoins: const [],
+              activeCircleId: null,
+              mountedCircleDatasetKeys: const {},
+              activeCommentOverlayId: null,
+              hasDraftGeometry: false,
+              profilesByPubkey: const {},
+              initialWorkspaceId: 'ws-1',
+              onCordnPubkeyChanged: (_) {},
+              onRefreshCircles: () async {},
+              onWorkspaceUpdated: (_) {},
+              onEnterCircleLens: (_) {},
+              onLeaveCircleLens: () {},
+              onToggleDatasetOnMap: (_, _) {},
+              onZoomToDataset: (_, _) {},
+              onEditDatasetInDraft: (_, _) {},
+              onStartNewPrivateMap: (_) {},
+              onToggleCommentGeometry: (_) {},
+              onSendCircleComment: (_, _, _) async => circleWs,
+              onOpenAccount: () {},
+              onBack: () {},
+              onClose: () {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Settings'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        _expectNoChipSoup();
+      },
+    );
   });
 }

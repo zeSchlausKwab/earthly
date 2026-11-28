@@ -1587,7 +1587,32 @@ class _EarthlySpikeHomeState extends State<EarthlySpikeHome>
       onPersist: () => unawaited(_persistAppSettings()),
     );
     final bounds = computeCombinedBounds(added);
-    if (bounds != null) _flyToBounds(bounds);
+    if (bounds != null) {
+      _flyToBounds(bounds);
+      return;
+    }
+    final blobMaps =
+        added.where((e) => e.summary.blobRefs.isNotEmpty).toList(growable: false);
+    if (blobMaps.isEmpty) return;
+    final resolvedMaps = await Future.wait(
+      blobMaps.map(
+        (e) => _catalog.ensureMapBlobsResolved(
+          e.summary,
+          onError: _showErrorToast,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    final activeAtlasAddress =
+        _catalog.inspectedAtlas?.address ?? _catalog.activeAtlasLens?.address;
+    if (activeAtlasAddress != atlas.address) return;
+    final resolvedEntries = resolvedMaps
+        .map(CatalogShelfController.entryFromSummary)
+        .toList(growable: false);
+    final resolvedBounds = computeCombinedBounds(resolvedEntries);
+    if (resolvedBounds != null) {
+      _flyToBounds(resolvedBounds);
+    }
   }
 
   void _inspectFeature(InspectedFeature feature) {
